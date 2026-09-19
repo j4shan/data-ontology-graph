@@ -1,0 +1,36 @@
+{
+  "sql_db:financial.district": {
+    "table_role": "dimension",
+    "is_entity_universe": true
+  },
+  "sql_db:financial.client": {
+    "table_role": "dimension",
+    "synonyms": ["customer", "customers"]
+  },
+  "sql_db:financial.account": {
+    "table_role": "dimension",
+    "synonyms": ["accounts", "bank account"]
+  },
+  "sql_db:financial.disp": {
+    "table_role": "bridge",
+    "synonyms": ["disposition", "account holder"],
+    "tags": ["bridge"]
+  },
+  "sql_db:financial.card": {
+    "table_role": "fact",
+    "tags": ["transaction"]
+  },
+  "sql_db:financial.loan": {
+    "table_role": "fact",
+    "tags": ["transaction"]
+  },
+  "sql_db:financial.order": {
+    "table_role": "fact",
+    "tags": ["transaction"]
+  },
+  "sql_db:financial.trans": {
+    "table_role": "fact",
+    "synonyms": ["transaction", "transactions"],
+    "tags": ["transaction"]
+  }
+}

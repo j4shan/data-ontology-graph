@@ -1,0 +1,34 @@
+{
+  "sql_db:student_club.event": {
+    "table_role": "dimension",
+    "synonyms": ["events", "club event"]
+  },
+  "sql_db:student_club.member": {
+    "table_role": "dimension",
+    "synonyms": ["members", "student"]
+  },
+  "sql_db:student_club.major": {
+    "table_role": "dimension",
+    "is_entity_universe": true
+  },
+  "sql_db:student_club.zip_code": {
+    "table_role": "dimension",
+    "is_entity_universe": true
+  },
+  "sql_db:student_club.attendance": {
+    "table_role": "bridge",
+    "tags": ["bridge"]
+  },
+  "sql_db:student_club.budget": {
+    "table_role": "fact",
+    "tags": ["transaction"]
+  },
+  "sql_db:student_club.expense": {
+    "table_role": "fact",
+    "tags": ["transaction"]
+  },
+  "sql_db:student_club.income": {
+    "table_role": "fact",
+    "tags": ["transaction"]
+  }
+}

@@ -1,0 +1,59 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Icon?
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+# setuptools' scratch tree, left behind by `pip install .` on some pip versions.
+/build/
+
+# Generated datasets and runtime output. Authored fixtures live under
+# resources/data/ and are committed.
+/data/
+*.npy
+
+# Vendored BIRD Mini-Dev databases are downloaded locally, not versioned.
+/resources/data/dev_databases/
+
+# Execution plans. A plan is a transient working artifact — it tracks progress
+# through one piece of work and is stale the moment that work lands. It may be
+# persisted here so a run survives a session, but it is never versioned and
+# never cited as a source of requirements; the spec is what carries those
+# forward.
+project_metadata/plans/
+
+# Agent tooling state and per-developer editor config. None of it is a product
+# artifact, and `.superpowers/` holds live session state — pids, logs, ports
+# and a server token — which must never reach a public repository.
+.superpowers/
+docs/superpowers/
+.cursor/
+.agents/

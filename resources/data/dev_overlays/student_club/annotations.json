@@ -1,0 +1,18 @@
+{
+  "annotations": [
+    {
+      "edge_id": "sql_db:student_club.attendance:link_to_event__sql_db:student_club.event:event_id",
+      "weight": 1.2,
+      "description": "Attendance links members to events they attended.",
+      "tags": ["attendance"],
+      "notes": ""
+    },
+    {
+      "edge_id": "sql_db:student_club.attendance:link_to_member__sql_db:student_club.member:member_id",
+      "weight": 1.2,
+      "description": "Attendance links events to club members.",
+      "tags": ["attendance"],
+      "notes": ""
+    }
+  ]
+}
