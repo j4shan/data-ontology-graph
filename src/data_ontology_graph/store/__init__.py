@@ -1,3 +1,3 @@
-from data_ontology_graph.store.snapshot_store import SnapshotStore
+from data_ontology_graph.store.snapshot_store import CurrentArtifactStore, SnapshotStore
 
-__all__ = ["SnapshotStore"]
+__all__ = ["CurrentArtifactStore", "SnapshotStore"]

@@ -1,0 +1,24 @@
+schema_version: "2"
+logical_identities:
+  customer_identity:
+    name: Customer identity
+nodes:
+  - node_id: dataset_a
+    descriptor:
+      qualified_name: example.main.dataset_a
+      display_name: Dataset A
+    accessor:
+      schema_id: accessor.sqlite.v1
+      properties:
+        path: example.sqlite
+        object: dataset_a
+        format: sqlite
+    columns:
+      - name: c1
+      - name: c2
+    entity_definitions:
+      - identity_id: customer_identity
+        # Invalid: dataset columns must use ascending exact-name order.
+        dataset_columns: [c2, c1]
+        is_entity_universe: false
+edges: []

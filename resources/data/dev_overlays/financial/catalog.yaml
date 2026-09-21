@@ -1,0 +1,694 @@
+schema_version: '2'
+logical_identities:
+  account_identity:
+    name: Account identity
+    description: Identifies a bank account.
+  card_identity:
+    name: Card identity
+    description: Identifies a credit card.
+  client_identity:
+    name: Client identity
+    description: Identifies a banking client.
+  disposition_identity:
+    name: Disposition identity
+    description: Identifies a client-account disposition.
+  district_identity:
+    name: District identity
+    description: Identifies a geographic district.
+  loan_identity:
+    name: Loan identity
+    description: Identifies a loan contract.
+  order_identity:
+    name: Order identity
+    description: Identifies a standing payment order.
+  transaction_identity:
+    name: Transaction identity
+    description: Identifies an account transaction.
+nodes:
+- node_id: sql_db:financial.account
+  descriptor:
+    qualified_name: financial.main.account
+    display_name: account
+    description: Financial catalog account dataset.
+    synonyms:
+    - accounts
+    - bank account
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: account
+      format: sqlite
+  grain:
+    components:
+    - identity_id: account_identity
+      dataset_columns:
+      - account_id
+  columns:
+  - name: account_id
+    description: the id of the account
+    synonyms:
+    - account id
+  - name: district_id
+    description: location of branch
+    synonyms:
+    - location of branch
+  - name: frequency
+    description: frequency of the acount
+    value_description: '"POPLATEK MESICNE" stands for monthly issuance
+
+      "POPLATEK TYDNE" stands for weekly issuance
+
+      "POPLATEK PO OBRATU" stands for issuance after transaction'
+  - name: date
+    description: the creation date of the account
+    value_description: in the form YYMMDD
+  entity_definitions:
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: district_identity
+    dataset_columns:
+    - district_id
+    entity_expression:
+    - '[district_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+- node_id: sql_db:financial.card
+  descriptor:
+    qualified_name: financial.main.card
+    display_name: card
+    description: Financial catalog card dataset.
+    synonyms: []
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: card
+      format: sqlite
+  grain:
+    components:
+    - identity_id: card_identity
+      dataset_columns:
+      - card_id
+  columns:
+  - name: card_id
+    description: id number of credit card
+    synonyms:
+    - credit card id
+  - name: disp_id
+    description: disposition id
+    synonyms:
+    - disposition id
+  - name: type
+    description: type of credit card
+    value_description: "\"junior\": junior class of credit card; \n\"classic\": standard\
+      \ class of credit card; \n\"gold\": high-level credit card"
+  - name: issued
+    description: the date when the credit card issued
+    value_description: in the form YYMMDD
+  entity_definitions:
+  - identity_id: card_identity
+    dataset_columns:
+    - card_id
+    entity_expression:
+    - '[card_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: disposition_identity
+    dataset_columns:
+    - disp_id
+    entity_expression:
+    - '[disp_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+- node_id: sql_db:financial.client
+  descriptor:
+    qualified_name: financial.main.client
+    display_name: client
+    description: Financial catalog client dataset.
+    synonyms:
+    - customer
+    - customers
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: client
+      format: sqlite
+  grain:
+    components:
+    - identity_id: client_identity
+      dataset_columns:
+      - client_id
+  columns:
+  - name: client_id
+    description: the unique number
+  - name: gender
+    description: gender
+    value_description: "F：female \nM：male"
+  - name: birth_date
+    description: birth date
+  - name: district_id
+    description: location of branch
+    synonyms:
+    - location of branch
+  entity_definitions:
+  - identity_id: client_identity
+    dataset_columns:
+    - client_id
+    entity_expression:
+    - '[client_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: district_identity
+    dataset_columns:
+    - district_id
+    entity_expression:
+    - '[district_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+- node_id: sql_db:financial.disp
+  descriptor:
+    qualified_name: financial.main.disp
+    display_name: disp
+    description: Financial catalog disp dataset.
+    synonyms:
+    - disposition
+    - account holder
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: disp
+      format: sqlite
+  grain:
+    components:
+    - identity_id: disposition_identity
+      dataset_columns:
+      - disp_id
+  columns:
+  - name: disp_id
+    description: unique number of identifying this row of record
+    synonyms:
+    - disposition id
+  - name: client_id
+    description: id number of client
+  - name: account_id
+    description: id number of account
+  - name: type
+    description: type of disposition
+    value_description: '"OWNER" : "USER" : "DISPONENT"
+
+      commonsense evidence:
+
+      the account can only have the right to issue permanent orders or apply for loans'
+  entity_definitions:
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: client_identity
+    dataset_columns:
+    - client_id
+    entity_expression:
+    - '[client_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: disposition_identity
+    dataset_columns:
+    - disp_id
+    entity_expression:
+    - '[disp_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+- node_id: sql_db:financial.district
+  descriptor:
+    qualified_name: financial.main.district
+    display_name: district
+    description: Financial catalog district dataset.
+    synonyms: []
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: district
+      format: sqlite
+  grain:
+    components:
+    - identity_id: district_identity
+      dataset_columns:
+      - district_id
+  columns:
+  - name: district_id
+    description: location of branch
+    synonyms:
+    - location of branch
+  - name: A2
+    description: district_name
+    synonyms:
+    - district_name
+  - name: A3
+    description: region
+    synonyms:
+    - region
+  - name: A4
+    description: number of inhabitants
+    synonyms:
+    - number of inhabitants
+  - name: A5
+    description: municipality < district < region
+    synonyms:
+    - no. of municipalities with inhabitants < 499
+  - name: A6
+    description: municipality < district < region
+    synonyms:
+    - no. of municipalities with inhabitants 500-1999
+  - name: A7
+    description: municipality < district < region
+    synonyms:
+    - no. of municipalities with inhabitants 2000-9999
+  - name: A8
+    description: municipality < district < region
+    synonyms:
+    - no. of municipalities with inhabitants > 10000
+  - name: A9
+    description: A9
+    value_description: not useful
+  - name: A10
+    description: ratio of urban inhabitants
+    synonyms:
+    - ratio of urban inhabitants
+  - name: A11
+    description: average salary
+    synonyms:
+    - average salary
+  - name: A12
+    description: unemployment rate 1995
+    synonyms:
+    - unemployment rate 1995
+  - name: A13
+    description: unemployment rate 1996
+    synonyms:
+    - unemployment rate 1996
+  - name: A14
+    description: no. of entrepreneurs per 1000 inhabitants
+    synonyms:
+    - no. of entrepreneurs per 1000 inhabitants
+  - name: A15
+    description: no. of committed crimes 1995
+    synonyms:
+    - no. of committed crimes 1995
+  - name: A16
+    description: no. of committed crimes 1996
+    synonyms:
+    - no. of committed crimes 1996
+  entity_definitions:
+  - identity_id: district_identity
+    dataset_columns:
+    - district_id
+    entity_expression:
+    - '[district_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: true
+- node_id: sql_db:financial.loan
+  descriptor:
+    qualified_name: financial.main.loan
+    display_name: loan
+    description: Financial catalog loan dataset.
+    synonyms: []
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: loan
+      format: sqlite
+  grain:
+    components:
+    - identity_id: loan_identity
+      dataset_columns:
+      - loan_id
+  columns:
+  - name: loan_id
+    description: the id number identifying the loan data
+  - name: account_id
+    description: the id number identifying the account
+  - name: date
+    description: the date when the loan is approved
+  - name: amount
+    description: approved amount
+    value_description: unit：US dollar
+  - name: duration
+    description: loan duration
+    value_description: unit：month
+  - name: payments
+    description: monthly payments
+    value_description: unit：month
+    synonyms:
+    - monthly payments
+  - name: status
+    description: repayment status
+    value_description: '''A'' stands for contract finished, no problems;
+
+      ''B'' stands for contract finished, loan not paid;
+
+      ''C'' stands for running contract, OK so far;
+
+      ''D'' stands for running contract, client in debt'
+  entity_definitions:
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: loan_identity
+    dataset_columns:
+    - loan_id
+    entity_expression:
+    - '[loan_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+- node_id: sql_db:financial.order
+  descriptor:
+    qualified_name: financial.main.order
+    display_name: order
+    description: Financial catalog order dataset.
+    synonyms: []
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: order
+      format: sqlite
+  grain:
+    components:
+    - identity_id: order_identity
+      dataset_columns:
+      - order_id
+  columns:
+  - name: order_id
+    description: identifying the unique order
+  - name: account_id
+    description: id number of account
+  - name: bank_to
+    description: bank of the recipient
+    synonyms:
+    - bank of the recipient
+  - name: account_to
+    description: account of the recipient
+    value_description: each bank has unique two-letter code
+    synonyms:
+    - account of the recipient
+  - name: amount
+    description: debited amount
+    synonyms:
+    - debited amount
+  - name: k_symbol
+    description: purpose of the payment
+    value_description: '"POJISTNE" stands for insurance payment
+
+      "SIPO" stands for household payment
+
+      "LEASING" stands for leasing
+
+      "UVER" stands for loan payment'
+    synonyms:
+    - characterization of the payment
+  entity_definitions:
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: order_identity
+    dataset_columns:
+    - order_id
+    entity_expression:
+    - '[order_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+- node_id: sql_db:financial.trans
+  descriptor:
+    qualified_name: financial.main.trans
+    display_name: trans
+    description: Financial catalog trans dataset.
+    synonyms:
+    - transaction
+    - transactions
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      path: resources/data/dev_databases/financial/financial.sqlite
+      object: trans
+      format: sqlite
+  grain:
+    components:
+    - identity_id: transaction_identity
+      dataset_columns:
+      - trans_id
+  columns:
+  - name: trans_id
+    description: transaction id
+    synonyms:
+    - transaction id
+  - name: account_id
+    description: account id
+  - name: date
+    description: date of transaction
+    synonyms:
+    - date of transaction
+  - name: type
+    description: +/- transaction
+    value_description: '"PRIJEM" stands for credit
+
+      "VYDAJ" stands for withdrawal'
+    synonyms:
+    - +/- transaction
+  - name: operation
+    description: mode of transaction
+    value_description: '"VYBER KARTOU": credit card withdrawal
+
+      "VKLAD": credit in cash
+
+      "PREVOD Z UCTU" :collection from another bank
+
+      "VYBER": withdrawal in cash
+
+      "PREVOD NA UCET": remittance to another bank'
+    synonyms:
+    - mode of transaction
+  - name: amount
+    description: amount of money
+    value_description: Unit：USD
+    synonyms:
+    - amount of money
+  - name: balance
+    description: balance after transaction
+    value_description: Unit：USD
+    synonyms:
+    - balance after transaction
+  - name: k_symbol
+    description: characterization of the transaction
+    value_description: '"POJISTNE": stands for insurrance payment
+
+      "SLUZBY": stands for payment for statement
+
+      "UROK": stands for interest credited
+
+      "SANKC. UROK": sanction interest if negative balance
+
+      "SIPO": stands for household
+
+      "DUCHOD": stands for old-age pension
+
+      "UVER": stands for loan payment'
+    synonyms:
+    - characterization of the transaction
+  - name: bank
+    description: bank of the partner
+    value_description: each bank has unique two-letter code
+    synonyms:
+    - bank of the partner
+  - name: account
+    description: account of the partner
+    synonyms:
+    - account of the partner
+  entity_definitions:
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+  - identity_id: transaction_identity
+    dataset_columns:
+    - trans_id
+    entity_expression:
+    - '[trans_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    is_entity_universe: false
+edges:
+- endpoint_a:
+    node_id: sql_db:financial.account
+    identity_id: district_identity
+    dataset_columns:
+    - district_id
+  endpoint_b:
+    node_id: sql_db:financial.district
+    identity_id: district_identity
+    dataset_columns:
+    - district_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.card
+    identity_id: disposition_identity
+    dataset_columns:
+    - disp_id
+  endpoint_b:
+    node_id: sql_db:financial.disp
+    identity_id: disposition_identity
+    dataset_columns:
+    - disp_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.client
+    identity_id: district_identity
+    dataset_columns:
+    - district_id
+  endpoint_b:
+    node_id: sql_db:financial.district
+    identity_id: district_identity
+    dataset_columns:
+    - district_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.disp
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  endpoint_b:
+    node_id: sql_db:financial.account
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.disp
+    identity_id: client_identity
+    dataset_columns:
+    - client_id
+  endpoint_b:
+    node_id: sql_db:financial.client
+    identity_id: client_identity
+    dataset_columns:
+    - client_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.loan
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  endpoint_b:
+    node_id: sql_db:financial.account
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.order
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  endpoint_b:
+    node_id: sql_db:financial.account
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sql_db:financial.trans
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  endpoint_b:
+    node_id: sql_db:financial.account
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional

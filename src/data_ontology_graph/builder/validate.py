@@ -20,11 +20,11 @@ def detect_contradictions(edges: list[JoinRelationship]) -> list[Contradiction]:
             (edge.endpoint_a, edge.endpoint_b),
             (edge.endpoint_b, edge.endpoint_a),
         ):
-            key = (source.node_id, tuple(sorted(source.columns)), target.node_id)
+            key = (source.node_id, tuple(source.dataset_columns), target.node_id)
             groups[key].append(edge)
     findings: list[Contradiction] = []
     for (source_id, source_cols, target_id), group in groups.items():
-        targets = {tuple(sorted(edge.opposite(source_id).columns)) for edge in group}
+        targets = {tuple(edge.opposite(source_id).dataset_columns) for edge in group}
         if len(targets) > 1:
             findings.append(
                 Contradiction(

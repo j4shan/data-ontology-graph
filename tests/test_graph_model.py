@@ -1,136 +1,145 @@
 import pytest
 from pydantic import ValidationError
 
-from data_ontology_graph.model.dataset import ColumnMetadata, DatasetNode, DeclaredForeignKey
-from data_ontology_graph.model.enums import Cardinality, DatasetLayer, Precedence, TableRole
+from data_ontology_graph.model.dataset import (
+    ColumnMetadata,
+    DatasetAccessor,
+    DatasetDescriptor,
+    DatasetGrain,
+    DatasetNode,
+    EntityDefinition,
+    GrainComponent,
+)
+from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
+from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import (
     JoinEndpoint,
-    cardinality_from,
+    JoinRelationship,
+    RelationshipDirection,
     derived_cardinality,
     edge_id_for,
-    entity_anchor,
-    make_relationship,
-    unique_side,
 )
-from data_ontology_graph.model.snapshot import GraphSnapshot, empty_sql_db_source, now_utc
+from data_ontology_graph.model.snapshot import GraphSnapshot, now_utc
 
 
-def _columns(*names: str, nullable: bool = True) -> list[ColumnMetadata]:
-    return [ColumnMetadata(name=name, is_nullable=nullable) for name in names]
-
-
-def _node(
-    table: str,
-    columns: list[str],
-    primary_key: list[str] | None = None,
-    layer: DatasetLayer = DatasetLayer.PRIMARY,
-    **kwargs,
-) -> DatasetNode:
+def _node(name: str, *, universe: bool = False) -> DatasetNode:
     return DatasetNode(
-        node_id=f"sql_db:demo.{table}",
-        table_name=table,
-        data_source=empty_sql_db_source("demo", table),
-        columns=_columns(*columns),
-        primary_key=primary_key or [],
-        dataset_layer=layer,
-        **kwargs,
+        node_id=f"dataset:{name}",
+        descriptor=DatasetDescriptor(
+            qualified_name=f"example.main.{name}",
+            display_name=name,
+        ),
+        accessor=DatasetAccessor(
+            schema_id="accessor.sqlite.v1",
+            properties={"path": "example.sqlite", "object": name, "format": "sqlite"},
+        ),
+        grain=DatasetGrain(
+            components=[GrainComponent(identity_id="customer", dataset_columns=["id"])]
+        ),
+        columns=[ColumnMetadata(name="id")],
+        entity_definitions=[
+            EntityDefinition(
+                identity_id="customer",
+                dataset_columns=["id"],
+                is_entity_universe=universe,
+            )
+        ],
     )
 
 
-def test_duplicate_column_names_rejected() -> None:
-    with pytest.raises(ValidationError):
-        _node("t", ["id", "id"], primary_key=["id"])
+def _relationship(left: DatasetNode, right: DatasetNode) -> JoinRelationship:
+    endpoint_a = JoinEndpoint(
+        node_id=left.node_id,
+        identity_id="customer",
+        dataset_columns=["id"],
+    )
+    endpoint_b = JoinEndpoint(
+        node_id=right.node_id,
+        identity_id="customer",
+        dataset_columns=["id"],
+    )
+    return JoinRelationship(
+        edge_id=edge_id_for(endpoint_a, endpoint_b),
+        endpoint_a=endpoint_a,
+        endpoint_b=endpoint_b,
+        a_to_b=RelationshipDirection(
+            multiplicity=Multiplicity.MANY_TO_ONE,
+            match_existence=MatchExistence.ALWAYS,
+        ),
+        b_to_a=RelationshipDirection(
+            multiplicity=Multiplicity.ONE_TO_MANY,
+            match_existence=MatchExistence.OPTIONAL,
+        ),
+    )
 
 
-def test_primary_key_must_exist_on_primary() -> None:
-    with pytest.raises(ValidationError):
-        _node("t", ["name"], primary_key=["id"])
+def test_accessor_schema_dispatch_validates_provider_properties() -> None:
+    with pytest.raises(ValidationError, match="unknown accessor schema_id"):
+        DatasetAccessor(schema_id="accessor.unknown.v1", properties={})
 
-
-def test_foreign_key_columns_must_exist_on_primary() -> None:
-    with pytest.raises(ValidationError):
-        _node(
-            "t",
-            ["id"],
-            primary_key=["id"],
-            foreign_key_declarations=[
-                DeclaredForeignKey(local_columns=["missing"], ref_table="other", ref_columns=["id"])
-            ],
+    with pytest.raises(ValidationError, match="bucket"):
+        DatasetAccessor(
+            schema_id="accessor.s3.v1",
+            properties={"prefix": "events/", "format": "parquet"},
         )
 
 
-def test_logical_entity_key_must_be_subset_of_primary_key() -> None:
-    with pytest.raises(ValidationError):
-        _node(
-            "t",
-            ["a", "b", "c"],
-            primary_key=["a", "b"],
-            logical_entity_key={"x": ["c"]},
-        )
+def test_duplicate_column_names_are_rejected() -> None:
+    payload = _node("customer").model_dump(mode="python")
+    payload["columns"].append({"name": "id"})
+    with pytest.raises(ValidationError, match="column names within a dataset must be unique"):
+        DatasetNode.model_validate(payload)
 
 
-def test_empty_grain_component_discarded() -> None:
-    node = DatasetNode(
-        node_id="sql_db:demo.t",
-        table_name="t",
-        data_source=empty_sql_db_source("demo", "t"),
-        columns=_columns("id"),
-        primary_key=["id"],
-        grain=[],
+def test_entity_definition_columns_must_exist() -> None:
+    payload = _node("customer").model_dump(mode="python")
+    payload["entity_definitions"][0]["dataset_columns"] = ["missing"]
+    with pytest.raises(ValidationError, match="uses missing columns"):
+        DatasetNode.model_validate(payload)
+
+
+def test_grain_is_singular_and_identity_components_resolve() -> None:
+    node = _node("customer")
+    assert node.grain is not None
+    assert len(node.grain.components) == 1
+
+    payload = node.model_dump(mode="python")
+    payload["grain"]["components"][0]["identity_id"] = "missing"
+    with pytest.raises(ValidationError, match="does not resolve to an entity definition"):
+        DatasetNode.model_validate(payload)
+
+
+def test_entity_universe_is_scoped_to_each_definition() -> None:
+    subset = _node("events", universe=False)
+    universe = _node("customers", universe=True)
+    assert subset.entity_definitions[0].is_entity_universe is False
+    assert universe.entity_definitions[0].is_entity_universe is True
+    assert "is_entity_universe" not in DatasetNode.model_fields
+
+
+def test_edge_identity_and_directional_cardinality() -> None:
+    left = _node("events")
+    right = _node("customers", universe=True)
+    relationship = _relationship(left, right)
+
+    assert edge_id_for(relationship.endpoint_a, relationship.endpoint_b) == edge_id_for(
+        relationship.endpoint_b, relationship.endpoint_a
     )
-    assert node.grain == []
+    assert derived_cardinality(relationship, left.node_id) == Cardinality.N_TO_ONE
+    assert derived_cardinality(relationship, right.node_id) == Cardinality.ONE_TO_N
 
 
-def test_cardinality_rules() -> None:
-    assert cardinality_from(True, True) == Cardinality.ONE_TO_ONE
-    assert cardinality_from(False, True) == Cardinality.N_TO_ONE
-    assert cardinality_from(True, False) == Cardinality.ONE_TO_N
-    assert cardinality_from(False, False) == Cardinality.M_TO_N
+def test_snapshot_requires_registered_endpoint_definitions() -> None:
+    left = _node("events")
+    right = _node("customers")
+    relationship = _relationship(left, right)
+    relationship.endpoint_b.node_id = "dataset:missing"
+    relationship.edge_id = edge_id_for(relationship.endpoint_a, relationship.endpoint_b)
 
-
-def test_edge_id_stable_under_swap() -> None:
-    campaign = JoinEndpoint(node_id="camp", columns=["CampaignId"], is_unique=True)
-    event = JoinEndpoint(node_id="event", columns=["CampaignId"], is_unique=False)
-    assert edge_id_for(campaign, event) == edge_id_for(event, campaign)
-    left = make_relationship(event, campaign, Precedence.DECLARED)
-    right = make_relationship(campaign, event, Precedence.DECLARED)
-    assert left.edge_id == right.edge_id
-    assert left.endpoint_a.node_id == right.endpoint_a.node_id
-
-
-def test_derived_cardinality_depends_on_direction() -> None:
-    campaign = _node("campaign", ["CampaignId"], primary_key=["CampaignId"])
-    event = _node("event", ["id", "CampaignId"], primary_key=["id"])
-    rel = make_relationship(
-        JoinEndpoint(node_id=event.node_id, columns=["CampaignId"], is_unique=False),
-        JoinEndpoint(node_id=campaign.node_id, columns=["CampaignId"], is_unique=True),
-    )
-    assert derived_cardinality(rel, event.node_id) == Cardinality.N_TO_ONE
-    assert derived_cardinality(rel, campaign.node_id) == Cardinality.ONE_TO_N
-    assert unique_side(rel) == campaign.node_id
-    assert entity_anchor(rel, {campaign.node_id: campaign, event.node_id: event}) == campaign.node_id
-
-
-def test_secondary_cannot_own_edges() -> None:
-    primary = _node("campaign", ["CampaignId"], primary_key=["CampaignId"])
-    replica = _node(
-        "campaign_copy",
-        ["CampaignId"],
-        primary_key=["CampaignId"],
-        layer=DatasetLayer.SECONDARY,
-    )
-    rel = make_relationship(
-        JoinEndpoint(node_id=primary.node_id, columns=["CampaignId"], is_unique=True),
-        JoinEndpoint(node_id=replica.node_id, columns=["CampaignId"], is_unique=True),
-    )
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="unknown dataset"):
         GraphSnapshot(
             built_at=now_utc(),
-            nodes=[primary, replica],
-            edges=[rel],
+            logical_identities=[LogicalIdentity(identity_id="customer", name="Customer")],
+            nodes=[left, right],
+            edges=[relationship],
         )
-
-
-def test_table_role_default_unknown() -> None:
-    node = _node("t", ["id"], primary_key=["id"])
-    assert node.table_role == TableRole.UNKNOWN

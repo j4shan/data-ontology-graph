@@ -1,0 +1,407 @@
+{
+  "$defs": {
+    "ColumnMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "synonyms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Synonyms",
+          "type": "array"
+        },
+        "value_description": {
+          "default": "",
+          "title": "Value Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ColumnMetadata",
+      "type": "object"
+    },
+    "DatasetAccessor": {
+      "additionalProperties": false,
+      "properties": {
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Properties",
+          "type": "object"
+        },
+        "schema_id": {
+          "minLength": 1,
+          "title": "Schema Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_id",
+        "properties"
+      ],
+      "title": "DatasetAccessor",
+      "type": "object"
+    },
+    "DatasetDescriptor": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "display_name": {
+          "minLength": 1,
+          "title": "Display Name",
+          "type": "string"
+        },
+        "qualified_name": {
+          "minLength": 1,
+          "title": "Qualified Name",
+          "type": "string"
+        },
+        "synonyms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Synonyms",
+          "type": "array"
+        },
+        "tags": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "qualified_name",
+        "display_name"
+      ],
+      "title": "DatasetDescriptor",
+      "type": "object"
+    },
+    "DatasetGrain": {
+      "additionalProperties": false,
+      "properties": {
+        "components": {
+          "items": {
+            "$ref": "#/$defs/GrainComponent"
+          },
+          "minItems": 1,
+          "title": "Components",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "components"
+      ],
+      "title": "DatasetGrain",
+      "type": "object"
+    },
+    "EntityDefinitionReference": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dataset Columns",
+          "type": "array"
+        },
+        "identity_id": {
+          "minLength": 1,
+          "title": "Identity Id",
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "title": "Node Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "identity_id",
+        "dataset_columns"
+      ],
+      "title": "EntityDefinitionReference",
+      "type": "object"
+    },
+    "GrainComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dataset Columns",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "identity_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Identity Id"
+        }
+      },
+      "required": [
+        "dataset_columns"
+      ],
+      "title": "GrainComponent",
+      "type": "object"
+    },
+    "IntermediaryEntityDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dataset Columns",
+          "type": "array"
+        },
+        "entity_expression": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Expression",
+          "type": "array"
+        },
+        "entity_metadata": {
+          "additionalProperties": true,
+          "title": "Entity Metadata",
+          "type": "object"
+        },
+        "identity_id": {
+          "minLength": 1,
+          "title": "Identity Id",
+          "type": "string"
+        },
+        "is_entity_universe": {
+          "title": "Is Entity Universe",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "identity_id",
+        "dataset_columns",
+        "is_entity_universe"
+      ],
+      "title": "IntermediaryEntityDefinition",
+      "type": "object"
+    },
+    "IntermediaryNode": {
+      "additionalProperties": false,
+      "properties": {
+        "accessor": {
+          "$ref": "#/$defs/DatasetAccessor"
+        },
+        "columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnMetadata"
+          },
+          "minItems": 1,
+          "title": "Columns",
+          "type": "array"
+        },
+        "descriptor": {
+          "$ref": "#/$defs/DatasetDescriptor"
+        },
+        "entity_definitions": {
+          "items": {
+            "$ref": "#/$defs/IntermediaryEntityDefinition"
+          },
+          "title": "Entity Definitions",
+          "type": "array"
+        },
+        "grain": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetGrain"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "node_id": {
+          "minLength": 1,
+          "title": "Node Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "descriptor",
+        "accessor",
+        "columns"
+      ],
+      "title": "IntermediaryNode",
+      "type": "object"
+    },
+    "IntermediaryRelationshipDirection": {
+      "additionalProperties": false,
+      "properties": {
+        "match_existence": {
+          "$ref": "#/$defs/MatchExistence"
+        },
+        "multiplicity": {
+          "$ref": "#/$defs/Multiplicity"
+        }
+      },
+      "required": [
+        "multiplicity",
+        "match_existence"
+      ],
+      "title": "IntermediaryRelationshipDirection",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "LogicalIdentityDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "synonyms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Synonyms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "LogicalIdentityDefinition",
+      "type": "object"
+    },
+    "MatchExistence": {
+      "enum": [
+        "always",
+        "optional",
+        "unknown"
+      ],
+      "title": "MatchExistence",
+      "type": "string"
+    },
+    "Multiplicity": {
+      "enum": [
+        "1:1",
+        "1:many",
+        "many:1",
+        "many:many",
+        "unknown"
+      ],
+      "title": "Multiplicity",
+      "type": "string"
+    },
+    "RelationshipDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "a_to_b": {
+          "$ref": "#/$defs/IntermediaryRelationshipDirection"
+        },
+        "b_to_a": {
+          "$ref": "#/$defs/IntermediaryRelationshipDirection"
+        },
+        "endpoint_a": {
+          "$ref": "#/$defs/EntityDefinitionReference"
+        },
+        "endpoint_b": {
+          "$ref": "#/$defs/EntityDefinitionReference"
+        }
+      },
+      "required": [
+        "endpoint_a",
+        "endpoint_b",
+        "a_to_b",
+        "b_to_a"
+      ],
+      "title": "RelationshipDefinition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/RelationshipDefinition"
+      },
+      "title": "Edges",
+      "type": "array"
+    },
+    "logical_identities": {
+      "additionalProperties": {
+        "$ref": "#/$defs/LogicalIdentityDefinition"
+      },
+      "minProperties": 1,
+      "title": "Logical Identities",
+      "type": "object"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/IntermediaryNode"
+      },
+      "minItems": 1,
+      "title": "Nodes",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "logical_identities",
+    "nodes",
+    "edges"
+  ],
+  "title": "IntermediaryDefinition",
+  "type": "object"
+}

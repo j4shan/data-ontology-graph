@@ -1,5 +1,9 @@
 # Data Ontology Graph — Project Description
 
+> **Status:** This document describes the legacy SQL inference path retained for
+> compatibility. The initial-release product contract is the
+> [Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md).
+
 A persistent knowledge graph that connects datasets, using nodes and edges to capture
 relationships and data models. This document merges the two source specifications:
 
@@ -284,6 +288,11 @@ This prevents missing metadata from being silently interpreted as negative evide
 permission to aggregate, group, or join.
 
 ## Kimball concepts directly modeled
+
+This section inventories fields in the legacy inference model. The
+[initial-release Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md)
+defines which concepts are product requirements and where the target model
+differs from this implementation.
 
 | Kimball concept | Representation in the graph | Query relevance |
 | --- | --- | --- |
