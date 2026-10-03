@@ -1,16 +1,11 @@
 # Agent instructions
 
-Persistent Cursor rules live in `.cursor/rules/`. Follow them in every session.
+## Repository boundary
 
-## Dev-database resource isolation
+This repository stores source code, the YAML schema, and unit-test fixtures. Test data sources,
+reviewed reference catalogs, published graph artifacts, AKG evaluation criteria, and results live
+in the sibling `../critic` project, which evaluates this project as an actor.
 
-Authored overlay, annotation, and other fixture files that belong to a BIRD
-Mini-Dev catalog must not share a file with another catalog.
-
-- Put those assets under `resources/data/dev_overlays/<database>/`.
-- `<database>` is the directory name under `resources/data/dev_databases/`.
-- One overlay file and, when present, one annotations file per catalog.
-- Every key and `edge_id` in a file must belong to that catalog only.
-- Do not write overlays into the vendored `dev_databases/` SQLite tree.
-- Current overlay fixtures are `student_club` and `financial` only. Do not
-  reintroduce `superhero` or `toxicology` overlay entries.
+- Do not add vendored databases, generated artifacts, or evaluation results here.
+- Unit-test fixtures live under `tests/fixtures/<catalog>/`, one catalog per directory, and every
+  `node_id` and `edge_id` in a fixture belongs to that catalog only.

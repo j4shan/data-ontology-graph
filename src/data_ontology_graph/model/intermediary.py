@@ -1,7 +1,8 @@
-from typing import Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import (
     ColumnMetadata,
     DatasetAccessor,
@@ -10,8 +11,13 @@ from data_ontology_graph.model.dataset import (
     DatasetNode,
     EntityDefinition,
 )
-from data_ontology_graph.model.enums import MatchExistence, Multiplicity
-from data_ontology_graph.model.relationship import JoinEndpoint, RelationshipDirection, edge_id_for
+from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity, Unknown
+from data_ontology_graph.model.relationship import (
+    RELATIONSHIP_CLAIM_FIELDS,
+    JoinEndpoint,
+    RelationshipDirection,
+    edge_id_for,
+)
 
 
 class LogicalIdentity(BaseModel):
@@ -31,12 +37,58 @@ class LogicalIdentityDefinition(BaseModel):
     synonyms: list[str] = Field(default_factory=list)
 
 
-class IntermediaryEntityDefinition(BaseModel):
+class IntermediaryDirectoryManifest(BaseModel):
+    """Inventory of collection-owned files for one finalized YAML directory."""
+
     model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["3"] = Field(
+        description="Schema version shared by the manifest and every collection file."
+    )
+    logical_identities: str = Field(
+        min_length=1,
+        description="Relative path of the only logical-identities collection file.",
+    )
+    nodes: list[Annotated[str, Field(min_length=1)]] = Field(
+        min_length=1,
+        description="Relative paths of the files that partition the nodes collection.",
+        json_schema_extra={"uniqueItems": True},
+    )
+    edges: str = Field(
+        min_length=1,
+        description="Relative path of the only edges collection file.",
+    )
+
+    @field_validator("logical_identities", "edges")
+    @classmethod
+    def scalar_paths_must_be_nonblank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("collection path must not be blank")
+        return value
+
+    @field_validator("nodes")
+    @classmethod
+    def node_paths_must_be_nonblank_and_unique(cls, value: list[str]) -> list[str]:
+        if any(not path.strip() for path in value):
+            raise ValueError("collection path must not be blank")
+        if len(value) != len(set(value)):
+            raise ValueError("node collection paths must be unique")
+        return value
+
+    @model_validator(mode="after")
+    def collection_paths_must_be_unique(self) -> "IntermediaryDirectoryManifest":
+        paths = [self.logical_identities, *self.nodes, self.edges]
+        if len(paths) != len(set(paths)):
+            raise ValueError("each collection path must appear exactly once")
+        return self
+
+
+class IntermediaryEntityDefinition(ClaimModel):
+    claim_fields: ClassVar[tuple[str, ...]] = EntityDefinition.claim_fields
 
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
-    is_entity_universe: bool
+    entity_universe: EntityUniverse
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -62,13 +114,22 @@ class IntermediaryEntityDefinition(BaseModel):
         return EntityDefinition.model_validate(self.model_dump())
 
 
-class IntermediaryNode(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class IntermediaryNode(ClaimModel):
+    claim_fields: ClassVar[tuple[str, ...]] = DatasetNode.claim_fields
 
-    node_id: str = Field(min_length=1)
+    node_id: str = Field(
+        min_length=1,
+        description=(
+            "Stable dataset identity in the form "
+            "<accessor-family>:<catalog>.<object>, where accessor-family is the middle "
+            "segment of accessor.schema_id. Keep the value stable while the dataset remains "
+            "at the same access location; a dataset served through a different accessor "
+            "family is a different node."
+        ),
+    )
     descriptor: DatasetDescriptor
     accessor: DatasetAccessor
-    grain: DatasetGrain | None = None
+    grain: DatasetGrain | Unknown
     columns: list[ColumnMetadata] = Field(min_length=1)
     entity_definitions: list[IntermediaryEntityDefinition] = Field(default_factory=list)
 
@@ -91,7 +152,7 @@ class IntermediaryNode(BaseModel):
                     "entity definitions must be unique by identity_id and dataset_columns"
                 )
             definition_keys.add(key)
-        if self.grain is not None:
+        if isinstance(self.grain, DatasetGrain):
             for component in self.grain.components:
                 missing = [
                     column for column in component.dataset_columns if column not in inventory
@@ -160,8 +221,8 @@ class IntermediaryRelationshipDirection(BaseModel):
         )
 
 
-class RelationshipDefinition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class RelationshipDefinition(ClaimModel):
+    claim_fields: ClassVar[tuple[str, ...]] = RELATIONSHIP_CLAIM_FIELDS
 
     endpoint_a: EntityDefinitionReference
     endpoint_b: EntityDefinitionReference
@@ -183,7 +244,7 @@ class RelationshipDefinition(BaseModel):
 class IntermediaryDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["2"]
+    schema_version: Literal["3"]
     logical_identities: dict[str, LogicalIdentityDefinition] = Field(min_length=1)
     nodes: list[IntermediaryNode] = Field(min_length=1)
     edges: list[RelationshipDefinition]

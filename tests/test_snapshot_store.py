@@ -13,7 +13,7 @@ def test_snapshot_round_trip() -> None:
     snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     edge_id = snapshot.edges[0].edge_id
     snapshot.annotations = [
-        JoinAnnotation(edge_id=edge_id, weight=2.0, description="customer relationship")
+        JoinAnnotation(edge_id=edge_id, description="customer relationship", tags=["core"])
     ]
 
     from tempfile import TemporaryDirectory
@@ -24,5 +24,5 @@ def test_snapshot_round_trip() -> None:
         loaded = store.load()
 
     assert loaded.model_dump(mode="json") == snapshot.model_dump(mode="json")
-    assert loaded.annotations[0].weight == 2.0
+    assert loaded.annotations[0].tags == ["core"]
     assert loaded.nodes[0].descriptor.display_name == "Dataset A"

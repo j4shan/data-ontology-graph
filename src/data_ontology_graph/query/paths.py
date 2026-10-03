@@ -23,9 +23,6 @@ def find_paths(
     max_hops: int = 4,
 ) -> list[list[TraversalHop]]:
     adj = graph_adjacency(snapshot)
-    weights = {
-        annotation.edge_id: annotation.weight for annotation in snapshot.annotations
-    }
     found: list[list[TraversalHop]] = []
     queue: deque[tuple[str, list[TraversalHop], set[str]]] = deque(
         [(from_node_id, [], {from_node_id})]
@@ -52,7 +49,7 @@ def find_paths(
     found.sort(
         key=lambda path: (
             len(path),
-            -sum(weights.get(hop.relationship.edge_id, 1.0) for hop in path),
+            tuple(hop.relationship.edge_id for hop in path),
         )
     )
     return found

@@ -1,3 +1,4 @@
+from data_ontology_graph.model.claims import ClaimModel, is_unknown
 from data_ontology_graph.model.dataset import (
     ACCESSOR_PROPERTY_SCHEMAS,
     ColumnMetadata,
@@ -8,7 +9,13 @@ from data_ontology_graph.model.dataset import (
     EntityDefinition,
     GrainComponent,
 )
-from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
+from data_ontology_graph.model.enums import (
+    Cardinality,
+    EntityUniverse,
+    MatchExistence,
+    Multiplicity,
+    Unknown,
+)
 from data_ontology_graph.model.intermediary import (
     EntityDefinitionReference,
     IntermediaryDefinition,
@@ -33,6 +40,7 @@ from data_ontology_graph.model.snapshot import GraphSnapshot
 __all__ = [
     "ACCESSOR_PROPERTY_SCHEMAS",
     "Cardinality",
+    "ClaimModel",
     "ColumnMetadata",
     "DatasetAccessor",
     "DatasetDescriptor",
@@ -40,6 +48,7 @@ __all__ = [
     "DatasetNode",
     "EntityDefinition",
     "EntityDefinitionReference",
+    "EntityUniverse",
     "GrainComponent",
     "GraphSnapshot",
     "IntermediaryDefinition",
@@ -55,7 +64,9 @@ __all__ = [
     "RelationshipDefinition",
     "RelationshipDirection",
     "TraversalHop",
+    "Unknown",
     "canonical_endpoints",
     "derived_cardinality",
     "edge_id_for",
+    "is_unknown",
 ]

@@ -32,6 +32,29 @@ class SearchField(IntEnum):
 
 _FIELD_NAMES = {field.value: field.name.lower() for field in SearchField}
 
+# Whole-value description placeholders that carry no descriptive meaning. Sources: pandas
+# default ``na_values``, null literals in SQL, JSON, JavaScript, Python, R, and spreadsheets,
+# and stock "not yet written" phrases from data catalogs and issue trackers. Entries are
+# compared after ``normalize_term``, so case, punctuation, and spacing variants match; text
+# made only of punctuation, such as ``?`` or ``--``, already normalizes to no terms.
+_PLACEHOLDER_TEXT = (
+    # Null and missing-value literals
+    "null", "nil", "none", "nothing", "void", "undefined", "nan", "NaN", "NaT", "<NA>",
+    "#N/A", "#N/A N/A", "#NA", "N/A", "NA", "n.a.", "n/d", "-1.#IND", "1.#IND", "-1.#QNAN",
+    "1.#QNAN", "-NaN", "#NULL!", "(null)", "(none)", "(blank)", "(empty)",
+    "missing", "missing value", "missing data", "empty", "blank", "no value", "no data",
+    # Unknown or unassessed
+    "unknown", "unk", "not known", "unknown value", "undetermined", "unspecified",
+    "not specified", "not defined", "not set", "unset", "not provided", "not recorded",
+    "not documented", "undocumented", "not applicable", "not available", "no info",
+    "no information", "no description", "no description available", "description not available",
+    "none provided", "none given", "no comment", "no comments",
+    # Not yet written
+    "tbd", "tba", "tbc", "to be determined", "to be defined", "to be decided", "to be confirmed",
+    "to be added", "to be documented", "todo", "to do", "fixme", "placeholder", "lorem ipsum",
+    "xxx", "xxxx",
+)
+
 
 def normalize_term(value: str) -> str:
     value = unicodedata.normalize("NFKC", value)
@@ -51,7 +74,28 @@ def index_terms(value: str) -> set[str]:
     return terms
 
 
+PLACEHOLDER_TERMS = frozenset(
+    term for term in (normalize_term(value) for value in _PLACEHOLDER_TEXT) if term
+)
+
+
+def is_placeholder(value: str) -> bool:
+    """Return whether description text is only a placeholder such as ``N/A`` or ``unknown``."""
+    return normalize_term(value) in PLACEHOLDER_TERMS
+
+
+def descriptive_text(value: str) -> str:
+    """Return description text for indexing, or nothing when it is only a placeholder."""
+    return "" if is_placeholder(value) else value
+
+
 class LexicalSearchIndex:
+    """Static trie over descriptive terms.
+
+    A description whose whole value is a placeholder contributes no terms.
+    Unknown claims are never search terms; each subject reports its unknown fields instead.
+    """
+
     def __init__(self, snapshot: GraphSnapshot) -> None:
         subjects: list[SearchSubject] = []
         entries: set[tuple[str, int, int]] = set()
@@ -74,7 +118,7 @@ class LexicalSearchIndex:
                 [
                     (SearchField.STABLE_ID, identity.identity_id),
                     (SearchField.CANONICAL_NAME, identity.name),
-                    (SearchField.DESCRIPTION, identity.description),
+                    (SearchField.DESCRIPTION, descriptive_text(identity.description)),
                     *((SearchField.SYNONYM, synonym) for synonym in identity.synonyms),
                 ],
             )
@@ -90,12 +134,13 @@ class LexicalSearchIndex:
                     key=node.node_id,
                     label=node.descriptor.display_name,
                     node_id=node.node_id,
+                    unknown_fields=node.unknown_fields(),
                 ),
                 [
                     (SearchField.STABLE_ID, node.node_id),
                     (SearchField.CANONICAL_NAME, node.descriptor.display_name),
                     (SearchField.QUALIFIED_NAME, node.descriptor.qualified_name),
-                    (SearchField.DESCRIPTION, node.descriptor.description),
+                    (SearchField.DESCRIPTION, descriptive_text(node.descriptor.description)),
                     (SearchField.ACCESSOR, node.accessor.schema_id),
                     *(
                         (SearchField.SYNONYM, synonym)
@@ -126,6 +171,7 @@ class LexicalSearchIndex:
                         node_id=node.node_id,
                         identity_id=definition.identity_id,
                         dataset_columns=definition.dataset_columns,
+                        unknown_fields=definition.unknown_fields(),
                     ),
                     [
                         (SearchField.STABLE_ID, definition.identity_id),
@@ -152,8 +198,8 @@ class LexicalSearchIndex:
                     ),
                     [
                         (SearchField.COLUMN, column.name),
-                        (SearchField.DESCRIPTION, column.description),
-                        (SearchField.DESCRIPTION, column.value_description),
+                        (SearchField.DESCRIPTION, descriptive_text(column.description)),
+                        (SearchField.DESCRIPTION, descriptive_text(column.value_description)),
                         *((SearchField.SYNONYM, synonym) for synonym in column.synonyms),
                     ],
                 )

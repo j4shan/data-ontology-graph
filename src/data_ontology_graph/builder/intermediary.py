@@ -8,11 +8,15 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 from yaml import YAMLError
 
-from data_ontology_graph.model.intermediary import IntermediaryDefinition
+from data_ontology_graph.model.intermediary import (
+    IntermediaryDefinition,
+    IntermediaryDirectoryManifest,
+)
 
 
 _YAML_SUFFIXES = {".yaml", ".yml"}
-_TOP_LEVEL_KEYS = {"schema_version", "logical_identities", "nodes", "edges"}
+_COLLECTION_KEYS = {"logical_identities", "nodes", "edges"}
+_MANIFEST_FILENAME = "directory-manifest.yaml"
 
 
 class ValidationFinding(BaseModel):
@@ -43,10 +47,22 @@ def intermediary_json_schema() -> dict[str, Any]:
     return IntermediaryDefinition.model_json_schema()
 
 
+def intermediary_directory_json_schema() -> dict[str, Any]:
+    return IntermediaryDirectoryManifest.model_json_schema()
+
+
 def write_intermediary_json_schema(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(intermediary_json_schema(), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_intermediary_directory_json_schema(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(intermediary_directory_json_schema(), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
@@ -114,42 +130,139 @@ def _assemble_intermediary_directory(
             )
         ]
 
+    manifest_path = source.parent / _MANIFEST_FILENAME
+    if not manifest_path.is_file():
+        return None, [
+            ValidationFinding(
+                location=_MANIFEST_FILENAME,
+                rule="missing_manifest",
+                message=f"expected sibling manifest: {manifest_path}",
+            )
+        ]
+
+    try:
+        manifest_payload = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except YAMLError as error:
+        mark = getattr(error, "problem_mark", None)
+        return None, [
+            ValidationFinding(
+                location=f"{_MANIFEST_FILENAME}:$",
+                rule="yaml_syntax",
+                message=str(error).splitlines()[0],
+                line=mark.line + 1 if mark else None,
+                column=mark.column + 1 if mark else None,
+            )
+        ]
+
+    try:
+        manifest = IntermediaryDirectoryManifest.model_validate(manifest_payload)
+    except ValidationError as error:
+        return None, _validation_error_findings(error, prefix=f"{_MANIFEST_FILENAME}:")
+
+    entries: list[tuple[str, str, str]] = [
+        ("logical_identities", manifest.logical_identities, "$.logical_identities"),
+        *(("nodes", path, f"$.nodes[{index}]") for index, path in enumerate(manifest.nodes)),
+        ("edges", manifest.edges, "$.edges"),
+    ]
+    source_resolved = source.resolve()
+    listed: dict[str, str] = {}
+    findings: list[ValidationFinding] = []
+
+    for collection, raw_path, manifest_location in entries:
+        location = f"{_MANIFEST_FILENAME}:{manifest_location}"
+        relative_path = Path(raw_path)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            findings.append(
+                ValidationFinding(
+                    location=location,
+                    rule="invalid_collection_path",
+                    message="collection paths must be relative and must not contain '..'",
+                )
+            )
+            continue
+        candidate = source / relative_path
+        relative = candidate.relative_to(source).as_posix()
+        if relative in listed:
+            findings.append(
+                ValidationFinding(
+                    location=location,
+                    rule="duplicate_manifest_path",
+                    message=f"collection path is already owned by {listed[relative]!r}",
+                )
+            )
+            continue
+        listed[relative] = collection
+        if candidate.suffix.casefold() not in _YAML_SUFFIXES:
+            findings.append(
+                ValidationFinding(
+                    location=location,
+                    rule="unsupported_file",
+                    message="collection paths must name .yaml or .yml files",
+                )
+            )
+            continue
+        try:
+            candidate.resolve(strict=False).relative_to(source_resolved)
+        except ValueError:
+            findings.append(
+                ValidationFinding(
+                    location=location,
+                    rule="path_outside_directory",
+                    message="collection path resolves outside the finalized YAML directory",
+                )
+            )
+            continue
+        if not candidate.is_file():
+            findings.append(
+                ValidationFinding(
+                    location=location,
+                    rule="missing_file",
+                    message=f"listed collection file does not exist: {relative}",
+                )
+            )
+
     files = sorted(
         (path for path in source.rglob("*") if path.is_file()),
         key=lambda path: path.relative_to(source).as_posix(),
     )
-    unsupported = [path for path in files if path.suffix.casefold() not in _YAML_SUFFIXES]
-    if unsupported:
-        return None, [
-            ValidationFinding(
-                location=path.relative_to(source).as_posix(),
-                rule="unsupported_file",
-                message="finalized YAML directories may contain only .yaml or .yml files",
-            )
-            for path in unsupported
-        ]
-
-    yaml_files = [path for path in files if path.suffix.casefold() in _YAML_SUFFIXES]
-    if not yaml_files:
-        return None, [
+    if not files:
+        findings.append(
             ValidationFinding(
                 location="$",
                 rule="missing_yaml",
                 message="finalized YAML directory contains no .yaml or .yml files",
             )
-        ]
+        )
+    for path in files:
+        relative = path.relative_to(source).as_posix()
+        if path.suffix.casefold() not in _YAML_SUFFIXES:
+            findings.append(
+                ValidationFinding(
+                    location=relative,
+                    rule="unsupported_file",
+                    message="finalized YAML directories may contain only .yaml or .yml files",
+                )
+            )
+        elif relative not in listed:
+            findings.append(
+                ValidationFinding(
+                    location=relative,
+                    rule="unlisted_file",
+                    message=f"YAML file is not listed in {_MANIFEST_FILENAME}",
+                )
+            )
 
-    schema_version: object | None = None
-    schema_version_seen = False
-    schema_version_source: str | None = None
+    if findings:
+        return None, findings
+
     logical_identities: dict[str, Any] = {}
     identity_sources: dict[str, str] = {}
     nodes: list[Any] = []
     node_sources: dict[str, str] = {}
     edges: list[Any] = []
-    findings: list[ValidationFinding] = []
 
-    for path in yaml_files:
+    for collection, raw_path, _ in entries:
+        path = source / raw_path
         relative = path.relative_to(source).as_posix()
         try:
             document = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -175,47 +288,52 @@ def _assemble_intermediary_directory(
             )
             continue
 
-        extra_keys = sorted(
-            (key for key in document if key not in _TOP_LEVEL_KEYS),
-            key=str,
-        )
+        required_keys = {"schema_version", collection}
+        for key in sorted(required_keys - set(document), key=str):
+            findings.append(
+                ValidationFinding(
+                    location=f"{relative}:$",
+                    rule="missing",
+                    message=f"collection file must contain {key!r}",
+                )
+            )
+        extra_keys = sorted((key for key in document if key not in required_keys), key=str)
         for key in extra_keys:
             findings.append(
                 ValidationFinding(
                     location=f"{relative}:$.{key}",
-                    rule="extra_forbidden",
-                    message="unsupported top-level field",
+                    rule=("collection_ownership" if key in _COLLECTION_KEYS else "extra_forbidden"),
+                    message=(
+                        f"file is owned by {collection!r}, not {key!r}"
+                        if key in _COLLECTION_KEYS
+                        else "unsupported top-level field"
+                    ),
                 )
             )
 
-        if "schema_version" in document:
-            value = document["schema_version"]
-            if not schema_version_seen:
-                schema_version = value
-                schema_version_source = relative
-                schema_version_seen = True
-            elif value != schema_version:
-                findings.append(
-                    ValidationFinding(
-                        location=f"{relative}:$.schema_version",
-                        rule="conflicting_schema_version",
-                        message=(
-                            f"schema_version conflicts with {schema_version_source}: "
-                            f"{value!r} != {schema_version!r}"
-                        ),
-                    )
-                )
-
-        identities = document.get("logical_identities", {})
-        if not isinstance(identities, Mapping):
+        if document.get("schema_version") != manifest.schema_version:
             findings.append(
                 ValidationFinding(
-                    location=f"{relative}:$.logical_identities",
-                    rule="mapping_type",
-                    message="logical_identities must be a mapping",
+                    location=f"{relative}:$.schema_version",
+                    rule="conflicting_schema_version",
+                    message=(
+                        f"schema_version conflicts with {_MANIFEST_FILENAME}: "
+                        f"{document.get('schema_version')!r} != {manifest.schema_version!r}"
+                    ),
                 )
             )
-        else:
+
+        if collection == "logical_identities":
+            identities = document.get(collection)
+            if not isinstance(identities, Mapping):
+                findings.append(
+                    ValidationFinding(
+                        location=f"{relative}:$.logical_identities",
+                        rule="mapping_type",
+                        message="logical_identities must be a mapping",
+                    )
+                )
+                continue
             for identity_id, definition in identities.items():
                 if identity_id in logical_identities:
                     findings.append(
@@ -231,17 +349,17 @@ def _assemble_intermediary_directory(
                 else:
                     logical_identities[identity_id] = definition
                     identity_sources[identity_id] = relative
-
-        file_nodes = document.get("nodes", [])
-        if not isinstance(file_nodes, list):
-            findings.append(
-                ValidationFinding(
-                    location=f"{relative}:$.nodes",
-                    rule="list_type",
-                    message="nodes must be a list",
+        elif collection == "nodes":
+            file_nodes = document.get(collection)
+            if not isinstance(file_nodes, list):
+                findings.append(
+                    ValidationFinding(
+                        location=f"{relative}:$.nodes",
+                        rule="list_type",
+                        message="nodes must be a list",
+                    )
                 )
-            )
-        else:
+                continue
             for index, node in enumerate(file_nodes):
                 node_id = node.get("node_id") if isinstance(node, Mapping) else None
                 if isinstance(node_id, str) and node_id in node_sources:
@@ -256,24 +374,24 @@ def _assemble_intermediary_directory(
                     if isinstance(node_id, str):
                         node_sources[node_id] = relative
                     nodes.append(node)
-
-        file_edges = document.get("edges", [])
-        if not isinstance(file_edges, list):
-            findings.append(
-                ValidationFinding(
-                    location=f"{relative}:$.edges",
-                    rule="list_type",
-                    message="edges must be a list",
-                )
-            )
         else:
+            file_edges = document.get(collection)
+            if not isinstance(file_edges, list):
+                findings.append(
+                    ValidationFinding(
+                        location=f"{relative}:$.edges",
+                        rule="list_type",
+                        message="edges must be a list",
+                    )
+                )
+                continue
             edges.extend(file_edges)
 
     if findings:
         return None, findings
 
     payload = {
-        "schema_version": schema_version,
+        "schema_version": manifest.schema_version,
         "logical_identities": logical_identities,
         "nodes": nodes,
         "edges": edges,
@@ -282,18 +400,26 @@ def _assemble_intermediary_directory(
     return (None, validation_findings) if validation_findings else (payload, [])
 
 
+def _validation_error_findings(
+    error: ValidationError,
+    *,
+    prefix: str = "",
+) -> list[ValidationFinding]:
+    return [
+        ValidationFinding(
+            location=f"{prefix}{_format_location(item['loc'])}",
+            rule=item["type"],
+            message=item["msg"],
+        )
+        for item in error.errors(include_url=False, include_context=False)
+    ]
+
+
 def _validation_findings(payload: object) -> list[ValidationFinding]:
     try:
         IntermediaryDefinition.model_validate(payload)
     except ValidationError as error:
-        return [
-            ValidationFinding(
-                location=_format_location(item["loc"]),
-                rule=item["type"],
-                message=item["msg"],
-            )
-            for item in error.errors(include_url=False, include_context=False)
-        ]
+        return _validation_error_findings(error)
     return []
 
 

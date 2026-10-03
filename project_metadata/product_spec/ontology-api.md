@@ -19,7 +19,7 @@ Search returns a reduced candidate set of logical identities and associated
 entity-definition and dataset references. Candidates may match a stable ID,
 business name, synonym, tag, qualified dataset name, accessor property,
 dataset-column set, or entity
-entity metadata. Results include enough match provenance and identifying
+entity metadata. Results report the matched term and field plus identifying
 metadata for the reasoning agent to choose what to inspect next.
 
 The initial search implementation mechanically normalizes indexed terms and
@@ -32,6 +32,12 @@ caller-configurable result limiting after trie retrieval are sufficient for the 
 scale of at most about 10,000 business entities. The service does not require a
 dedicated relevance-ranking structure.
 
+At build time, a description or value description whose whole normalized value is a
+placeholder, such as `null`, `N/A`, `unknown`, `undefined`, `missing`, or `TBD`, contributes no
+search terms. The text is still returned unchanged in detail responses. Text that only contains
+such a word, such as "unknown sender flag", is indexed normally. Names, synonyms, and tags are
+never filtered.
+
 Search narrows irrelevant context; it does not decide which candidate is
 correct. The reasoning agent may coordinate with separate enterprise entity,
 terminology, semantic, or full-text search tools to obtain canonical terms or
@@ -40,8 +46,15 @@ the pinned graph snapshot.
 
 ### 4.2 Dataset detail
 
-Dataset detail returns the descriptor, accessor, relevant columns, optional
-grain, and entity definitions with entity metadata and universe status.
+Dataset detail returns the descriptor, accessor, relevant columns, grain, and
+entity definitions with entity metadata and universe status.
+
+Every dataset, entity definition, and relationship in a response carries
+`unknown_fields`, the typed claims whose value is `unknown`. Callers read unknown
+state from `unknown_fields` rather than interpreting field values. Search hits
+report each subject's `unknown_fields`; unknown claim values are not search terms.
+Directed hops and path hops report unknown fields relative to the traversal
+direction (`direction.*` and `reverse_direction.*`).
 
 ### 4.3 Directed hops
 
@@ -64,7 +77,7 @@ completed AKG.
 Join-path search returns ranked paths between named datasets. Each hop carries
 its logical identity, compound endpoint references,
 directional multiplicity, and match existence. Paths are ranked by
-hop count, then annotation weight. Callers supply maximum hop and result-item
+hop count, then canonical edge IDs. Callers supply maximum hop and result-item
 limits, and returned paths respect both bounds. The interface does not pick a
 single winner.
 
@@ -78,7 +91,7 @@ join predicates, or recommended SQL join types.
 
 ### 4.7 Entity-model guidance
 
-Detail reports the dataset descriptor and accessor, its single optional grain,
+Detail reports the dataset descriptor and accessor, its grain or explicit unknown grain,
 registered logical identities, entity definitions, entity expressions, entity
 metadata, and entity-universe status.
 

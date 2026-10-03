@@ -1,6 +1,18 @@
+from typing import ClassVar
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
+
+
+RELATIONSHIP_CLAIM_FIELDS: tuple[str, ...] = (
+    "a_to_b.match_existence",
+    "a_to_b.multiplicity",
+    "b_to_a.match_existence",
+    "b_to_a.multiplicity",
+)
+_SWAPPED_DIRECTION = {"a_to_b": "b_to_a", "b_to_a": "a_to_b"}
 
 
 class StrictModel(BaseModel):
@@ -32,7 +44,9 @@ class RelationshipDirection(StrictModel):
     match_existence: MatchExistence
 
 
-class JoinRelationship(StrictModel):
+class JoinRelationship(ClaimModel):
+    claim_fields: ClassVar[tuple[str, ...]] = RELATIONSHIP_CLAIM_FIELDS
+
     edge_id: str = Field(min_length=1)
     endpoint_a: JoinEndpoint
     endpoint_b: JoinEndpoint
@@ -73,13 +87,25 @@ class JoinRelationship(StrictModel):
             return self.b_to_a
         raise KeyError(node_id)
 
+    def unknown_fields_from(self, node_id: str) -> list[str]:
+        """Unknown direction fields relative to a traversal that starts at ``node_id``."""
+        if self.endpoint_a.node_id == node_id:
+            outgoing = "a_to_b"
+        elif self.endpoint_b.node_id == node_id:
+            outgoing = "b_to_a"
+        else:
+            raise KeyError(node_id)
+        relative = {outgoing: "direction", _SWAPPED_DIRECTION[outgoing]: "reverse_direction"}
+        return sorted(
+            f"{relative[direction]}.{field}"
+            for direction, field in (path.split(".", 1) for path in self.unknown_fields())
+        )
+
 
 class JoinAnnotation(StrictModel):
     edge_id: str
-    weight: float = 1.0
     description: str = ""
     tags: list[str] = Field(default_factory=list)
-    notes: str = ""
 
 
 class TraversalHop(StrictModel):

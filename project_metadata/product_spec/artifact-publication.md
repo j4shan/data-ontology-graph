@@ -6,12 +6,12 @@ root PRD.
 
 ## 1 Current-artifact boundary
 
-1. The source-controlled repository contains one current generated graph artifact at a stable
-   project path.
+1. The publisher maintains one current generated graph artifact at a caller-supplied path. This
+   repository stores source code, not generated artifacts; the artifact path is outside it.
 2. A successful publication replaces that artifact as one complete unit.
 3. The application does not maintain prior-release directories, a release catalog, rollback
-   metadata, or historical artifacts. Git history is the only history of the source-controlled
-   artifact.
+   metadata, or historical artifacts. A consumer that needs history, such as the Critic
+   evaluation project, versions the artifacts it publishes.
 4. The artifact's schema version identifies its data contract; it is not an application-managed
    release identifier.
 

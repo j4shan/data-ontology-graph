@@ -17,7 +17,7 @@ from data_ontology_graph.service.read import GraphReadService
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINANCIAL = ROOT / "resources" / "data" / "dev_overlays" / "financial" / "catalog.yaml"
+FINANCIAL = ROOT / "tests" / "fixtures" / "financial" / "catalog.yaml"
 
 
 def _service() -> GraphReadService:
@@ -109,7 +109,7 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                     socket_path,
                     3,
                     "graph.expand_subgraph",
-                    {"seed_node_ids": ["sql_db:financial.client"], "max_depth": 1},
+                    {"seed_node_ids": ["sqlite:financial.client"], "max_depth": 1},
                 )
                 assert follow_up["result"]["nodes"]
             finally:

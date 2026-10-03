@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "description": "Inventory of collection-owned files for one finalized YAML directory.",
+  "properties": {
+    "edges": {
+      "description": "Relative path of the only edges collection file.",
+      "minLength": 1,
+      "title": "Edges",
+      "type": "string"
+    },
+    "logical_identities": {
+      "description": "Relative path of the only logical-identities collection file.",
+      "minLength": 1,
+      "title": "Logical Identities",
+      "type": "string"
+    },
+    "nodes": {
+      "description": "Relative paths of the files that partition the nodes collection.",
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Nodes",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "schema_version": {
+      "const": "3",
+      "description": "Schema version shared by the manifest and every collection file.",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "logical_identities",
+    "nodes",
+    "edges"
+  ],
+  "title": "IntermediaryDirectoryManifest",
+  "type": "object"
+}

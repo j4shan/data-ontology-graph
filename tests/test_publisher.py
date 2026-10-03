@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 
 import pytest
+import yaml
 
 from data_ontology_graph.builder import IntermediaryValidationError
 from data_ontology_graph.builder.publish import publish_current_artifact
@@ -16,8 +17,30 @@ VALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid
 def _yaml_directory(tmp_path: Path) -> Path:
     directory = tmp_path / "yaml"
     directory.mkdir()
-    (directory / "catalog.yaml").write_text(
-        VALID_EXAMPLE.read_text(encoding="utf-8"),
+    payload = yaml.safe_load(VALID_EXAMPLE.read_text(encoding="utf-8"))
+    collections = {
+        "identities.yaml": {
+            "schema_version": "3",
+            "logical_identities": payload["logical_identities"],
+        },
+        "nodes.yaml": {"schema_version": "3", "nodes": payload["nodes"]},
+        "edges.yaml": {"schema_version": "3", "edges": payload["edges"]},
+    }
+    for name, collection in collections.items():
+        (directory / name).write_text(
+            yaml.safe_dump(collection, sort_keys=False),
+            encoding="utf-8",
+        )
+    (tmp_path / "directory-manifest.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": "3",
+                "logical_identities": "identities.yaml",
+                "nodes": ["nodes.yaml"],
+                "edges": "edges.yaml",
+            },
+            sort_keys=False,
+        ),
         encoding="utf-8",
     )
     return directory
