@@ -3,11 +3,13 @@ from pathlib import Path
 from data_ontology_graph.builder.intermediary import (
     IntermediaryValidationError,
     IntermediaryValidationReport,
+    intermediary_directory_json_schema,
     load_intermediary_directory,
     load_intermediary_yaml,
     validate_intermediary_yaml,
+    write_intermediary_directory_json_schema,
 )
-from data_ontology_graph.builder.report import ExplicitBuildReport
+from data_ontology_graph.builder.report import ExplicitBuildReport, unknown_field_locations
 from data_ontology_graph.builder.validate import Contradiction, detect_contradictions
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -38,6 +40,7 @@ def build_snapshot_from_definition(
     report = ExplicitBuildReport(
         node_count=len(snapshot.nodes),
         edge_count=len(snapshot.edges),
+        unknown_fields=unknown_field_locations(definition),
     )
     return snapshot, report, []
 
@@ -57,7 +60,10 @@ __all__ = [
     "build_snapshot_from_definition",
     "build_snapshot_from_yaml",
     "detect_contradictions",
+    "intermediary_directory_json_schema",
     "load_intermediary_yaml",
     "load_intermediary_directory",
+    "unknown_field_locations",
     "validate_intermediary_yaml",
+    "write_intermediary_directory_json_schema",
 ]

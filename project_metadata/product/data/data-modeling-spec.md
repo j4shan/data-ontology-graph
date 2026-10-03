@@ -19,10 +19,10 @@ The initial release persists and serves **entity and relationship** knowledge in
 | --- | --- |
 | 2.1.1 | Each node has a stable `node_id` and represents one addressable dataset. Distinct datasets in different access locations must not collapse merely because their display names match. |
 | 2.1.9 | A node carries one `descriptor` containing its fully qualified dataset name, display name, description, synonyms, and tags. Dataset terminology is used in the universal model; source-specific terms such as table, catalog, schema, or prefix remain accessor properties. |
-| 2.1.10 | A node carries one generic `accessor` envelope with a non-empty `schema_id` and a JSON `properties` object. The common model does not prescribe vendor-specific accessor properties. |
+| 2.1.10 | A node carries one generic `accessor` envelope with a non-empty `schema_id` and a JSON `properties` object. The accessor is a recipe for an external tool: the configuration and deployed location needed to locate the dataset, excluding credentials. The common model does not prescribe vendor-specific accessor properties. |
 | 2.1.11 | During deserialization, a known accessor `schema_id` selects its subtype validator. The validated properties remain available as the original JSON object so an agent can interpret the provider-specific combination. |
-| 2.1.12 | A node records only the relevant dataset columns needed for entity, grain, search, and relationship context. The canonical graph does not reproduce primary keys, foreign keys, unique constraints, nullability, SQL types, or other source-catalog primitives. |
-| 2.1.13 | A node has zero or one `grain`. One grain may contain multiple components that collectively state what one dataset record represents. Absence means unknown or unassessed; different record boundaries are represented as different dataset nodes. |
+| 2.1.12 | A node records its dataset columns for entity, grain, search, and relationship context. Preparation includes every physical column by default and omits one only through a recorded decision ([YAML Preparation Conventions](../../product_spec/yaml-preparation.md)). The canonical graph does not reproduce primary keys, foreign keys, unique constraints, nullability, SQL types, or other source-catalog primitives. |
+| 2.1.13 | A node has exactly one required `grain`: either a grain object or the explicit value `unknown`. One grain may contain multiple components that collectively state what one dataset record represents. Omission is unassessed and fails validation; different record boundaries are represented as different dataset nodes. |
 | 2.1.14 | A node carries its registered `entity_definition` records. Each definition may carry one or more unrestricted `entity_expression` labels and entity metadata. |
 
 ## 3. Logical identity registry and YAML intermediary
@@ -35,16 +35,18 @@ The initial release persists and serves **entity and relationship** knowledge in
 | 3.1.4 | `entity_expression` is an unrestricted agent-facing text label for the physical realization. The field is a list and may contain more than one redundant label for the same compound key. The builder preserves the labels without parsing, executing, translating, or proving them. |
 | 3.1.5 | Expression context belongs to entity metadata beside the entity definition. A canonical edge references that definition and does not duplicate its context. |
 | 3.1.6 | The registry supports search by logical identity, business name, dataset, system, dataset-column set, and node entity metadata so an agent can locate every registered realization of an identity. |
-| 3.1.7 | Complete dataset node definitions, relationship edge definitions, and the global logical identity registry are supplied through one source-independent YAML intermediary. |
-| 3.1.8 | The YAML definitions and their machine-readable schema are source-controlled source-of-truth artifacts. A schema change and the definitions that depend on it remain reviewable and reproducible together. |
-| 3.1.9 | A schema validator gates ingestion before graph construction. A definition that violates the source-controlled schema is rejected with findings that identify the invalid location and rule. |
-| 3.1.10 | The builder receives one complete YAML artifact. It does not apply overlays, override pre-existing DDL metadata, or merge layered metadata sources. |
-| 3.1.11 | `is_entity_universe` belongs to an entity definition, not its dataset node. It states whether that particular logical identity realization represents the complete entity population described by the authored knowledge. |
+| 3.1.7 | Complete dataset node definitions, relationship edge definitions, and the global logical identity registry form one source-independent YAML intermediary. It may be supplied as one assembled file or as manifest-owned collection files: exactly one logical-identity file, one or more node files that partition the assembled node list, and exactly one edge file. |
+| 3.1.8 | The YAML definitions, directory manifest, and their machine-readable schemas are source-controlled source-of-truth artifacts. A schema change and the definitions that depend on it remain reviewable and reproducible together. |
+| 3.1.9 | Schema and contract validation gate ingestion before graph construction. A manifest, collection file, or assembled definition that violates its source-controlled contract is rejected with findings that identify the invalid location and rule. |
+| 3.1.10 | The builder receives one complete YAML intermediary. For directory input, the fixed sibling `directory-manifest.yaml` inventories every collection file, each listed file contains `schema_version` and exactly its owned collection, and no unlisted YAML file participates. The builder assembles those files but does not apply overlays, override pre-existing DDL metadata, or merge layered metadata sources. |
+| 3.1.11 | `entity_universe` (`complete`, `partial`, or `unknown`) belongs to an entity definition, not its dataset node. It states whether that particular logical identity realization represents the complete entity population described by the authored knowledge. |
+| 3.1.12 | Unknown is a typed claim value. A typed claim (`grain`, `entity_universe`, `multiplicity`, `match_existence`) states it through its own `unknown` value. Descriptive text (identity, dataset, and column `description`, and column `value_description`) is free text; it may be empty or hold any wording, including placeholders such as `unknown` or `N/A`, and is not validated for meaning. |
+| 3.1.13 | The build report lists every typed claim whose value is `unknown`, located by stable IDs, so YAML preparation can resolve the unknowns it does not accept. |
 
 The following illustrative intermediary shows two node entity definitions for one logical identity and an explicit edge between them. The example omits unrelated node properties for brevity.
 
 ```yaml
-schema_version: "2"
+schema_version: "3"
 
 logical_identities:
   customer_identity:
@@ -69,7 +71,7 @@ nodes:
     entity_definitions:
       - identity_id: customer_identity
         dataset_columns: [c1, c2, c3]
-        is_entity_universe: false
+        entity_universe: partial
         entity_expression:
           - "[c1, xxhash64(c2, c3)]"
         entity_metadata:
@@ -91,7 +93,7 @@ nodes:
     entity_definitions:
       - identity_id: customer_identity
         dataset_columns: [d1, d2]
-        is_entity_universe: true
+        entity_universe: complete
         entity_expression:
           - "[d1, d2]"
 

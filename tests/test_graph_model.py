@@ -10,7 +10,12 @@ from data_ontology_graph.model.dataset import (
     EntityDefinition,
     GrainComponent,
 )
-from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
+from data_ontology_graph.model.enums import (
+    Cardinality,
+    EntityUniverse,
+    MatchExistence,
+    Multiplicity,
+)
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import (
     JoinEndpoint,
@@ -22,7 +27,7 @@ from data_ontology_graph.model.relationship import (
 from data_ontology_graph.model.snapshot import GraphSnapshot, now_utc
 
 
-def _node(name: str, *, universe: bool = False) -> DatasetNode:
+def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> DatasetNode:
     return DatasetNode(
         node_id=f"dataset:{name}",
         descriptor=DatasetDescriptor(
@@ -31,7 +36,12 @@ def _node(name: str, *, universe: bool = False) -> DatasetNode:
         ),
         accessor=DatasetAccessor(
             schema_id="accessor.sqlite.v1",
-            properties={"path": "example.sqlite", "object": name, "format": "sqlite"},
+            properties={
+                "host": "localhost",
+                "database_path": "/srv/sqlite/example.sqlite",
+                "schema": "main",
+                "object": name,
+            },
         ),
         grain=DatasetGrain(
             components=[GrainComponent(identity_id="customer", dataset_columns=["id"])]
@@ -41,7 +51,7 @@ def _node(name: str, *, universe: bool = False) -> DatasetNode:
             EntityDefinition(
                 identity_id="customer",
                 dataset_columns=["id"],
-                is_entity_universe=universe,
+                entity_universe=universe,
             )
         ],
     )
@@ -110,16 +120,19 @@ def test_grain_is_singular_and_identity_components_resolve() -> None:
 
 
 def test_entity_universe_is_scoped_to_each_definition() -> None:
-    subset = _node("events", universe=False)
-    universe = _node("customers", universe=True)
-    assert subset.entity_definitions[0].is_entity_universe is False
-    assert universe.entity_definitions[0].is_entity_universe is True
-    assert "is_entity_universe" not in DatasetNode.model_fields
+    subset = _node("events", universe=EntityUniverse.PARTIAL)
+    universe = _node("customers", universe=EntityUniverse.COMPLETE)
+    unassessed = _node("orders", universe=EntityUniverse.UNKNOWN)
+    assert subset.entity_definitions[0].entity_universe == EntityUniverse.PARTIAL
+    assert universe.entity_definitions[0].entity_universe == EntityUniverse.COMPLETE
+    assert unassessed.entity_definitions[0].unknown_fields() == ["entity_universe"]
+    assert subset.entity_definitions[0].unknown_fields() == []
+    assert "entity_universe" not in DatasetNode.model_fields
 
 
 def test_edge_identity_and_directional_cardinality() -> None:
     left = _node("events")
-    right = _node("customers", universe=True)
+    right = _node("customers", universe=EntityUniverse.COMPLETE)
     relationship = _relationship(left, right)
 
     assert edge_id_for(relationship.endpoint_a, relationship.endpoint_b) == edge_id_for(
@@ -143,3 +156,58 @@ def test_snapshot_requires_registered_endpoint_definitions() -> None:
             nodes=[left, right],
             edges=[relationship],
         )
+
+
+def test_grain_is_required_and_may_be_explicitly_unknown() -> None:
+    payload = _node("customer").model_dump(mode="python")
+    payload.pop("grain")
+    with pytest.raises(ValidationError, match="grain"):
+        DatasetNode.model_validate(payload)
+
+    payload["grain"] = "unknown"
+    node = DatasetNode.model_validate(payload)
+    assert node.unknown_fields() == ["grain"]
+    assert node.model_dump(mode="json")["grain"] == "unknown"
+
+
+def test_descriptive_text_is_free_text_including_unknown_placeholders() -> None:
+    column = ColumnMetadata(name="code", description=" Unknown ", value_description="N/A")
+    assert column.description == " Unknown "
+    assert column.value_description == "N/A"
+    assert not hasattr(column, "unknown_fields")
+
+
+def test_unknown_fields_cover_typed_claims_only() -> None:
+    definition = EntityDefinition(
+        identity_id="customer",
+        dataset_columns=["id"],
+        entity_universe=EntityUniverse.UNKNOWN,
+    )
+    assert definition.unknown_fields() == ["entity_universe"]
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        ColumnMetadata.model_validate({"name": "code", "notes": "unresolved"})
+
+
+def test_canonical_edge_order_swaps_directions_and_relative_unknowns() -> None:
+    later = JoinEndpoint(node_id="dataset:z", identity_id="customer", dataset_columns=["id"])
+    earlier = JoinEndpoint(node_id="dataset:a", identity_id="customer", dataset_columns=["id"])
+    relationship = JoinRelationship(
+        edge_id=edge_id_for(later, earlier),
+        endpoint_a=later,
+        endpoint_b=earlier,
+        a_to_b=RelationshipDirection(
+            multiplicity=Multiplicity.MANY_TO_ONE,
+            match_existence=MatchExistence.UNKNOWN,
+        ),
+        b_to_a=RelationshipDirection(
+            multiplicity=Multiplicity.ONE_TO_MANY,
+            match_existence=MatchExistence.OPTIONAL,
+        ),
+    )
+
+    assert relationship.endpoint_a.node_id == "dataset:a"
+    assert relationship.unknown_fields() == ["b_to_a.match_existence"]
+    assert relationship.unknown_fields_from("dataset:z") == ["direction.match_existence"]
+    assert relationship.unknown_fields_from("dataset:a") == [
+        "reverse_direction.match_existence"
+    ]

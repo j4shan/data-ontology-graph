@@ -1,4 +1,4 @@
-schema_version: '2'
+schema_version: '3'
 logical_identities:
   account_identity:
     name: Account identity
@@ -25,7 +25,7 @@ logical_identities:
     name: Transaction identity
     description: Identifies an account transaction.
 nodes:
-- node_id: sql_db:financial.account
+- node_id: sqlite:financial.account
   descriptor:
     qualified_name: financial.main.account
     display_name: account
@@ -37,9 +37,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: account
-      format: sqlite
   grain:
     components:
     - identity_id: account_identity
@@ -72,7 +73,7 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: district_identity
     dataset_columns:
     - district_id
@@ -80,8 +81,8 @@ nodes:
     - '[district_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
-- node_id: sql_db:financial.card
+    entity_universe: unknown
+- node_id: sqlite:financial.card
   descriptor:
     qualified_name: financial.main.card
     display_name: card
@@ -91,9 +92,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: card
-      format: sqlite
   grain:
     components:
     - identity_id: card_identity
@@ -123,7 +125,7 @@ nodes:
     - '[card_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: disposition_identity
     dataset_columns:
     - disp_id
@@ -131,8 +133,8 @@ nodes:
     - '[disp_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
-- node_id: sql_db:financial.client
+    entity_universe: unknown
+- node_id: sqlite:financial.client
   descriptor:
     qualified_name: financial.main.client
     display_name: client
@@ -144,9 +146,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: client
-      format: sqlite
   grain:
     components:
     - identity_id: client_identity
@@ -172,7 +175,7 @@ nodes:
     - '[client_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: district_identity
     dataset_columns:
     - district_id
@@ -180,8 +183,8 @@ nodes:
     - '[district_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
-- node_id: sql_db:financial.disp
+    entity_universe: unknown
+- node_id: sqlite:financial.disp
   descriptor:
     qualified_name: financial.main.disp
     display_name: disp
@@ -193,9 +196,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: disp
-      format: sqlite
   grain:
     components:
     - identity_id: disposition_identity
@@ -225,7 +229,7 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: client_identity
     dataset_columns:
     - client_id
@@ -233,7 +237,7 @@ nodes:
     - '[client_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: disposition_identity
     dataset_columns:
     - disp_id
@@ -241,8 +245,8 @@ nodes:
     - '[disp_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
-- node_id: sql_db:financial.district
+    entity_universe: unknown
+- node_id: sqlite:financial.district
   descriptor:
     qualified_name: financial.main.district
     display_name: district
@@ -252,9 +256,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: district
-      format: sqlite
   grain:
     components:
     - identity_id: district_identity
@@ -332,8 +337,8 @@ nodes:
     - '[district_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: true
-- node_id: sql_db:financial.loan
+    entity_universe: complete
+- node_id: sqlite:financial.loan
   descriptor:
     qualified_name: financial.main.loan
     display_name: loan
@@ -343,9 +348,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: loan
-      format: sqlite
   grain:
     components:
     - identity_id: loan_identity
@@ -386,7 +392,7 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: loan_identity
     dataset_columns:
     - loan_id
@@ -394,8 +400,8 @@ nodes:
     - '[loan_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
-- node_id: sql_db:financial.order
+    entity_universe: unknown
+- node_id: sqlite:financial.order
   descriptor:
     qualified_name: financial.main.order
     display_name: order
@@ -405,9 +411,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: order
-      format: sqlite
   grain:
     components:
     - identity_id: order_identity
@@ -450,7 +457,7 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: order_identity
     dataset_columns:
     - order_id
@@ -458,8 +465,8 @@ nodes:
     - '[order_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
-- node_id: sql_db:financial.trans
+    entity_universe: unknown
+- node_id: sqlite:financial.trans
   descriptor:
     qualified_name: financial.main.trans
     display_name: trans
@@ -471,9 +478,10 @@ nodes:
   accessor:
     schema_id: accessor.sqlite.v1
     properties:
-      path: resources/data/dev_databases/financial/financial.sqlite
+      host: localhost
+      database_path: /Users/Shared/sqlite/financial.sqlite
+      schema: main
       object: trans
-      format: sqlite
   grain:
     components:
     - identity_id: transaction_identity
@@ -554,7 +562,7 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
   - identity_id: transaction_identity
     dataset_columns:
     - trans_id
@@ -562,15 +570,15 @@ nodes:
     - '[trans_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    is_entity_universe: false
+    entity_universe: unknown
 edges:
 - endpoint_a:
-    node_id: sql_db:financial.account
+    node_id: sqlite:financial.account
     identity_id: district_identity
     dataset_columns:
     - district_id
   endpoint_b:
-    node_id: sql_db:financial.district
+    node_id: sqlite:financial.district
     identity_id: district_identity
     dataset_columns:
     - district_id
@@ -581,12 +589,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.card
+    node_id: sqlite:financial.card
     identity_id: disposition_identity
     dataset_columns:
     - disp_id
   endpoint_b:
-    node_id: sql_db:financial.disp
+    node_id: sqlite:financial.disp
     identity_id: disposition_identity
     dataset_columns:
     - disp_id
@@ -597,12 +605,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.client
+    node_id: sqlite:financial.client
     identity_id: district_identity
     dataset_columns:
     - district_id
   endpoint_b:
-    node_id: sql_db:financial.district
+    node_id: sqlite:financial.district
     identity_id: district_identity
     dataset_columns:
     - district_id
@@ -613,12 +621,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.disp
+    node_id: sqlite:financial.disp
     identity_id: account_identity
     dataset_columns:
     - account_id
   endpoint_b:
-    node_id: sql_db:financial.account
+    node_id: sqlite:financial.account
     identity_id: account_identity
     dataset_columns:
     - account_id
@@ -629,12 +637,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.disp
+    node_id: sqlite:financial.disp
     identity_id: client_identity
     dataset_columns:
     - client_id
   endpoint_b:
-    node_id: sql_db:financial.client
+    node_id: sqlite:financial.client
     identity_id: client_identity
     dataset_columns:
     - client_id
@@ -645,12 +653,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.loan
+    node_id: sqlite:financial.loan
     identity_id: account_identity
     dataset_columns:
     - account_id
   endpoint_b:
-    node_id: sql_db:financial.account
+    node_id: sqlite:financial.account
     identity_id: account_identity
     dataset_columns:
     - account_id
@@ -661,12 +669,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.order
+    node_id: sqlite:financial.order
     identity_id: account_identity
     dataset_columns:
     - account_id
   endpoint_b:
-    node_id: sql_db:financial.account
+    node_id: sqlite:financial.account
     identity_id: account_identity
     dataset_columns:
     - account_id
@@ -677,12 +685,12 @@ edges:
     multiplicity: 1:many
     match_existence: optional
 - endpoint_a:
-    node_id: sql_db:financial.trans
+    node_id: sqlite:financial.trans
     identity_id: account_identity
     dataset_columns:
     - account_id
   endpoint_b:
-    node_id: sql_db:financial.account
+    node_id: sqlite:financial.account
     identity_id: account_identity
     dataset_columns:
     - account_id

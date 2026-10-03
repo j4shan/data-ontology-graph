@@ -15,7 +15,7 @@ Query-time consumers load the current published offline artifact; they do not re
 
 A dataset node describes one addressable dataset. It contains a dataset
 descriptor, a schema-identified accessor with provider-specific JSON
-properties, relevant columns, zero or one grain, and registered entity
+properties, relevant columns, one grain that may be explicitly unknown, and registered entity
 definitions. It does not reproduce a source catalog's SQL keys or other
 database primitives. The initial-release adoption boundary is the
 [Data Modeling Spec](../product/data/data-modeling-spec.md).
@@ -26,7 +26,7 @@ A logical identity represents one business identity independently of its
 physical encoding. A node entity definition records one realization using the
 compound identity `(node_id, identity_id, dataset_columns)`. It carries one
 or more unrestricted entity-expression labels, entity metadata, and its own
-`is_entity_universe` value.
+`entity_universe` status.
 
 ### 1.3 Bidirectional relationship
 
@@ -42,11 +42,13 @@ entity expressions and expression context remain on the connected nodes. The
 [Data Modeling Spec](../product/data/data-modeling-spec.md) defines the target
 contract.
 
-### 1.5 Confirmed, unknown, and unassessed
+### 1.5 Confirmed and unknown
 
-The graph distinguishes confirmed classification, explicit unknown, and absent
-unassessed facets. Absence is not negative evidence and is not permission to
-aggregate, group, or join.
+The graph distinguishes confirmed classification from explicit unknown. Typed
+claims are required and state unknown through their own `unknown` value.
+Descriptive text is free text and carries no unknown state of its own. Unknown
+and absence are not negative evidence and are not permission to aggregate,
+group, or join.
 
 ### 1.7 Current snapshot artifact
 
@@ -59,7 +61,7 @@ artifact without rebuilding sources.
 
 The initial-release target conforms to the
 [Data Modeling Spec](../product/data/data-modeling-spec.md).
-[project-description.md](../../project-description.md) Part 1 records the
+[project-description.md](../project_description/project-description.md) Part 1 records the
 legacy inference schema retained for compatibility.
 
 ### 1.9 Snapshot is read-only

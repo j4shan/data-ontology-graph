@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from typing import Any
 
+from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -111,6 +112,7 @@ class GraphReadService:
             endpoint_b=self._resolved_endpoint(edge.endpoint_b.identity_key()),
             a_to_b=edge.a_to_b.model_dump(mode="json"),
             b_to_a=edge.b_to_a.model_dump(mode="json"),
+            unknown_fields=edge.unknown_fields(),
             annotation=annotation.model_dump(mode="json") if annotation else None,
         )
 
@@ -129,6 +131,7 @@ class GraphReadService:
                     to_endpoint=self._resolved_endpoint(other.identity_key()),
                     direction=edge.direction_from(node_id).model_dump(mode="json"),
                     reverse_direction=edge.direction_from(other.node_id).model_dump(mode="json"),
+                    unknown_fields=edge.unknown_fields_from(node_id),
                 )
             )
         return hops
@@ -225,12 +228,6 @@ class GraphReadService:
         found.sort(
             key=lambda path: (
                 len(path),
-                -sum(
-                    self.index.annotations.get(edge.edge_id).weight
-                    if edge.edge_id in self.index.annotations
-                    else 1.0
-                    for _, _, edge in path
-                ),
                 tuple(edge.edge_id for _, _, edge in path),
             )
         )
@@ -252,6 +249,11 @@ class GraphReadService:
                                 edge.endpoint(target).identity_key()
                             ),
                             "direction": edge.direction_from(source).model_dump(mode="json"),
+                            "unknown_fields": [
+                                field
+                                for field in edge.unknown_fields_from(source)
+                                if field.startswith("direction.")
+                            ],
                         }
                         for source, target, edge in path
                     ],
@@ -288,11 +290,10 @@ class GraphReadService:
             node_id=node.node_id,
             descriptor=node.descriptor.model_dump(mode="json"),
             accessor=node.accessor.model_dump(mode="json", by_alias=True),
-            grain=node.grain.model_dump(mode="json") if node.grain else None,
+            grain=node.model_dump(mode="json", include={"grain"})["grain"],
             columns=[item.model_dump(mode="json") for item in node.columns],
-            entity_definitions=[
-                item.model_dump(mode="json") for item in node.entity_definitions
-            ],
+            entity_definitions=[_claim_payload(item) for item in node.entity_definitions],
+            unknown_fields=node.unknown_fields(),
         )
 
     def _resolved_definition(
@@ -307,7 +308,7 @@ class GraphReadService:
                 "descriptor": node.descriptor.model_dump(mode="json"),
                 "accessor": node.accessor.model_dump(mode="json", by_alias=True),
             },
-            **definition.model_dump(mode="json"),
+            **_claim_payload(definition),
         }
 
     def _resolved_endpoint(self, key: DefinitionKey) -> dict[str, Any]:
@@ -316,3 +317,8 @@ class GraphReadService:
         except KeyError as error:
             raise KeyError(f"unresolved entity definition {key}") from error
         return self._resolved_definition(key[0], definition)
+
+
+def _claim_payload(subject: ClaimModel) -> dict[str, Any]:
+    """Serialize an object with its unknown claims resolved for the caller."""
+    return {**subject.model_dump(mode="json"), "unknown_fields": subject.unknown_fields()}

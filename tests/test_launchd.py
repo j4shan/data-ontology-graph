@@ -16,7 +16,7 @@ from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINANCIAL = ROOT / "resources" / "data" / "dev_overlays" / "financial" / "catalog.yaml"
+FINANCIAL = ROOT / "tests" / "fixtures" / "financial" / "catalog.yaml"
 
 
 def test_launchd_payload_pins_snapshot_and_socket(tmp_path: Path) -> None:

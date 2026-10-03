@@ -148,6 +148,15 @@
       "title": "EntityDefinitionReference",
       "type": "object"
     },
+    "EntityUniverse": {
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ],
+      "title": "EntityUniverse",
+      "type": "string"
+    },
     "GrainComponent": {
       "additionalProperties": false,
       "properties": {
@@ -206,20 +215,19 @@
           "title": "Entity Metadata",
           "type": "object"
         },
+        "entity_universe": {
+          "$ref": "#/$defs/EntityUniverse"
+        },
         "identity_id": {
           "minLength": 1,
           "title": "Identity Id",
           "type": "string"
-        },
-        "is_entity_universe": {
-          "title": "Is Entity Universe",
-          "type": "boolean"
         }
       },
       "required": [
         "identity_id",
         "dataset_columns",
-        "is_entity_universe"
+        "entity_universe"
       ],
       "title": "IntermediaryEntityDefinition",
       "type": "object"
@@ -254,12 +262,13 @@
               "$ref": "#/$defs/DatasetGrain"
             },
             {
-              "type": "null"
+              "$ref": "#/$defs/Unknown"
             }
           ],
-          "default": null
+          "title": "Grain"
         },
         "node_id": {
+          "description": "Stable dataset identity in the form <accessor-family>:<catalog>.<object>, where accessor-family is the middle segment of accessor.schema_id. Keep the value stable while the dataset remains at the same access location; a dataset served through a different accessor family is a different node.",
           "minLength": 1,
           "title": "Node Id",
           "type": "string"
@@ -269,6 +278,7 @@
         "node_id",
         "descriptor",
         "accessor",
+        "grain",
         "columns"
       ],
       "title": "IntermediaryNode",
@@ -363,6 +373,14 @@
       ],
       "title": "RelationshipDefinition",
       "type": "object"
+    },
+    "Unknown": {
+      "description": "Explicit unknown for a structured claim, such as a grain, that has no enum of its own.",
+      "enum": [
+        "unknown"
+      ],
+      "title": "Unknown",
+      "type": "string"
     }
   },
   "additionalProperties": false,
@@ -391,7 +409,7 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "2",
+      "const": "3",
       "title": "Schema Version",
       "type": "string"
     }

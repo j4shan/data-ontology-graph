@@ -16,7 +16,7 @@ sessionless JSON-RPC tools over a Unix-domain socket.
 The product requirements are in the [project PRD](project_metadata/product/backend/project-prd.md)
 and the [Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md).
 Detailed contracts live in [`project_metadata/product_spec/`](project_metadata/product_spec/).
-[`project-description.md`](project-description.md) records the retired legacy inference model for
+[`project-description.md`](project_metadata/project_description/project-description.md) records the retired legacy inference model for
 historical context.
 
 ## Setup
@@ -37,22 +37,54 @@ lockfile. `--extra dev` also installs `pytest`; without it, tests will not run.
 
 ## YAML intermediary
 
-The initial target build path reads a finalized YAML directory, assembles its files
-deterministically, validates the result before ingestion, and materializes only the relationships
-defined there. The governed JSON
-Schema and examples are under [`resources/schema/`](resources/schema/); the financial
-reference is [`resources/data/dev_overlays/financial/catalog.yaml`](resources/data/dev_overlays/financial/catalog.yaml).
+The initial target build path reads a finalized YAML directory through its sibling
+`directory-manifest.yaml`, assembles the three collection types deterministically, validates the
+result before ingestion, and materializes only the relationships defined there. The governed JSON
+Schemas are under [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
+governs the manifest and `intermediary.schema.json` governs the assembled document. The financial
+unit-test fixture remains a supported single-file catalog at
+[`tests/fixtures/financial/catalog.yaml`](tests/fixtures/financial/catalog.yaml).
+Test data sources, reviewed reference catalogs, published artifacts, and AKG evaluation live in the
+sibling [Critic](../critic/) project.
 
 ```python
 from data_ontology_graph.builder import build_snapshot_from_yaml
 
 snapshot, report, findings = build_snapshot_from_yaml(
-    "path/to/finalized-yaml-directory"
+    "path/to/catalog/yaml"
 )
 ```
 
-Single-file input remains available. A finalized directory may contain only
-`.yaml` and `.yml` files; duplicate or conflicting definitions block construction.
+A directory catalog has this layout:
+
+```text
+catalog/
+├── directory-manifest.yaml
+└── yaml/
+    ├── identities.yaml
+    ├── customers.yaml
+    ├── orders.yaml
+    └── relationships.yaml
+```
+
+The manifest uses schema version `"3"` and names every collection file relative to `yaml/`:
+
+```yaml
+schema_version: "3"
+logical_identities: identities.yaml
+nodes:
+  - customers.yaml
+  - orders.yaml
+edges: relationships.yaml
+```
+
+Each listed file also declares schema version `"3"` and contains exactly its named collection.
+The identity and edge collections each have one owner file. One or more node files partition the
+single assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
+YAML directory, mixed collection ownership, and conflicting schema versions block construction.
+A finalized YAML directory may contain only `.yaml` and `.yml` files.
+
+Single-file input remains available and is validated directly as an assembled intermediary.
 
 The target path does not read SQLite catalogs, infer relationships, decompose composite
 primary keys, or apply overlays. Source translation and authoring happen before this gate.
@@ -72,12 +104,12 @@ stable directory:
 ```console
 data-ontology-graph-publish \
   --yaml-dir path/to/finalized-yaml-directory \
-  --artifact-dir data/current-graph
+  --artifact-dir path/to/current-graph
 ```
 
 ```bash
 data-ontology-graph-server \
-  --snapshot-dir data/current-graph \
+  --snapshot-dir path/to/current-graph \
   --socket /tmp/data-ontology-graph.sock
 ```
 
@@ -103,7 +135,7 @@ paths, then let `launchd` start the daemon:
 
 ```bash
 data-ontology-graph-launchd install \
-  --snapshot-dir data/current-graph \
+  --snapshot-dir path/to/current-graph \
   --socket /tmp/data-ontology-graph.sock \
   --log-dir "$HOME/Library/Logs/data-ontology-graph" \
   --output "$HOME/Library/LaunchAgents/com.data-ontology-graph.service.plist"
@@ -113,7 +145,7 @@ The service starts at login and restarts after unexpected failure. After publish
 artifact, restart the in-memory daemon with:
 
 ```console
-data-ontology-graph-launchd reload --snapshot-dir data/current-graph
+data-ontology-graph-launchd reload --snapshot-dir path/to/current-graph
 ```
 
 The lifecycle command also supports `start`, `status`, and `uninstall`. It uses the configured

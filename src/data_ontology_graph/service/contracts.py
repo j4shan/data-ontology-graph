@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from data_ontology_graph.model.enums import Unknown
+
 
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -30,6 +32,7 @@ class SearchSubject(ContractModel):
     identity_id: str | None = None
     dataset_columns: list[str] = Field(default_factory=list)
     column_name: str | None = None
+    unknown_fields: list[str] = Field(default_factory=list)
 
 
 class SearchHit(ContractModel):
@@ -100,9 +103,10 @@ class DatasetDetail(ContractModel):
     node_id: str
     descriptor: dict[str, Any]
     accessor: dict[str, Any]
-    grain: dict[str, Any] | None
+    grain: dict[str, Any] | Unknown
     columns: list[dict[str, Any]]
     entity_definitions: list[dict[str, Any]]
+    unknown_fields: list[str]
 
 
 class RelationshipDetail(ContractModel):
@@ -112,6 +116,7 @@ class RelationshipDetail(ContractModel):
     endpoint_b: dict[str, Any]
     a_to_b: dict[str, Any]
     b_to_a: dict[str, Any]
+    unknown_fields: list[str]
     annotation: dict[str, Any] | None
 
 
@@ -124,6 +129,7 @@ class HopDetail(ContractModel):
     to_endpoint: dict[str, Any]
     direction: dict[str, Any]
     reverse_direction: dict[str, Any]
+    unknown_fields: list[str]
 
 
 class SubgraphResponse(ContractModel):

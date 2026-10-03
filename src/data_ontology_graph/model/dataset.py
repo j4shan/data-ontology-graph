@@ -1,6 +1,10 @@
-from typing import Any
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+
+from data_ontology_graph.model.claims import ClaimModel
+from data_ontology_graph.model.enums import EntityUniverse, Unknown
 
 
 class StrictModel(BaseModel):
@@ -53,9 +57,27 @@ class SnowflakeAccessorProperties(StrictModel):
 
 
 class SqliteAccessorProperties(StrictModel):
-    path: str = Field(min_length=1)
+    """Recipe for an external SQLite client to locate one table or view.
+
+    SQLite has no server: ``host`` names the machine that holds the database file, and
+    ``database_path`` is the absolute path a client on that host opens. ``schema`` and
+    ``object`` form the fully qualified name, where ``main`` is the directly opened file.
+    Credentials never belong in an accessor.
+    """
+
+    host: str = Field(min_length=1)
+    database_path: str = Field(min_length=1)
+    schema_name: str = Field(alias="schema", min_length=1)
     object: str = Field(min_length=1)
-    format: str = "sqlite"
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    @field_validator("database_path")
+    @classmethod
+    def database_path_must_be_absolute(cls, value: str) -> str:
+        if not (PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()):
+            raise ValueError("database_path must be an absolute path on the accessor host")
+        return value
 
 
 ACCESSOR_PROPERTY_SCHEMAS: dict[str, type[BaseModel]] = {
@@ -109,10 +131,12 @@ class DatasetGrain(StrictModel):
     description: str = ""
 
 
-class EntityDefinition(StrictModel):
+class EntityDefinition(ClaimModel):
+    claim_fields: ClassVar[tuple[str, ...]] = ("entity_universe",)
+
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
-    is_entity_universe: bool
+    entity_universe: EntityUniverse
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -145,11 +169,13 @@ class EntityDefinition(StrictModel):
         return (node_id, self.identity_id, tuple(self.dataset_columns))
 
 
-class DatasetNode(StrictModel):
+class DatasetNode(ClaimModel):
+    claim_fields: ClassVar[tuple[str, ...]] = ("grain",)
+
     node_id: str = Field(min_length=1)
     descriptor: DatasetDescriptor
     accessor: DatasetAccessor
-    grain: DatasetGrain | None = None
+    grain: DatasetGrain | Unknown
     columns: list[ColumnMetadata] = Field(min_length=1)
     entity_definitions: list[EntityDefinition] = Field(default_factory=list)
 
@@ -182,7 +208,7 @@ class DatasetNode(StrictModel):
             definition_keys.add(key)
             definitions_by_identity.setdefault(definition.identity_id, []).append(definition)
 
-        if self.grain is not None:
+        if isinstance(self.grain, DatasetGrain):
             for component in self.grain.components:
                 missing = [column for column in component.dataset_columns if column not in inventory]
                 if missing:

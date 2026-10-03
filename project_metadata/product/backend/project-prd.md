@@ -34,7 +34,10 @@ The initial product responsibility is to validate, persist, and serve knowledge 
 
 The AKG remains a downstream reasoning concept. This project supplies graph evidence but does not
 define an AKG artifact schema, score an assembled AKG, or benchmark whether a GenAI system becomes
-more accurate after using the tools. That evaluation is TBD in a separate project.
+more accurate after using the tools. That evaluation belongs to the independent sibling project
+[Critic](../../../../critic/), which treats this project as an actor under evaluation. Critic owns
+the AKG submission schema, test data sources, gold AKGs, scoring criteria, and versioned artifact
+and result storage.
 
 ### 2.4 Local knowledge delivery and update model
 
@@ -84,14 +87,14 @@ task-level benchmarking are lower-priority work rather than initial-release gate
 | 3.3.3 | The representation must retain physical dataset identity and preserve unknown or unassessed knowledge, so unification does not imply unsupported equivalence or certainty. |
 | 3.3.4 | A global logical identity registry must represent each business identity and locate its node-scoped entity definitions across datasets and systems. Each entity definition is identified by its node, logical identity, and canonical dataset-column set. |
 | 3.3.5 | A relationship edge must connect two registered entity definitions of the same logical identity. Edge construction uses explicit YAML endpoint references; column-name matching and exhaustive decomposition of composite keys do not define relationships in the target model. |
-| 3.3.6 | The YAML node and edge definitions, and the machine-readable schema that governs them, must be maintained as source-controlled source-of-truth artifacts. |
-| 3.3.7 | A schema validator must gate ingestion. YAML that does not conform to the source-controlled schema is rejected with actionable findings before graph construction begins. |
-| 3.3.8 | Every provisioning mode must produce a complete intermediary YAML artifact. The builder does not merge DDL metadata with overrides or apply runtime overlay precedence. |
-| 3.3.9 | Each graph-builder invocation must accept a configurable operating-system path to a finalized YAML directory and treat that directory as its complete build input. |
+| 3.3.6 | The manifest, YAML logical-identity, node, and edge definitions, and the machine-readable schemas governing the manifest and assembled intermediary must be maintained as source-controlled source-of-truth artifacts. |
+| 3.3.7 | Schema and contract validation must gate ingestion. A manifest, collection file, or assembled intermediary that violates its source-controlled contract is rejected with actionable findings before graph construction begins. |
+| 3.3.8 | Every provisioning mode must produce one complete intermediary: either one assembled YAML file or a finalized YAML directory whose sibling manifest inventories separate logical-identity, node, and edge collection files. The builder does not merge DDL metadata with overrides or apply runtime overlay precedence. |
+| 3.3.9 | Each graph-builder invocation must accept a configurable operating-system path to an assembled YAML file or a finalized YAML directory. For directory input, the fixed sibling `directory-manifest.yaml` is the authoritative inventory, and the builder must load only its listed collection files as one complete build input. |
 | 3.3.10 | The graph builder must map only definitions conforming to the project-scoped YAML schema into the internal graph metadata and persistence representation. It must not accept SQL DDL, source catalogs, or any other external definition format as an alternative construction input. |
 | 3.3.11 | Every dataset node must expose a descriptor with a fully qualified dataset name and a generic accessor envelope whose `schema_id` selects validation for its provider-specific JSON properties. |
 | 3.3.12 | Entity-universe status must be scoped to an entity definition. A dataset node may contain multiple entity definitions with different universe status. |
-| 3.3.13 | A dataset node has zero or one grain object. Its components collectively describe one record boundary; different record boundaries require different dataset nodes. |
+| 3.3.13 | A dataset node has exactly one `grain`: a grain object whose components collectively describe one record boundary, or the explicit value `unknown`. Omission is invalid, and `unknown` is preserved in the persisted node. Different record boundaries require different dataset nodes. |
 
 ## 4. Product acceptance approach
 
@@ -112,8 +115,9 @@ These checks verify the graph product itself. They do not benchmark a consuming 
 | 5.1.3 | **Human authorization:** enable human subject matter experts to approve knowledge assets collected by agents. |
 | 5.1.4 | **Data statistics integration:** collect, persist, and serve statistics for AKG assembly and define acceptable variance for their evaluation. |
 | 5.1.5 | **Online knowledge store:** optionally serve knowledge through a networked store without changing the immutable offline-copy contract for local agents. |
-| 5.1.6 | **External-definition preparation:** provide upstream tooling that transforms external data definitions and human or agent feedback into complete project-schema YAML for graph-builder consumption. Agent-prepared definitions pass the same validation and batch publication quality gates as manually authored definitions. |
+| 5.1.6 | **External-definition preparation (agent skill A):** provide an agent skill with parsing tools that transforms specific types of external data definitions, plus human or agent feedback, into complete project-schema YAML for graph-builder consumption. Agent-prepared definitions pass the same validation and batch publication quality gates as manually authored definitions. |
 | 5.1.7 | **Retrieval instrumentation:** optionally collect response-byte counts, tool-call traces, task-level context totals, and related measurements for monitoring or service-level benchmarking. Instrumentation must not determine graph response semantics. |
+| 5.1.8 | **AKG guidance (agent skill B):** provide an agent skill combined with the graph service, packaged as a local MCP server or plugin, that guides an AI agent through search, lookup, and navigation to output a task-specific AKG. The skill exposes the existing sessionless tool contract; it does not add server-side reasoning state. |
 
 These capabilities are outside the initial release goals. Event subscription may inform a later batch, but never refreshes a published offline copy in place.
 
@@ -121,6 +125,10 @@ The initial non-normative proposal for 5.1.6 is a bundle of agent skills shipped
 tools and authoring instructions. The bundle would parse external definitions such as SQL DDL and
 guide an agent in creating or refining the YAML files. It would not add another input format to the
 graph builder.
+
+Skills A and B are the next planned work. Critic measures both: skill B's AKG output against
+Critic's gold AKGs, and later skill A's YAML against Critic's reference catalogs. Where skill B
+emits an AKG for evaluation, it targets Critic's published submission schema.
 
 ## 6. Non-goal
 
@@ -133,4 +141,5 @@ graph builder.
 | 6.1.5 | The graph service does not generate or validate SQL, join predicates, recommended SQL join types, or executable queries. |
 | 6.1.6 | The graph service does not provide generalized semantic-similarity or full-text search. An orchestrating agent may use separate enterprise search tools to obtain canonical terms or IDs before calling the graph service. |
 | 6.1.7 | The initial release does not retain client sessions or accept caller-held subgraphs, traversal frontiers, partially assembled AKGs, or other intermediary results as inputs to later tool calls. |
-| 6.1.8 | This project does not define an AKG evaluation artifact or benchmark the graph tools' effect on downstream GenAI or SQL-query accuracy. That work is TBD in a separate project. |
+| 6.1.8 | This project does not define an AKG evaluation artifact or benchmark the graph tools' effect on downstream GenAI or SQL-query accuracy. That work belongs to Critic. |
+| 6.1.9 | This repository stores source code, schema, and unit-test fixtures. It does not version test data sources, generated graph artifacts, or evaluation results; Critic stores those. |
