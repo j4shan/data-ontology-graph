@@ -66,7 +66,7 @@ The baseline above was checked against the [dataset model](../../src/data_ontolo
 
 ## 3. Financial catalog study
 
-The BIRD Mini-Dev `financial` catalog provides a focused study subject for the gaps above. Its SQLite database and eight [database-description CSV files](../../../critic/resources/data/dev_databases/financial/database_description/) live in Critic and describe 55 physical columns. The builder reads only prepared YAML: this repository's [financial unit-test fixture](../../tests/fixtures/financial/catalog.yaml) and Critic's reviewed [reference catalog](../../../critic/resources/data/reference_catalogs/financial/catalog.yaml).
+The BIRD Mini-Dev `financial` catalog was the study subject for the gaps below: eight datasets and 55 physical columns. Critic has removed that catalog from the assessment corpus because it is too small for ontology assessment. This repository still keeps the [financial unit-test fixture](../../tests/fixtures/financial/catalog.yaml) for builder tests. The observations below were taken from the SQLite database and description files when those sources were available.
 
 | Observation | Example and implication |
 | --- | --- |
