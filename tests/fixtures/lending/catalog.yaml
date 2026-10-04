@@ -1,0 +1,340 @@
+# Synthetic `lending` catalog for graph unit tests. Every identifier here belongs to
+# this catalog only; it describes no real data source.
+schema_version: '3'
+logical_identities:
+  account_identity:
+    name: Account identity
+    description: Identifies a deposit account.
+  customer_identity:
+    name: Customer identity
+    description: Identifies a lending customer.
+  holder_identity:
+    name: Account holder identity
+    description: Identifies one customer's role on one account.
+  loan_identity:
+    name: Loan identity
+    description: Identifies a loan contract.
+  region_identity:
+    name: Region identity
+    description: Identifies a service region.
+nodes:
+- node_id: sqlite:lending.account
+  descriptor:
+    qualified_name: lending.main.account
+    display_name: account
+    description: Lending fixture account dataset.
+    synonyms:
+    - accounts
+    - deposit account
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      host: localhost
+      database_path: /srv/fixtures/lending.sqlite
+      schema: main
+      object: account
+  grain:
+    components:
+    - identity_id: account_identity
+      dataset_columns:
+      - account_id
+  columns:
+  - name: account_id
+    description: the id of the account
+    synonyms:
+    - account id
+  - name: region_id
+    description: region of the opening branch
+    synonyms:
+    - opening region
+  - name: statement_cycle
+    description: how often statements are issued
+    value_description: '"M" stands for monthly statements
+
+      "Q" stands for quarterly statements'
+  - name: opened_on
+    description: the date the account was opened
+    value_description: in the form YYYY-MM-DD
+  entity_definitions:
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+  - identity_id: region_identity
+    dataset_columns:
+    - region_id
+    entity_expression:
+    - '[region_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+- node_id: sqlite:lending.account_holder
+  descriptor:
+    qualified_name: lending.main.account_holder
+    display_name: account_holder
+    description: Lending fixture customer-to-account bridge.
+    synonyms:
+    - holder
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      host: localhost
+      database_path: /srv/fixtures/lending.sqlite
+      schema: main
+      object: account_holder
+  grain:
+    components:
+    - identity_id: holder_identity
+      dataset_columns:
+      - holder_id
+  columns:
+  - name: holder_id
+    description: the id of the holder record
+  - name: customer_id
+    description: the customer holding the account
+  - name: account_id
+    description: the account being held
+  - name: role
+    description: the customer's role on the account
+    value_description: '"OWNER" or "DELEGATE"'
+  entity_definitions:
+  - identity_id: holder_identity
+    dataset_columns:
+    - holder_id
+    entity_expression:
+    - '[holder_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_expression:
+    - '[customer_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+- node_id: sqlite:lending.customer
+  descriptor:
+    qualified_name: lending.main.customer
+    display_name: customer
+    description: Lending fixture customer dataset.
+    synonyms:
+    - client
+    - clients
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      host: localhost
+      database_path: /srv/fixtures/lending.sqlite
+      schema: main
+      object: customer
+  grain:
+    components:
+    - identity_id: customer_identity
+      dataset_columns:
+      - customer_id
+  columns:
+  - name: customer_id
+    description: the id of the customer
+    synonyms:
+    - customer id
+  - name: region_id
+    description: home region of the customer
+  - name: segment
+    description: customer segment
+    value_description: '"R" stands for retail'
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_expression:
+    - '[customer_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+  - identity_id: region_identity
+    dataset_columns:
+    - region_id
+    entity_expression:
+    - '[region_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+- node_id: sqlite:lending.loan
+  descriptor:
+    qualified_name: lending.main.loan
+    display_name: loan
+    description: Lending fixture loan dataset.
+    synonyms:
+    - loans
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      host: localhost
+      database_path: /srv/fixtures/lending.sqlite
+      schema: main
+      object: loan
+  grain:
+    components:
+    - identity_id: loan_identity
+      dataset_columns:
+      - loan_id
+  columns:
+  - name: loan_id
+    description: the id of the loan
+  - name: account_id
+    description: the account that repays the loan
+  - name: amount
+    description: approved loan amount
+  - name: term
+    description: repayment term
+    value_description: 'unit: month'
+  entity_definitions:
+  - identity_id: loan_identity
+    dataset_columns:
+    - loan_id
+    entity_expression:
+    - '[loan_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+  - identity_id: account_identity
+    dataset_columns:
+    - account_id
+    entity_expression:
+    - '[account_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: unknown
+- node_id: sqlite:lending.region
+  descriptor:
+    qualified_name: lending.main.region
+    display_name: region
+    description: Lending fixture region dataset.
+    synonyms:
+    - regions
+    tags: []
+  accessor:
+    schema_id: accessor.sqlite.v1
+    properties:
+      host: localhost
+      database_path: /srv/fixtures/lending.sqlite
+      schema: main
+      object: region
+  grain:
+    components:
+    - identity_id: region_identity
+      dataset_columns:
+      - region_id
+  columns:
+  - name: region_id
+    description: the id of the region
+  - name: region_name
+    description: the region name
+  entity_definitions:
+  - identity_id: region_identity
+    dataset_columns:
+    - region_id
+    entity_expression:
+    - '[region_id]'
+    entity_metadata:
+      expression_context: SQLite column reference
+    entity_universe: complete
+edges:
+- endpoint_a:
+    node_id: sqlite:lending.account
+    identity_id: region_identity
+    dataset_columns:
+    - region_id
+  endpoint_b:
+    node_id: sqlite:lending.region
+    identity_id: region_identity
+    dataset_columns:
+    - region_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: unknown
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sqlite:lending.account_holder
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  endpoint_b:
+    node_id: sqlite:lending.account
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: always
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: always
+- endpoint_a:
+    node_id: sqlite:lending.account_holder
+    identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+  endpoint_b:
+    node_id: sqlite:lending.customer
+    identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: always
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: always
+- endpoint_a:
+    node_id: sqlite:lending.customer
+    identity_id: region_identity
+    dataset_columns:
+    - region_id
+  endpoint_b:
+    node_id: sqlite:lending.region
+    identity_id: region_identity
+    dataset_columns:
+    - region_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: always
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional
+- endpoint_a:
+    node_id: sqlite:lending.loan
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  endpoint_b:
+    node_id: sqlite:lending.account
+    identity_id: account_identity
+    dataset_columns:
+    - account_id
+  a_to_b:
+    multiplicity: many:1
+    match_existence: always
+  b_to_a:
+    multiplicity: 1:many
+    match_existence: optional

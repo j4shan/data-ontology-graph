@@ -2,8 +2,9 @@
 
 ## 1. Purpose and scope
 
-This document defines the product requirements for agent skills that prepare finalized YAML for
-the graph builder. A directory catalog has a
+This document defines the product requirements for the `ddl_collector` package and source-family
+agent skills in the top-level `skills/` directory. They prepare finalized YAML for the graph
+builder. A directory catalog has a
 [`directory-manifest.yaml`](../../resources/schema/intermediary-directory.schema.json) beside its
 `yaml/` directory and separate collection files inside that directory. The builder assembles those
 files and validates the result against
@@ -35,7 +36,7 @@ source.
 
 | ID | Requirement |
 | --- | --- |
-| 3.1.1 | All data-source preparation skills must be tracked beneath one common skills directory. |
+| 3.1.1 | The `ddl_collector` package must live beside the graph core and provide shared preparation tools; all data-source preparation skills must be tracked beneath the top-level `skills/` directory. |
 | 3.1.2 | The project must use a one-skill-per-data-source-family structure. Each skill directory must contain the instructions and bundled resources for exactly one source family, such as SQLite. |
 | 3.1.3 | Every skill directory must contain a `SKILL.md`. Its instructions must link to the target [`intermediary.schema.json`](../../resources/schema/intermediary.schema.json) and require the agent to consult that schema before preparing or validating YAML. |
 | 3.1.4 | Each skill must bundle the tools needed for its three goals: a source-appropriate DDL parser, a readable and fillable survey template, and source-appropriate read-only query templates and commands. |
@@ -148,7 +149,7 @@ without consulting a schema owner.
 | 7.1.2 | Supported statuses must distinguish at least open, answered, unknown, waived, and blocking decisions. |
 | 7.1.3 | During preparation, the survey, decision log, draft YAML, parsed DDL output, and collected statistics must live in a temporary preparation workspace. |
 | 7.1.4 | Finalized YAML directories may contain only manifest-listed YAML collection files. The directory manifest and durable decision log must be stored beside, not inside, the finalized YAML directory. |
-| 7.1.5 | When preparing Critic reference catalogs, the durable layout is `reference_catalogs/<catalog>/directory-manifest.yaml`, `reference_catalogs/<catalog>/yaml/` for finalized collection files, and `reference_catalogs/<catalog>/decisions.md` for the sibling decision log. |
+| 7.1.5 | Generated catalogs must be published in Critic at `resources/data/generated_catalogs/<catalog>/`, with `directory-manifest.yaml`, `yaml/` for finalized collection files, `decisions.md` for the durable decision log, and `provenance.yaml` beside `yaml/`. Critic reference catalogs remain human-authored gold. |
 
 ## 8. Bundled tool requirements
 

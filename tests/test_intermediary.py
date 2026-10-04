@@ -23,7 +23,7 @@ SCHEMA = ROOT / "resources" / "schema" / "intermediary.schema.json"
 DIRECTORY_SCHEMA = ROOT / "resources" / "schema" / "intermediary-directory.schema.json"
 VALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid.yaml"
 INVALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-invalid.yaml"
-FINANCIAL = ROOT / "tests" / "fixtures" / "financial" / "catalog.yaml"
+LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 
 
 def _write_yaml(path: Path, payload: object) -> None:
@@ -321,15 +321,15 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
     assert any(finding.rule == "duplicate_definition" for finding in report.findings)
 
 
-def test_financial_reference_builds_only_its_explicit_edges() -> None:
-    definition = load_intermediary_yaml(FINANCIAL)
-    snapshot, report, contradictions = build_snapshot_from_yaml(FINANCIAL)
+def test_catalog_fixture_builds_only_its_explicit_edges() -> None:
+    definition = load_intermediary_yaml(LENDING)
+    snapshot, report, contradictions = build_snapshot_from_yaml(LENDING)
 
-    assert len(definition.nodes) == 8
-    assert sum(len(node.columns) for node in definition.nodes) == 55
+    assert len(definition.nodes) == 5
+    assert sum(len(node.columns) for node in definition.nodes) == 17
     assert all(column.description for node in definition.nodes for column in node.columns)
-    assert len(definition.logical_identities) == 8
-    assert len(definition.edges) == 8
+    assert len(definition.logical_identities) == 5
+    assert len(definition.edges) == 5
     assert len(snapshot.edges) == len(definition.edges)
     assert {edge.edge_id for edge in snapshot.edges} == {
         edge.canonical_edge_id() for edge in definition.edges
@@ -339,16 +339,16 @@ def test_financial_reference_builds_only_its_explicit_edges() -> None:
     nodes = {node.descriptor.display_name: node for node in snapshot.nodes}
     loan_columns = nodes["loan"].column_map()
     account_columns = nodes["account"].column_map()
-    assert loan_columns["payments"].value_description == "unit：month"
-    assert "monthly issuance" in account_columns["frequency"].value_description
+    assert loan_columns["term"].value_description == "unit: month"
+    assert "monthly statements" in account_columns["statement_cycle"].value_description
 
-    account_to_district = next(
+    account_to_region = next(
         edge
         for edge in snapshot.edges
         if {edge.endpoint_a.node_id, edge.endpoint_b.node_id}
-        == {"sqlite:financial.account", "sqlite:financial.district"}
+        == {"sqlite:lending.account", "sqlite:lending.region"}
     )
-    direction = account_to_district.direction_from("sqlite:financial.account")
+    direction = account_to_region.direction_from("sqlite:lending.account")
     assert direction.multiplicity == Multiplicity.MANY_TO_ONE
     assert direction.match_existence == MatchExistence.UNKNOWN
 
@@ -390,10 +390,10 @@ def test_build_report_lists_explicit_unknown_claims() -> None:
     ]
 
 
-def test_financial_unreviewed_universe_status_is_reported_as_unknown() -> None:
-    _, report, _ = build_snapshot_from_yaml(FINANCIAL)
+def test_unreviewed_universe_status_is_reported_as_unknown() -> None:
+    _, report, _ = build_snapshot_from_yaml(LENDING)
     universe_gaps = [
         location for location in report.unknown_fields if location.endswith(".entity_universe")
     ]
-    assert len(universe_gaps) == 15
-    assert not any("financial.district].entity_definitions" in item for item in universe_gaps)
+    assert len(universe_gaps) == 9
+    assert not any("lending.region].entity_definitions" in item for item in universe_gaps)

@@ -17,11 +17,11 @@ from data_ontology_graph.service.read import GraphReadService
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINANCIAL = ROOT / "tests" / "fixtures" / "financial" / "catalog.yaml"
+LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 
 
 def _service() -> GraphReadService:
-    snapshot, _, _ = build_snapshot_from_yaml(FINANCIAL)
+    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
     return GraphReadService(snapshot)
 
 
@@ -109,7 +109,7 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                     socket_path,
                     3,
                     "graph.expand_subgraph",
-                    {"seed_node_ids": ["sqlite:financial.client"], "max_depth": 1},
+                    {"seed_node_ids": ["sqlite:lending.customer"], "max_depth": 1},
                 )
                 assert follow_up["result"]["nodes"]
             finally:
@@ -156,7 +156,7 @@ def test_second_singleton_cannot_replace_active_socket() -> None:
                     "graph.snapshot_info",
                     {},
                 )
-                assert response["result"]["node_count"] == 8
+                assert response["result"]["node_count"] == 5
             finally:
                 await first.close()
 

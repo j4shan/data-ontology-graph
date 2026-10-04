@@ -88,14 +88,15 @@ before marking it ready for a build. These preparation modes are upstream of
 the builder. The builder does not modify prepared YAML, apply overlays, merge
 feedback onto DDL metadata, or implement override precedence.
 
-## 3 Non-normative preparation proposal
+## 3 Upstream preparation boundary
 
-External-definition preparation remains a TODO outside the graph builder. The
-initial proposal is a bundle of agent skills shipped with tools that parse
-external definitions, including SQL DDL, and instructions that guide an agent
-to generate or refine project-schema YAML files. Finalized YAML directories
-produced by this bundle would enter the same validation and construction path
-as manually authored YAML. The node identity composition rule is embedded in
-the source-controlled intermediary schema. Field-preparation, column-inventory,
-accessor-recipe, and decision-log requirements are recorded in
-[YAML Preparation Skill Product Requirements](yaml-preparation.md).
+The DDL collector in `src/ddl_collector/` and the source-family skills in `skills/`
+prepare project-schema YAML from external definitions and owner-reviewed evidence.
+They depend on the graph core's model and builder APIs. The graph core must remain
+independent of the collector and skills. Collector output must enter construction
+only as a finalized YAML intermediary through the validation gate in Section 2;
+the builder must not accept collector evidence or decisions as alternate inputs.
+
+The node identity composition rule remains in the source-controlled intermediary
+schema. Field-preparation, column-inventory, accessor-recipe, and decision-log
+requirements are in [YAML Preparation Skill Product Requirements](yaml-preparation.md).

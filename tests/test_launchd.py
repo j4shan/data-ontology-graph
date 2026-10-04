@@ -16,7 +16,7 @@ from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINANCIAL = ROOT / "tests" / "fixtures" / "financial" / "catalog.yaml"
+LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 
 
 def test_launchd_payload_pins_snapshot_and_socket(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def test_launchctl_commands_use_one_user_service_and_stable_plist(tmp_path: Path
 
 def test_install_validates_artifact_writes_plist_and_invokes_launchctl(tmp_path: Path) -> None:
     artifact = tmp_path / "current"
-    snapshot, _, _ = build_snapshot_from_yaml(FINANCIAL)
+    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
     CurrentArtifactStore(artifact).publish(snapshot)
     plist = tmp_path / "LaunchAgents" / "graph.plist"
     calls: list[tuple[list[str], bool]] = []
