@@ -40,6 +40,10 @@ venv/
 /data/
 *.npy
 
+# Collector preparation sessions: evidence, drafts, surveys, and decision state.
+# Finalized catalogs are published outside this repository.
+/scratch/
+
 # Vendored BIRD Mini-Dev databases are downloaded locally, not versioned.
 /resources/data/dev_databases/
 

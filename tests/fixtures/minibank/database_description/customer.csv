@@ -1,0 +1,5 @@
+﻿original_column_name,column_name,column_description,data_format,value_description,
+customer_id,customer id,the id of the customer,integer,,
+branch_id,home branch,the branch that serves the customer,integer ,,
+segment,segment,customer segment,text,,"""R"" stands for retail
+""B"" stands for business"

@@ -35,7 +35,7 @@ The initial product responsibility is to validate, persist, and serve knowledge 
 The AKG remains a downstream reasoning concept. This project supplies graph evidence but does not
 define an AKG artifact schema, score an assembled AKG, or benchmark whether a GenAI system becomes
 more accurate after using the tools. That evaluation belongs to the independent sibling project
-[Critic](../../../../critic/), which treats this project as an actor under evaluation. Critic owns
+[Critic](../../../../data-ontology-agent-critic/), which treats this project as an actor under evaluation. Critic owns
 the AKG submission schema, test data sources, gold AKGs, scoring criteria, and versioned artifact
 and result storage.
 
@@ -96,6 +96,16 @@ task-level benchmarking are lower-priority work rather than initial-release gate
 | 3.3.12 | Entity-universe status must be scoped to an entity definition. A dataset node may contain multiple entity definitions with different universe status. |
 | 3.3.13 | A dataset node has exactly one `grain`: a grain object whose components collectively describe one record boundary, or the explicit value `unknown`. Omission is invalid, and `unknown` is preserved in the persisted node. Different record boundaries require different dataset nodes. |
 
+### Goal D — Knowledge preparation
+
+| ID | Requirement |
+| --- | --- |
+| 3.4.1 | The project must ship source-family preparation tools and agent guidance that turn curated source evidence and schema-owner decisions into complete project-schema YAML. Source definitions and observed data are evidence, not final answers about business meaning. |
+| 3.4.2 | Preparation tools must read source catalogs and optional profiling data read-only, verify source integrity, and retain the evidence and owner decisions needed to explain the generated YAML. |
+| 3.4.3 | Preparation tools must emit manifest-layout YAML that enters graph construction only through the normal schema and builder validation gate. The builder's input contract must remain unchanged. |
+| 3.4.4 | Source-family preparation must depend on the graph core in one direction; the graph core must not depend on source-family preparation tools. |
+| 3.4.5 | Finalized generated catalogs and their decision and provenance records must be persisted outside this repository in Critic. |
+
 ## 4. Product acceptance approach
 
 These checks verify the graph product itself. They do not benchmark a consuming GenAI system.
@@ -115,31 +125,25 @@ These checks verify the graph product itself. They do not benchmark a consuming 
 | 5.1.3 | **Human authorization:** enable human subject matter experts to approve knowledge assets collected by agents. |
 | 5.1.4 | **Data statistics integration:** collect, persist, and serve statistics for AKG assembly and define acceptable variance for their evaluation. |
 | 5.1.5 | **Online knowledge store:** optionally serve knowledge through a networked store without changing the immutable offline-copy contract for local agents. |
-| 5.1.6 | **External-definition preparation (agent skill A):** provide an agent skill with parsing tools that transforms specific types of external data definitions, plus human or agent feedback, into complete project-schema YAML for graph-builder consumption. Agent-prepared definitions pass the same validation and batch publication quality gates as manually authored definitions. |
 | 5.1.7 | **Retrieval instrumentation:** optionally collect response-byte counts, tool-call traces, task-level context totals, and related measurements for monitoring or service-level benchmarking. Instrumentation must not determine graph response semantics. |
-| 5.1.8 | **AKG guidance (agent skill B):** provide an agent skill combined with the graph service, packaged as a local MCP server or plugin, that guides an AI agent through search, lookup, and navigation to output a task-specific AKG. The skill exposes the existing sessionless tool contract; it does not add server-side reasoning state. |
+| 5.1.8 | **AKG guidance (agent skill B):** develop agent tools in Critic against the graph service API to guide an AI agent through search, lookup, and navigation toward a task-specific AKG. The graph service retains its sessionless tool contract and adds no server-side reasoning state. |
 
 These capabilities are outside the initial release goals. Event subscription may inform a later batch, but never refreshes a published offline copy in place.
 
-The initial non-normative proposal for 5.1.6 is a bundle of agent skills shipped with parsing
-tools and authoring instructions. The bundle would parse external definitions such as SQL DDL and
-guide an agent in creating or refining the YAML files. It would not add another input format to the
-graph builder.
-
-Skills A and B are the next planned work. Critic measures both: skill B's AKG output against
-Critic's gold AKGs, and later skill A's YAML against Critic's reference catalogs. Where skill B
-emits an AKG for evaluation, it targets Critic's published submission schema.
+Knowledge preparation is an in-repository release goal under Goal D. Critic stores its generated
+catalogs and may evaluate them against human-authored reference catalogs. Agent tools for AKG
+guidance are developed in Critic against this project's service API; Critic owns the AKG
+submission and evaluation contracts.
 
 ## 6. Non-goal
 
 | ID | Exclusion |
 | --- | --- |
 | 6.1.1 | The product does not need to interpret a task into executable SQL for a particular framework or dialect, such as MySQL or SparkSQL. |
-| 6.1.2 | The initial release does not implement data connectors. It persists and serves storage-format and accessor identifiers as knowledge properties. |
-| 6.1.3 | The initial release does not implement automatic translation from tenant DDLs or other source-specific data definitions into the YAML intermediary consumed by the builder. |
+| 6.1.2 | The graph service does not implement data connectors or read source data. It persists and serves storage-format and accessor identifiers as knowledge properties; upstream preparation tools may inspect sources read-only under Goal D. |
 | 6.1.4 | The target builder does not implement overlays or overrides over pre-existing DDL metadata. Feedback and corrections are resolved during the external preparation step into one complete YAML artifact. |
 | 6.1.5 | The graph service does not generate or validate SQL, join predicates, recommended SQL join types, or executable queries. |
 | 6.1.6 | The graph service does not provide generalized semantic-similarity or full-text search. An orchestrating agent may use separate enterprise search tools to obtain canonical terms or IDs before calling the graph service. |
 | 6.1.7 | The initial release does not retain client sessions or accept caller-held subgraphs, traversal frontiers, partially assembled AKGs, or other intermediary results as inputs to later tool calls. |
 | 6.1.8 | This project does not define an AKG evaluation artifact or benchmark the graph tools' effect on downstream GenAI or SQL-query accuracy. That work belongs to Critic. |
-| 6.1.9 | This repository stores source code, schema, and unit-test fixtures. It does not version test data sources, generated graph artifacts, or evaluation results; Critic stores those. |
+| 6.1.9 | This repository stores graph and preparation source code, schemas, preparation skills, and unit-test fixtures. It does not version test data sources, generated catalogs, generated graph artifacts, or evaluation results; Critic stores those. |

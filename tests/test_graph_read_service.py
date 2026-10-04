@@ -10,11 +10,11 @@ from data_ontology_graph.service.search import is_placeholder, normalize_term
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FINANCIAL = ROOT / "tests" / "fixtures" / "financial" / "catalog.yaml"
+LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 
 
 def _service() -> GraphReadService:
-    snapshot, _, _ = build_snapshot_from_yaml(FINANCIAL)
+    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
     return GraphReadService(snapshot)
 
 
@@ -27,18 +27,18 @@ def test_normalize_term_is_mechanical_and_deterministic() -> None:
 def test_search_returns_exact_alias_and_prefix_candidates() -> None:
     service = _service()
 
-    customer = service.search(SearchRequest(query="CUSTOMER"))
-    assert customer.normalized_query == "customer"
-    client = next(
+    client = service.search(SearchRequest(query="CLIENT"))
+    assert client.normalized_query == "client"
+    customer = next(
         hit
-        for hit in customer.hits
-        if hit.subject.key == "sqlite:financial.client"
+        for hit in client.hits
+        if hit.subject.key == "sqlite:lending.customer"
     )
-    assert client.match_kind == "exact"
-    assert client.matched_field == "synonym"
+    assert customer.match_kind == "exact"
+    assert customer.matched_field == "synonym"
 
-    prefix = service.search(SearchRequest(query="cust"))
-    assert any(hit.subject.key == "sqlite:financial.client" for hit in prefix.hits)
+    prefix = service.search(SearchRequest(query="cli"))
+    assert any(hit.subject.key == "sqlite:lending.customer" for hit in prefix.hits)
     assert all(hit.match_kind == "prefix" for hit in prefix.hits)
 
 
@@ -54,14 +54,14 @@ def test_search_deduplicates_subjects_and_limits_results() -> None:
 
 def test_identity_and_dataset_lookup_expose_target_model() -> None:
     service = _service()
-    identity = service.get_identity("client_identity")
+    identity = service.get_identity("customer_identity")
     assert identity.definitions
     assert {item["node_id"] for item in identity.definitions} >= {
-        "sqlite:financial.client",
-        "sqlite:financial.disp",
+        "sqlite:lending.customer",
+        "sqlite:lending.account_holder",
     }
 
-    dataset = service.get_dataset("sqlite:financial.account")
+    dataset = service.get_dataset("sqlite:lending.account")
     assert dataset.descriptor["display_name"] == "account"
     assert dataset.accessor["schema_id"] == "accessor.sqlite.v1"
     assert dataset.accessor["properties"]["schema"] == "main"
@@ -71,7 +71,7 @@ def test_identity_and_dataset_lookup_expose_target_model() -> None:
 
 def test_hops_expose_directional_target_properties_without_sql() -> None:
     service = _service()
-    hops = service.get_hops("sqlite:financial.account")
+    hops = service.get_hops("sqlite:lending.account")
     assert hops
     payload = hops[0].model_dump(mode="json")
     assert payload["direction"]["multiplicity"] in {
@@ -94,14 +94,14 @@ def test_multi_seed_bfs_is_bounded_and_deduplicated() -> None:
     service = _service()
     response = service.expand_subgraph(
         SubgraphRequest(
-            seed_node_ids=["sqlite:financial.client", "sqlite:financial.loan"],
+            seed_node_ids=["sqlite:lending.customer", "sqlite:lending.loan"],
             max_depth=2,
         )
     )
     nodes = [item["dataset"]["node_id"] for item in response.nodes]
     assert len(nodes) == len(set(nodes))
-    assert "sqlite:financial.disp" in nodes
-    assert "sqlite:financial.account" in nodes
+    assert "sqlite:lending.account_holder" in nodes
+    assert "sqlite:lending.account" in nodes
     assert all(item["distance"] <= 2 for item in response.nodes)
     edge_ids = [edge.edge_id for edge in response.edges]
     assert len(edge_ids) == len(set(edge_ids))
@@ -111,7 +111,7 @@ def test_bfs_enforces_node_and_edge_result_limits() -> None:
     service = _service()
     response = service.expand_subgraph(
         SubgraphRequest(
-            seed_node_ids=["sqlite:financial.client"],
+            seed_node_ids=["sqlite:lending.customer"],
             max_depth=4,
             max_nodes=3,
             max_edges=1,
@@ -132,7 +132,7 @@ def test_bfs_enforces_node_and_edge_result_limits() -> None:
 def test_bfs_rejects_a_node_limit_smaller_than_the_seed_set() -> None:
     with pytest.raises(ValidationError, match="max_nodes must be at least"):
         SubgraphRequest(
-            seed_node_ids=["sqlite:financial.client", "sqlite:financial.loan"],
+            seed_node_ids=["sqlite:lending.customer", "sqlite:lending.loan"],
             max_nodes=1,
         )
 
@@ -140,8 +140,8 @@ def test_bfs_rejects_a_node_limit_smaller_than_the_seed_set() -> None:
 def test_paths_preserve_alternatives_without_sql_fragments() -> None:
     service = _service()
     response = service.find_paths(
-        "sqlite:financial.client",
-        "sqlite:financial.district",
+        "sqlite:lending.customer",
+        "sqlite:lending.region",
         max_hops=4,
     )
     assert len(response.paths) >= 2
@@ -149,8 +149,8 @@ def test_paths_preserve_alternatives_without_sql_fragments() -> None:
     assert "sql_on" not in str(response.model_dump(mode="json"))
 
     limited = service.find_paths(
-        "sqlite:financial.client",
-        "sqlite:financial.district",
+        "sqlite:lending.customer",
+        "sqlite:lending.region",
         max_hops=4,
         limit=1,
     )
@@ -195,7 +195,7 @@ def test_search_skips_placeholder_descriptions_and_unknown_claims() -> None:
     assert service.get_dataset("dataset_a").columns[2]["description"] == "N/A"
 
 
-def test_search_reports_unknown_claims_on_financial_definitions() -> None:
+def test_search_reports_unknown_claims_on_catalog_definitions() -> None:
     service = _service()
 
     hits = service.search(SearchRequest(query="account_id", limit=1000)).hits
@@ -203,7 +203,7 @@ def test_search_reports_unknown_claims_on_financial_definitions() -> None:
         hit.subject
         for hit in hits
         if hit.subject.kind == "entity_definition"
-        and hit.subject.node_id == "sqlite:financial.account"
+        and hit.subject.node_id == "sqlite:lending.account"
         and hit.subject.identity_id == "account_identity"
     )
     assert definition.unknown_fields == ["entity_universe"]

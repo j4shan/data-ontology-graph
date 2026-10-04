@@ -19,7 +19,10 @@ data-ontology-graph-server = "data_ontology_graph.rpc.server:main"
 data-ontology-graph-client = "data_ontology_graph.rpc.client:main"
 data-ontology-graph-launchd = "data_ontology_graph.rpc.launchd:main"
 data-ontology-graph-publish = "data_ontology_graph.builder.publish:main"
+ddl-collector = "ddl_collector.cli:main"
 
+# Source families that need drivers or toolchains add one extra each, named
+# `ddl-collector-<family>`. SQLite uses only the standard library and needs none.
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
@@ -27,6 +30,9 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"ddl_collector.sources" = ["*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
