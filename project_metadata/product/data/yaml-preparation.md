@@ -5,10 +5,10 @@
 This document defines the product requirements for the `ddl_collector` package and source-family
 agent skills in the top-level `skills/` directory. They prepare finalized YAML for the graph
 builder. A directory catalog has a
-[`directory-manifest.yaml`](../../resources/schema/intermediary-directory.schema.json) beside its
+[`directory-manifest.yaml`](../../../resources/schema/intermediary-directory.schema.json) beside its
 `yaml/` directory and separate collection files inside that directory. The builder assembles those
 files and validates the result against
-[`intermediary.schema.json`](../../resources/schema/intermediary.schema.json). The graph builder
+[`intermediary.schema.json`](../../../resources/schema/intermediary.schema.json). The graph builder
 validates and consumes finalized YAML; it does not perform the upstream preparation described
 here.
 
@@ -38,7 +38,7 @@ source.
 | --- | --- |
 | 3.1.1 | The `ddl_collector` package must live beside the graph core and provide shared preparation tools; all data-source preparation skills must be tracked beneath the top-level `skills/` directory. |
 | 3.1.2 | The project must use a one-skill-per-data-source-family structure. Each skill directory must contain the instructions and bundled resources for exactly one source family, such as SQLite. |
-| 3.1.3 | Every skill directory must contain a `SKILL.md`. Its instructions must link to the target [`intermediary.schema.json`](../../resources/schema/intermediary.schema.json) and require the agent to consult that schema before preparing or validating YAML. |
+| 3.1.3 | Every skill directory must contain a `SKILL.md`. Its instructions must link to the target [`intermediary.schema.json`](../../../resources/schema/intermediary.schema.json) and require the agent to consult that schema before preparing or validating YAML. |
 | 3.1.4 | Each skill must bundle the tools needed for its three goals: a source-appropriate DDL parser, a readable and fillable survey template, and source-appropriate read-only query templates and commands. |
 | 3.1.5 | A skill may reuse shared contracts or utilities, but it must not combine preparation logic for multiple data-source families into one skill. |
 

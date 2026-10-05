@@ -99,4 +99,4 @@ the builder must not accept collector evidence or decisions as alternate inputs.
 
 The node identity composition rule remains in the source-controlled intermediary
 schema. Field-preparation, column-inventory, accessor-recipe, and decision-log
-requirements are in [YAML Preparation Skill Product Requirements](yaml-preparation.md).
+requirements are in [YAML Preparation Skill Product Requirements](../data/yaml-preparation.md).

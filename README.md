@@ -17,11 +17,11 @@ beside the graph core in this distribution and runs through `ddl-collector`.
 3. Provide local search, lookup, and graph-navigation evidence for agent-built
    abstract knowledge graphs.
 
-The product requirements are in the [project PRD](project_metadata/product/backend/project-prd.md)
-and the [Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md).
-Detailed contracts live in [`project_metadata/product_spec/`](project_metadata/product_spec/).
-[`project-description.md`](project_metadata/project_description/project-description.md) records the retired legacy inference model for
-historical context.
+The product requirements are organized by category under
+[`project_metadata/product/`](project_metadata/product/). Start with the
+[project PRD](project_metadata/product/backend/project-prd.md), the
+[Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md), and the
+[Knowledge Graph contract](project_metadata/product/data/knowledge-graph.md).
 
 ## Setup
 

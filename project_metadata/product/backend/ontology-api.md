@@ -60,7 +60,7 @@ direction (`direction.*` and `reverse_direction.*`).
 
 Traversal hops from a node are directed views of stored relationships, with
 directional multiplicity and always/optional/unknown match existence as
-defined in the [Data Modeling Spec](../product/data/data-modeling-spec.md).
+defined in the [Data Modeling Spec](../data/data-modeling-spec.md).
 
 ### 4.4 Subgraph expansion
 
