@@ -241,9 +241,48 @@ def test_identity_and_dataset_lookup_expose_target_model() -> None:
     assert dataset.entity_definitions
 
 
+def test_hops_are_ordered_by_edge_id_and_bounded_by_limit() -> None:
+    service = _service()
+    complete = service.get_hops("sqlite:lending.account")
+    edge_ids = [hop.edge_id for hop in complete.hops]
+    assert len(edge_ids) == 3
+    assert edge_ids == sorted(edge_ids)
+    assert complete.truncated is False
+
+    limited = service.get_hops("sqlite:lending.account", limit=2)
+    assert [hop.edge_id for hop in limited.hops] == edge_ids[:2]
+    assert limited.truncated is True
+    assert service.get_hops("sqlite:lending.account", limit=3).truncated is False
+    with pytest.raises(ValidationError):
+        service.get_hops("sqlite:lending.account", limit=0)
+
+
+def test_identity_definitions_filter_by_universe_and_respect_limit() -> None:
+    service = _service()
+    region = service.get_identity("region_identity")
+    assert [item["node_id"] for item in region.definitions] == [
+        "sqlite:lending.account", "sqlite:lending.customer", "sqlite:lending.region",
+    ]
+    assert region.truncated is False
+
+    limited = service.get_identity("region_identity", limit=2)
+    assert [item["node_id"] for item in limited.definitions] == [
+        "sqlite:lending.account", "sqlite:lending.customer",
+    ]
+    assert limited.truncated is True
+
+    # The filter applies before the limit, so the complete realization is never cut.
+    complete = service.get_identity("region_identity", entity_universe=["complete"], limit=1)
+    assert [item["node_id"] for item in complete.definitions] == ["sqlite:lending.region"]
+    assert complete.truncated is False
+    assert service.get_identity("loan_identity", entity_universe=["complete"]).definitions == []
+    with pytest.raises(ValidationError):
+        service.get_identity("region_identity", entity_universe=[])
+
+
 def test_hops_expose_directional_target_properties_without_sql() -> None:
     service = _service()
-    hops = service.get_hops("sqlite:lending.account")
+    hops = service.get_hops("sqlite:lending.account").hops
     assert hops
     payload = hops[0].model_dump(mode="json")
     assert payload["direction"]["multiplicity"] in {
@@ -423,12 +462,18 @@ def test_traversal_reports_unknown_fields_relative_to_direction() -> None:
     with pytest.raises(ValueError, match="is not an endpoint"):
         service.get_relationship(edge_id, "dataset_missing")
 
-    [hop_from_a] = service.get_hops("dataset_a")
+    [hop_from_a] = service.get_hops("dataset_a").hops
     assert hop_from_a.unknown_fields == ["reverse_direction.match_existence"]
-    [hop_from_b] = service.get_hops("dataset_b")
+    [hop_from_b] = service.get_hops("dataset_b").hops
     assert hop_from_b.unknown_fields == ["direction.match_existence"]
 
     [path] = service.find_paths("dataset_b", "dataset_a").paths
-    assert path["hops"][0]["unknown_fields"] == ["direction.match_existence"]
+    [hop] = path["hops"]
+    assert hop["direction"] == relationship.b_to_a
+    assert hop["reverse_direction"] == relationship.a_to_b
+    assert hop["unknown_fields"] == ["direction.match_existence"]
     [reverse_path] = service.find_paths("dataset_a", "dataset_b").paths
-    assert reverse_path["hops"][0]["unknown_fields"] == []
+    [reverse_hop] = reverse_path["hops"]
+    assert reverse_hop["direction"] == relationship.a_to_b
+    assert reverse_hop["reverse_direction"] == relationship.b_to_a
+    assert reverse_hop["unknown_fields"] == ["reverse_direction.match_existence"]

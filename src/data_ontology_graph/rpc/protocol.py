@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+from threading import Event
 
 from pydantic import BaseModel, ValidationError
 
 from data_ontology_graph.service.contracts import (
+    ConnectingSubgraphRequest,
     DatasetRequest,
     HopsRequest,
     IdentityRequest,
@@ -36,9 +38,10 @@ class JsonRpcDispatcher:
             "graph.get_hops": self._get_hops,
             "graph.expand_subgraph": self._expand_subgraph,
             "graph.find_paths": self._find_paths,
+            "graph.find_connecting_subgraph": self._find_connecting_subgraph,
         }
 
-    def dispatch(self, message: object) -> dict[str, Any]:
+    def dispatch(self, message: object, cancel_event: Event | None = None) -> dict[str, Any]:
         if not isinstance(message, dict):
             return error_response(None, INVALID_REQUEST, "Invalid Request")
         if "id" not in message:
@@ -55,13 +58,16 @@ class JsonRpcDispatcher:
             return error_response(request_id, METHOD_NOT_FOUND, "Method not found")
 
         try:
-            result = _json_value(method(params))
+            if method == self._find_paths:
+                result = _json_value(method(params, cancel_event))
+            else:
+                result = _json_value(method(params))
         except ValidationError as error:
             response = error_response(
                 request_id,
                 INVALID_PARAMS,
                 "Invalid params",
-                error.errors(include_url=False),
+                error.errors(include_url=False, include_context=False),
             )
         except KeyError as error:
             response = error_response(
@@ -87,7 +93,9 @@ class JsonRpcDispatcher:
 
     def _get_identity(self, params: dict[str, Any]) -> Any:
         request = IdentityRequest.model_validate(params)
-        return self.service.get_identity(request.identity_id)
+        return self.service.get_identity(
+            request.identity_id, request.entity_universe, request.limit,
+        )
 
     def _get_dataset(self, params: dict[str, Any]) -> Any:
         request = DatasetRequest.model_validate(params)
@@ -99,18 +107,25 @@ class JsonRpcDispatcher:
 
     def _get_hops(self, params: dict[str, Any]) -> Any:
         request = HopsRequest.model_validate(params)
-        return self.service.get_hops(request.node_id)
+        return self.service.get_hops(request.node_id, request.limit)
 
     def _expand_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.expand_subgraph(SubgraphRequest.model_validate(params))
 
-    def _find_paths(self, params: dict[str, Any]) -> Any:
+    def _find_paths(self, params: dict[str, Any], cancel_event: Event | None = None) -> Any:
         request = PathsRequest.model_validate(params)
         return self.service.find_paths(
             request.from_node_id,
             request.to_node_id,
             max_hops=request.max_hops,
             limit=request.limit,
+            allowed_multiplicities=request.allowed_multiplicities,
+            cancel_event=cancel_event,
+        )
+
+    def _find_connecting_subgraph(self, params: dict[str, Any]) -> Any:
+        return self.service.find_connecting_subgraph(
+            ConnectingSubgraphRequest.model_validate(params),
         )
 
 

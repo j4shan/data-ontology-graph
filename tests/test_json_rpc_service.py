@@ -104,6 +104,27 @@ def test_dispatcher_orients_relationship_detail_from_an_endpoint() -> None:
     assert invalid["error"]["code"] == INVALID_PARAMS
 
 
+def test_dispatcher_bounds_hops_and_identity_definitions() -> None:
+    dispatcher = JsonRpcDispatcher(_service())
+
+    def call(method, params):
+        return dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+
+    hops = call("graph.get_hops", {"node_id": "sqlite:lending.account", "limit": 1})["result"]
+    assert hops["node_id"] == "sqlite:lending.account"
+    assert len(hops["hops"]) == 1
+    assert hops["truncated"] is True
+
+    identity = call("graph.get_identity", {
+        "identity_id": "region_identity", "entity_universe": ["complete"], "limit": 1,
+    })["result"]
+    assert [item["node_id"] for item in identity["definitions"]] == ["sqlite:lending.region"]
+    assert identity["truncated"] is False
+
+    invalid = call("graph.get_hops", {"node_id": "sqlite:lending.account", "limit": 1001})
+    assert invalid["error"]["code"] == INVALID_PARAMS
+
+
 def test_dispatcher_requires_request_id_and_does_not_accept_notifications() -> None:
     dispatcher = JsonRpcDispatcher(_service())
     missing_id = dispatcher.dispatch(

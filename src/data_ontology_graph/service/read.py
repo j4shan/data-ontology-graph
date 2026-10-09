@@ -1,17 +1,24 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
+from threading import Event
 from typing import Any
 
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition
 from data_ontology_graph.model.intermediary import LogicalIdentity
+from data_ontology_graph.model.enums import EntityUniverse, Multiplicity
 from data_ontology_graph.model.relationship import JoinRelationship
 from data_ontology_graph.model.snapshot import GraphSnapshot
 from data_ontology_graph.service.contracts import (
+    ConnectingSubgraphRequest,
+    ConnectingSubgraphResponse,
     DatasetDetail,
     HopDetail,
+    HopsRequest,
+    HopsResponse,
     IdentityDetail,
+    IdentityRequest,
     PathsRequest,
     PathsResponse,
     RelationshipDetail,
@@ -21,6 +28,7 @@ from data_ontology_graph.service.contracts import (
     SubgraphRequest,
     SubgraphResponse,
 )
+from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.service.search import LexicalSearchIndex
 
 
@@ -61,7 +69,10 @@ class GraphReadIndex:
 
 
 class GraphReadService:
-    def __init__(self, snapshot: GraphSnapshot) -> None:
+    def __init__(self, snapshot: GraphSnapshot, *, max_connecting_datasets: int = 16) -> None:
+        if max_connecting_datasets < 2:
+            raise ValueError("max_connecting_datasets must be at least 2")
+        self.max_connecting_datasets = max_connecting_datasets
         self.index = GraphReadIndex(snapshot)
 
     def snapshot_info(self) -> SnapshotInfo:
@@ -89,18 +100,34 @@ class GraphReadService:
             truncated=truncated,
         )
 
-    def get_identity(self, identity_id: str) -> IdentityDetail:
-        identity = self._identity(identity_id)
-        definitions = [
-            self._resolved_definition(node_id, definition)
+    def get_identity(
+        self,
+        identity_id: str,
+        entity_universe: list[EntityUniverse] | None = None,
+        limit: int = 100,
+    ) -> IdentityDetail:
+        request = IdentityRequest(
+            identity_id=identity_id, entity_universe=entity_universe, limit=limit,
+        )
+        identity = self._identity(request.identity_id)
+        universes = (set(request.entity_universe)
+                     if request.entity_universe is not None else None)
+        # Definitions are indexed in node_id, then dataset_columns order.
+        matching = [
+            (node_id, definition)
             for node_id, definition in self.index.definitions_by_identity.get(identity_id, ())
+            if universes is None or definition.entity_universe in universes
         ]
         return IdentityDetail(
             identity_id=identity.identity_id,
             name=identity.name,
             description=identity.description,
             synonyms=identity.synonyms,
-            definitions=definitions,
+            definitions=[
+                self._resolved_definition(node_id, definition)
+                for node_id, definition in matching[:request.limit]
+            ],
+            truncated=len(matching) > request.limit,
         )
 
     def get_dataset(self, node_id: str) -> DatasetDetail:
@@ -140,10 +167,12 @@ class GraphReadService:
             reverse_direction=reverse_direction,
         )
 
-    def get_hops(self, node_id: str) -> list[HopDetail]:
-        self._node(node_id)
+    def get_hops(self, node_id: str, limit: int = 100) -> HopsResponse:
+        request = HopsRequest(node_id=node_id, limit=limit)
+        self._node(request.node_id)
+        edges = sorted(self.index.adjacency.get(node_id, ()), key=lambda edge: edge.edge_id)
         hops = []
-        for edge in self.index.adjacency.get(node_id, ()):
+        for edge in edges[:request.limit]:
             other = edge.opposite(node_id)
             hops.append(
                 HopDetail(
@@ -158,7 +187,7 @@ class GraphReadService:
                     unknown_fields=edge.unknown_fields_from(node_id),
                 )
             )
-        return hops
+        return HopsResponse(node_id=node_id, hops=hops, truncated=len(edges) > request.limit)
 
     def expand_subgraph(self, request: SubgraphRequest) -> SubgraphResponse:
         seeds = list(dict.fromkeys(request.seed_node_ids))
@@ -218,12 +247,15 @@ class GraphReadService:
         to_node_id: str,
         max_hops: int = 4,
         limit: int = 50,
+        allowed_multiplicities: list[Multiplicity] | None = None,
+        cancel_event: Event | None = None,
     ) -> PathsResponse:
         request = PathsRequest(
             from_node_id=from_node_id,
             to_node_id=to_node_id,
             max_hops=max_hops,
             limit=limit,
+            allowed_multiplicities=allowed_multiplicities,
         )
         from_node_id = request.from_node_id
         to_node_id = request.to_node_id
@@ -231,30 +263,44 @@ class GraphReadService:
         limit = request.limit
         self._node(from_node_id)
         self._node(to_node_id)
-        queue: deque[tuple[str, list[tuple[str, str, JoinRelationship]], set[str]]] = deque(
-            [(from_node_id, [], {from_node_id})]
-        )
+        allowed = (set(request.allowed_multiplicities)
+                   if request.allowed_multiplicities is not None else None)
+        # Paths rank by hop count, then edge IDs, so each hop count is a complete rank
+        # tier. Search tier by tier and stop once the limit is filled, plus one more path
+        # to report truncation. A partial path extends only while the target stays within
+        # max_hops.
+        distance = self._distances_to(to_node_id, max_hops)
+        frontier: list[tuple[str, list[tuple[str, str, JoinRelationship]], set[str]]] = [
+            (from_node_id, [], {from_node_id})
+        ]
         found: list[list[tuple[str, str, JoinRelationship]]] = []
-        while queue:
-            current, hops, seen = queue.popleft()
-            if len(hops) >= max_hops:
-                continue
-            for edge in self.index.adjacency.get(current, ()):
-                nxt = edge.opposite(current).node_id
-                if nxt in seen:
-                    continue
-                path = [*hops, (current, nxt, edge)]
-                if nxt == to_node_id:
-                    found.append(path)
-                else:
-                    queue.append((nxt, path, seen | {nxt}))
+        cancelled = False
+        depth = 0
+        while frontier and depth < max_hops and len(found) <= limit and not cancelled:
+            depth += 1
+            tier: list[list[tuple[str, str, JoinRelationship]]] = []
+            next_frontier = []
+            for current, hops, seen in frontier:
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    break
+                for edge in self.index.adjacency.get(current, ()):
+                    if allowed is not None and edge.direction_from(current).multiplicity not in allowed:
+                        continue
+                    nxt = edge.opposite(current).node_id
+                    if nxt in seen:
+                        continue
+                    if nxt == to_node_id:
+                        tier.append([*hops, (current, nxt, edge)])
+                    elif depth + distance.get(nxt, max_hops + 1) <= max_hops:
+                        next_frontier.append((nxt, [*hops, (current, nxt, edge)], seen | {nxt}))
+                if len(found) == limit and tier:
+                    # The limit is already filled; one more path proves truncation.
+                    break
+            tier.sort(key=lambda path: tuple(edge.edge_id for _, _, edge in path))
+            found.extend(tier)
+            frontier = next_frontier
 
-        found.sort(
-            key=lambda path: (
-                len(path),
-                tuple(edge.edge_id for _, _, edge in path),
-            )
-        )
         payloads = []
         for path in found[:limit]:
             payloads.append(
@@ -273,11 +319,10 @@ class GraphReadService:
                                 edge.endpoint(target).identity_key()
                             ),
                             "direction": edge.direction_from(source).model_dump(mode="json"),
-                            "unknown_fields": [
-                                field
-                                for field in edge.unknown_fields_from(source)
-                                if field.startswith("direction.")
-                            ],
+                            "reverse_direction": edge.direction_from(target).model_dump(
+                                mode="json"
+                            ),
+                            "unknown_fields": edge.unknown_fields_from(source),
                         }
                         for source, target, edge in path
                     ],
@@ -288,7 +333,37 @@ class GraphReadService:
             from_node_id=from_node_id,
             to_node_id=to_node_id,
             paths=payloads,
-            truncated=len(found) > limit,
+            truncated=cancelled or len(found) > limit,
+        )
+
+    def _distances_to(self, node_id: str, max_hops: int) -> dict[str, int]:
+        """Unfiltered hop distance to ``node_id``, a lower bound for any simple path."""
+        distance = {node_id: 0}
+        queue = deque([node_id])
+        while queue:
+            current = queue.popleft()
+            if distance[current] >= max_hops:
+                continue
+            for edge in self.index.adjacency.get(current, ()):
+                nxt = edge.opposite(current).node_id
+                if nxt not in distance:
+                    distance[nxt] = distance[current] + 1
+                    queue.append(nxt)
+        return distance
+
+    def find_connecting_subgraph(
+        self, request: ConnectingSubgraphRequest,
+    ) -> ConnectingSubgraphResponse:
+        if len(request.node_ids) > self.max_connecting_datasets:
+            raise ValueError(f"at most {self.max_connecting_datasets} datasets are allowed")
+        terminals = sorted(request.node_ids)
+        for node_id in terminals:
+            self._node(node_id)
+        result = connecting_tree(self.index.adjacency, terminals)
+        return ConnectingSubgraphResponse(
+            snapshot=self.snapshot_info(), node_ids=terminals, status=result.status,
+            nodes=[self.get_dataset(node_id) for node_id in result.node_ids],
+            edges=[self.get_relationship(edge_id) for edge_id in result.edge_ids],
         )
 
     def _identity(self, identity_id: str) -> LogicalIdentity:

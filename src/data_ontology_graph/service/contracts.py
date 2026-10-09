@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from data_ontology_graph.model.enums import Unknown
+from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
 
 
 class ContractModel(BaseModel):
@@ -62,6 +62,8 @@ class SearchResponse(ContractModel):
 
 class IdentityRequest(ContractModel):
     identity_id: str = Field(min_length=1)
+    entity_universe: list[EntityUniverse] | None = Field(default=None, min_length=1)
+    limit: int = Field(default=100, ge=1, le=1000)
 
 
 class DatasetRequest(ContractModel):
@@ -75,6 +77,7 @@ class RelationshipRequest(ContractModel):
 
 class HopsRequest(ContractModel):
     node_id: str = Field(min_length=1)
+    limit: int = Field(default=100, ge=1, le=1000)
 
 
 class SubgraphRequest(ContractModel):
@@ -95,6 +98,21 @@ class PathsRequest(ContractModel):
     to_node_id: str = Field(min_length=1)
     max_hops: int = Field(default=4, ge=1, le=10)
     limit: int = Field(default=50, ge=1, le=1000)
+    allowed_multiplicities: list[Multiplicity] | None = Field(
+        default=None, min_length=1, max_length=5,
+    )
+
+
+class ConnectingSubgraphRequest(ContractModel):
+    node_ids: list[str] = Field(min_length=2)
+
+    @model_validator(mode="after")
+    def distinct_endpoints(self) -> "ConnectingSubgraphRequest":
+        if any(not node_id for node_id in self.node_ids):
+            raise ValueError("node_ids must contain non-empty dataset IDs")
+        if len(set(self.node_ids)) != len(self.node_ids):
+            raise ValueError("node_ids must contain distinct datasets")
+        return self
 
 
 class IdentityDetail(ContractModel):
@@ -103,6 +121,7 @@ class IdentityDetail(ContractModel):
     description: str
     synonyms: list[str]
     definitions: list[dict[str, Any]]
+    truncated: bool
 
 
 class DatasetDetail(ContractModel):
@@ -141,6 +160,12 @@ class HopDetail(ContractModel):
     unknown_fields: list[str]
 
 
+class HopsResponse(ContractModel):
+    node_id: str
+    hops: list[HopDetail]
+    truncated: bool
+
+
 class SubgraphResponse(ContractModel):
     snapshot: SnapshotInfo
     seed_node_ids: list[str]
@@ -158,3 +183,12 @@ class PathsResponse(ContractModel):
     to_node_id: str
     paths: list[dict[str, Any]]
     truncated: bool
+
+
+class ConnectingSubgraphResponse(ContractModel):
+    snapshot: SnapshotInfo
+    node_ids: list[str]
+    status: Literal["completed", "disconnected"]
+    nodes: list[DatasetDetail]
+    edges: list[RelationshipDetail]
+    algorithm: Literal["mehlhorn_unweighted"] = "mehlhorn_unweighted"
