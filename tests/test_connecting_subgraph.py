@@ -74,6 +74,69 @@ def test_filter_prunes_calendar_fanout_and_keeps_process_path():
                               allowed_multiplicities=["1:many"]).paths
 
 
+def _all_paths(service, source, target, max_hops, allowed):
+    """Reference ranking: every simple path, sorted by hop count then edge IDs."""
+    paths = []
+
+    def walk(current, hops, seen):
+        if len(hops) == max_hops:
+            return
+        for edge in service.index.adjacency.get(current, ()):
+            if allowed is not None and edge.direction_from(current).multiplicity not in allowed:
+                continue
+            nxt = edge.opposite(current).node_id
+            if nxt in seen:
+                continue
+            if nxt == target:
+                paths.append([*hops, edge.edge_id])
+            else:
+                walk(nxt, [*hops, edge.edge_id], seen | {nxt})
+
+    walk(source, [], {source})
+    return sorted(paths, key=lambda path: (len(path), tuple(path)))
+
+
+def test_path_ranking_and_truncation_match_exhaustive_enumeration():
+    rnd = random.Random(7)
+    mults = ["1:1", "1:many", "many:1", "many:many"]
+    for _ in range(8):
+        names = [f"n{i}" for i in range(9)]
+        links = rnd.sample(list(combinations(names, 2)), 16)
+        service = service_for(
+            names, [(a, b, rnd.choice(mults), rnd.choice(mults)) for a, b in links]
+        )
+        for source, target in rnd.sample(list(combinations(names, 2)), 6):
+            for max_hops in (1, 3, 5):
+                for allowed in (None, ["1:1", "many:1"]):
+                    expected = _all_paths(service, source, target, max_hops, allowed)
+                    for limit in (1, 2, 5, len(expected) or 1, 1000):
+                        response = service.find_paths(
+                            source, target, max_hops=max_hops, limit=limit,
+                            allowed_multiplicities=allowed,
+                        )
+                        assert [[hop["edge_id"] for hop in path["hops"]]
+                                for path in response.paths] == expected[:limit]
+                        assert response.truncated is (len(expected) > limit)
+
+
+def test_path_search_stops_once_the_limit_is_filled():
+    names = [f"n{i}" for i in range(10)]
+    service = service_for(names, list(combinations(names, 2)))
+    expanded = []
+
+    class CountingAdjacency(dict):
+        def get(self, key, default=None):
+            expanded.append(key)
+            return super().get(key, default)
+
+    service.index.adjacency = CountingAdjacency(service.index.adjacency)
+    response = service.find_paths("n0", "n9", max_hops=8, limit=1)
+    assert [len(path["hops"]) for path in response.paths] == [1]
+    assert response.truncated is True
+    # Exhaustive search would expand on the order of 10^5 partial paths here.
+    assert len(expanded) < 20
+
+
 def test_unknown_multiplicity_requires_explicit_opt_in():
     service = service_for(["a", "b"], [("a", "b", "unknown", "1:1")])
     assert service.find_paths("a", "b").paths

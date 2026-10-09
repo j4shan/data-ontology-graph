@@ -93,7 +93,9 @@ class JsonRpcDispatcher:
 
     def _get_identity(self, params: dict[str, Any]) -> Any:
         request = IdentityRequest.model_validate(params)
-        return self.service.get_identity(request.identity_id)
+        return self.service.get_identity(
+            request.identity_id, request.entity_universe, request.limit,
+        )
 
     def _get_dataset(self, params: dict[str, Any]) -> Any:
         request = DatasetRequest.model_validate(params)
@@ -105,7 +107,7 @@ class JsonRpcDispatcher:
 
     def _get_hops(self, params: dict[str, Any]) -> Any:
         request = HopsRequest.model_validate(params)
-        return self.service.get_hops(request.node_id)
+        return self.service.get_hops(request.node_id, request.limit)
 
     def _expand_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.expand_subgraph(SubgraphRequest.model_validate(params))

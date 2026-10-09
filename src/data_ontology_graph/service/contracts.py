@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from data_ontology_graph.model.enums import Multiplicity, Unknown
+from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
 
 
 class ContractModel(BaseModel):
@@ -62,6 +62,8 @@ class SearchResponse(ContractModel):
 
 class IdentityRequest(ContractModel):
     identity_id: str = Field(min_length=1)
+    entity_universe: list[EntityUniverse] | None = Field(default=None, min_length=1)
+    limit: int = Field(default=100, ge=1, le=1000)
 
 
 class DatasetRequest(ContractModel):
@@ -75,6 +77,7 @@ class RelationshipRequest(ContractModel):
 
 class HopsRequest(ContractModel):
     node_id: str = Field(min_length=1)
+    limit: int = Field(default=100, ge=1, le=1000)
 
 
 class SubgraphRequest(ContractModel):
@@ -118,6 +121,7 @@ class IdentityDetail(ContractModel):
     description: str
     synonyms: list[str]
     definitions: list[dict[str, Any]]
+    truncated: bool
 
 
 class DatasetDetail(ContractModel):
@@ -154,6 +158,12 @@ class HopDetail(ContractModel):
     direction: dict[str, Any]
     reverse_direction: dict[str, Any]
     unknown_fields: list[str]
+
+
+class HopsResponse(ContractModel):
+    node_id: str
+    hops: list[HopDetail]
+    truncated: bool
 
 
 class SubgraphResponse(ContractModel):

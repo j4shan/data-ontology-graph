@@ -103,6 +103,13 @@ Traversal hops from a node are directed views of stored relationships, with
 directional multiplicity and always/optional/unknown match existence as
 defined in the [Data Modeling Spec](../data/data-modeling-spec.md).
 
+Hops are returned in ascending `edge_id` order. An optional `limit` (default
+100, maximum 1000) caps the hops returned, and `truncated` reports whether more
+exist. Identity detail follows the same rule for its entity definitions, ordered
+by `node_id` and then `dataset_columns`; an optional `entity_universe` filter
+applies before the limit, so a caller can request only the `complete`
+realization.
+
 ### 4.4 Subgraph expansion
 
 Subgraph expansion performs breadth-first traversal from one or more named
@@ -122,7 +129,9 @@ of multiplicity and match existence: `direction` moves from the hop's
 `unknown_fields` names unknown claims as `direction.*` or `reverse_direction.*`,
 as on hop and oriented relationship detail. Paths are ranked by
 hop count, then canonical edge IDs. Callers supply maximum hop and result-item
-limits, and returned paths respect both bounds. The interface does not pick a
+limits, and returned paths respect both bounds. The result-item limit also
+bounds the search: it proceeds in rank order and stops once the limit is filled
+and one further path shows that the result is `truncated`. The interface does not pick a
 single winner. Semantic analysis and path selection remain the caller's responsibility.
 
 An optional `allowed_multiplicities` filter constrains each hop in the traversal
@@ -197,7 +206,10 @@ Search and graph-navigation operations expose configurable bounds appropriate
 to the operation, including result-item counts, breadth-first expansion depth,
 and path hop count. Connecting-subgraph requests additionally bound the input
 dataset count. These bounds are
-part of response semantics and are high priority. Response-byte counters,
+part of response semantics and are high priority. For ranked paths the
+result-item limit also bounds the search (4.5). For direct lookups whose work is
+proportional to their result, such as directed hops and identity detail, the
+limit reduces response size, not compute time. Response-byte counters,
 tool-call tracing, task-level context totals, and benchmarking instrumentation
 are not required for bounded operation.
 
