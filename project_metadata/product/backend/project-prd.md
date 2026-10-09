@@ -68,8 +68,8 @@ the correctness of an agent-assembled AKG.
 
 | ID | Requirement |
 | --- | --- |
-| 3.2.1 | The product must provide deterministic local lexical search that returns candidate logical identities, entity definitions, and datasets through normalized exact, authored-alias, and prefix matching. Search reduces irrelevant context; it does not select correct AKG content for the reasoning agent. |
-| 3.2.2 | The product must provide local agent-callable lookup and graph-navigation tools for entity and dataset detail, directed relationships, ranked paths, and breadth-first subgraph expansion from named dataset seeds. |
+| 3.2.1 | The product must provide deterministic local lexical search for logical identities, datasets, entity definitions, and columns. Callers may filter by `kind`; responses return one group per requested kind, as header-keyed subject and match rows that report every matching field value with its match type (`exact` or `prefix`, plus `phrase` and `all_words` for multi-word queries against dataset qualified and display names and logical-identity names). Search reduces irrelevant context; it does not select correct AKG content for the reasoning agent. |
+| 3.2.2 | The product must provide local agent-callable lookup and graph-navigation tools for entity and dataset detail, directed relationships, ranked paths, and breadth-first subgraph expansion from named dataset seeds. Relationship lookup may orient `direction` and `reverse_direction` from an endpoint selected by `from_node_id` while retaining canonical edge evidence. |
 | 3.2.4 | Search and graph-navigation requests must accept configurable functional bounds appropriate to the operation, including result-item limits and breadth-first expansion depth. The service must enforce those bounds before returning a response. |
 
 The intended interaction is progressive: discover candidate entities, inspect selected entities,
@@ -100,8 +100,8 @@ task-level benchmarking are lower-priority work rather than initial-release gate
 
 | ID | Requirement |
 | --- | --- |
-| 3.4.1 | The project must ship source-family preparation tools and agent guidance that turn curated source evidence and schema-owner decisions into complete project-schema YAML. Source definitions and observed data are evidence, not final answers about business meaning. |
-| 3.4.2 | Preparation tools must read source catalogs and optional profiling data read-only, verify source integrity, and retain the evidence and owner decisions needed to explain the generated YAML. |
+| 3.4.1 | The project must ship source-family preparation tools and agent guidance that turn curated source evidence and optional input from the user running the collector into complete project-schema YAML. The user may answer decisions, override proposals, or add business information, but need not answer. Unsupported business meaning must remain explicitly unknown or be omitted when optional. |
+| 3.4.2 | Preparation tools must read source catalogs and optional profiling data read-only, verify source integrity, and retain the evidence, user input, and recorded defaulted decisions needed to explain the generated YAML. An unanswered decision must use an evidence-supported proposal or the schema's explicit unknown value. |
 | 3.4.3 | Preparation tools must emit manifest-layout YAML that enters graph construction only through the normal schema and builder validation gate. The builder's input contract must remain unchanged. |
 | 3.4.4 | Source-family preparation must depend on the graph core in one direction; the graph core must not depend on source-family preparation tools. |
 | 3.4.5 | Finalized generated catalogs and their decision and provenance records must be persisted outside this repository in Critic. |
@@ -143,7 +143,7 @@ submission and evaluation contracts.
 | 6.1.2 | The graph service does not implement data connectors or read source data. It persists and serves storage-format and accessor identifiers as knowledge properties; upstream preparation tools may inspect sources read-only under Goal D. |
 | 6.1.4 | The target builder does not implement overlays or overrides over pre-existing DDL metadata. Feedback and corrections are resolved during the external preparation step into one complete YAML artifact. |
 | 6.1.5 | The graph service does not generate or validate SQL, join predicates, recommended SQL join types, or executable queries. |
-| 6.1.6 | The graph service does not provide generalized semantic-similarity or full-text search. An orchestrating agent may use separate enterprise search tools to obtain canonical terms or IDs before calling the graph service. |
+| 6.1.6 | The graph service does not provide generalized semantic-similarity or full-text search. Its only full-text-like exception is word matching of multi-word queries against dataset qualified and display names and logical-identity names. An orchestrating agent may use separate enterprise search tools to obtain canonical terms or IDs before calling the graph service. |
 | 6.1.7 | The initial release does not retain client sessions or accept caller-held subgraphs, traversal frontiers, partially assembled AKGs, or other intermediary results as inputs to later tool calls. |
 | 6.1.8 | This project does not define an AKG evaluation artifact or benchmark the graph tools' effect on downstream GenAI or SQL-query accuracy. That work belongs to Critic. |
 | 6.1.9 | This repository stores graph and preparation source code, schemas, preparation skills, and unit-test fixtures. It does not version test data sources, generated catalogs, generated graph artifacts, or evaluation results; Critic stores those. |

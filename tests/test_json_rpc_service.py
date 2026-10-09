@@ -37,7 +37,8 @@ def test_dispatcher_exposes_only_read_methods() -> None:
         }
     )
     assert search is not None
-    assert search["result"]["hits"]
+    assert search["result"]["groups"]
+    assert any(group["match_rows"] for group in search["result"]["groups"])
 
     unknown = dispatcher.dispatch(
         {
@@ -56,6 +57,47 @@ def test_dispatcher_exposes_only_read_methods() -> None:
             "id": 3,
             "method": "graph.search",
             "params": {"query": ""},
+        }
+    )
+    assert invalid is not None
+    assert invalid["error"]["code"] == INVALID_PARAMS
+
+    invalid_kind = dispatcher.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "graph.search",
+            "params": {"query": "customer", "kind": []},
+        }
+    )
+    assert invalid_kind is not None
+    assert invalid_kind["error"]["code"] == INVALID_PARAMS
+
+
+def test_dispatcher_orients_relationship_detail_from_an_endpoint() -> None:
+    dispatcher = JsonRpcDispatcher(_service())
+    service = _service()
+    edge = service.index.snapshot.edges[0]
+
+    response = dispatcher.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "graph.get_relationship",
+            "params": {"edge_id": edge.edge_id, "from_node_id": edge.endpoint_b.node_id},
+        }
+    )
+    assert response is not None
+    assert response["result"]["from_node_id"] == edge.endpoint_b.node_id
+    assert response["result"]["direction"] == edge.b_to_a.model_dump(mode="json")
+    assert response["result"]["reverse_direction"] == edge.a_to_b.model_dump(mode="json")
+
+    invalid = dispatcher.dispatch(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "graph.get_relationship",
+            "params": {"edge_id": edge.edge_id, "from_node_id": "missing"},
         }
     )
     assert invalid is not None
@@ -102,8 +144,8 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                 )
                 assert first["id"] == 1
                 assert second["id"] == 2
-                assert first["result"]["hits"]
-                assert second["result"]["hits"]
+                assert any(group["match_rows"] for group in first["result"]["groups"])
+                assert any(group["match_rows"] for group in second["result"]["groups"])
 
                 follow_up = await _rpc_call(
                     socket_path,

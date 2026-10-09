@@ -91,8 +91,8 @@ to an entity definition with the same column set on that node.
 | ID | Object | Property | Type | Required or default | Product meaning |
 | --- | --- | --- | --- | --- | --- |
 | 4.1.1 | Edge | `edge_id` | string | Builder-generated; unique | Stable identity derived from the canonical unordered endpoint pair. |
-| 4.1.2 | Edge | `endpoint_a` | endpoint reference | Required | First endpoint after canonical ordering. |
-| 4.1.3 | Edge | `endpoint_b` | endpoint reference | Required | Second endpoint after canonical ordering. |
+| 4.1.2 | Edge | `endpoint_a` | endpoint reference | Required | First endpoint in ascending lexical order of `(node_id, identity_id, dataset_columns)`. |
+| 4.1.3 | Edge | `endpoint_b` | endpoint reference | Required | Second endpoint in that canonical order. If the authored pair is reversed, its directional claims swap with the endpoints before persistence. |
 | 4.1.4 | Edge | `a_to_b` | relationship direction | Required | Claims for traversal from endpoint A to endpoint B. |
 | 4.1.5 | Edge | `b_to_a` | relationship direction | Required | Claims for traversal from endpoint B to endpoint A. |
 | 4.1.6 | Endpoint | `node_id` | string | Required | Dataset containing the referenced entity definition. |
@@ -103,7 +103,11 @@ to an entity definition with the same column set on that node.
 
 The endpoints must be different registered definitions of the same `identity_id`. Multiplicity and
 match existence are independent authored claims; the builder validates and preserves them but does
-not derive their business meaning. Swapping traversal direction does not create another edge.
+not derive their business meaning. The snapshot persists and reloads canonical
+endpoints and their corresponding `a_to_b` and `b_to_a` claims. A relationship
+detail request may use `from_node_id` to obtain `direction` away from that node
+and `reverse_direction` toward it; these response fields do not change the
+stored edge. Swapping traversal direction does not create another edge.
 
 ### 4.2 Annotation properties
 
