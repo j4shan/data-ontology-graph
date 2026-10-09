@@ -116,11 +116,19 @@ completed AKG.
 ### 4.5 Ranked paths
 
 Join-path search returns ranked paths between named datasets. Each hop carries
-its logical identity, compound endpoint references,
-directional multiplicity, and match existence. Paths are ranked by
+its logical identity, compound endpoint references, and both directional claims
+of multiplicity and match existence: `direction` moves from the hop's
+`from_node_id` to its `to_node_id`, and `reverse_direction` moves back.
+`unknown_fields` names unknown claims as `direction.*` or `reverse_direction.*`,
+as on hop and oriented relationship detail. Paths are ranked by
 hop count, then canonical edge IDs. Callers supply maximum hop and result-item
 limits, and returned paths respect both bounds. The interface does not pick a
-single winner.
+single winner. Semantic analysis and path selection remain the caller's responsibility.
+
+An optional `allowed_multiplicities` filter constrains each hop in the traversal
+direction. Omission leaves traversal unrestricted. Unknown multiplicity is
+eligible only when explicitly allowed. Disallowed hops are pruned before
+expansion; filtering must not worsen asymptotic traversal time or space complexity.
 
 ### 4.6 Relationship detail
 
@@ -187,9 +195,33 @@ optional future enhancement.
 
 Search and graph-navigation operations expose configurable bounds appropriate
 to the operation, including result-item counts, breadth-first expansion depth,
-and path hop count. These bounds are part of response semantics and are high
-priority. Response-byte counters, tool-call tracing, task-level context totals,
-and benchmarking instrumentation are not required for bounded operation.
+and path hop count. Connecting-subgraph requests additionally bound the input
+dataset count. These bounds are
+part of response semantics and are high priority. Response-byte counters,
+tool-call tracing, task-level context totals, and benchmarking instrumentation
+are not required for bounded operation.
+
+### 4.12 Connecting selected datasets
+
+`graph.find_connecting_subgraph` accepts caller-selected dataset endpoints in
+`node_ids` and returns one compact connecting tree, including intermediate
+datasets and their relationship evidence. The initial request accepts 2–16
+distinct datasets; the maximum is configurable server-side. Endpoint selection and semantic
+interpretation remain the caller's responsibility.
+
+Use a polynomial-time undirected Steiner-tree approximation based on
+Mehlhorn's multi-source approach. Connectivity considers relationships
+traversable in either direction, while responses preserve both directional
+claims. The result is approximate, not a guaranteed minimum or an enumeration
+of all alternatives. Response ordering must be deterministic.
+
+The search runs in time linear in the graph size and stops as soon as the
+tree is settled, so nearby endpoints touch only their neighbourhood. Responses
+report `status` as `completed` or `disconnected`, with dataset and relationship
+collections; a disconnected response returns the endpoint datasets and no
+relationships. The approximation guarantee applies to connected inputs.
+Graph computation runs outside the request event loop, with bounded concurrent
+computations and cancellation support.
 
 ## 5 Non-normative proposals
 

@@ -70,12 +70,16 @@ the correctness of an agent-assembled AKG.
 | --- | --- |
 | 3.2.1 | The product must provide deterministic local lexical search for logical identities, datasets, entity definitions, and columns. Callers may filter by `kind`; responses return one group per requested kind, as header-keyed subject and match rows that report every matching field value with its match type (`exact` or `prefix`, plus `phrase` and `all_words` for multi-word queries against dataset qualified and display names and logical-identity names). Search reduces irrelevant context; it does not select correct AKG content for the reasoning agent. |
 | 3.2.2 | The product must provide local agent-callable lookup and graph-navigation tools for entity and dataset detail, directed relationships, ranked paths, and breadth-first subgraph expansion from named dataset seeds. Relationship lookup may orient `direction` and `reverse_direction` from an endpoint selected by `from_node_id` while retaining canonical edge evidence. |
-| 3.2.4 | Search and graph-navigation requests must accept configurable functional bounds appropriate to the operation, including result-item limits and breadth-first expansion depth. The service must enforce those bounds before returning a response. |
+| 3.2.3 | Ranked-path requests must support an optional multiplicity filter evaluated in the traversal direction. Omission preserves unrestricted traversal; unknown multiplicity must not implicitly satisfy a restrictive filter. Filtering must prune traversal without worsening asymptotic time or space complexity. |
+| 3.2.4 | Search and graph-navigation requests must enforce configurable functional bounds, including result-item limits and breadth-first expansion depth. Connecting-subgraph search must additionally enforce an input-dataset cap. |
+| 3.2.5 | Given caller-selected dataset endpoints, the service must return one compact connecting subgraph, including intermediate datasets where needed, using a polynomial-time undirected Steiner-tree approximation. The initial input range is 2–16 distinct datasets, with the maximum configurable server-side. Semantic relevance and endpoint selection remain the caller's responsibility. |
+| 3.2.6 | Graph computation must run outside the request event loop, with bounded concurrent computations and cancellation support, so one navigation request does not block unrelated clients. |
 
 The intended interaction is progressive: discover candidate entities, inspect selected entities,
 and retrieve relationship evidence through lookup or navigation. Tool responses are evidence
-fragments coordinated by the reasoning agent. Default and maximum values for each functional bound
-remain configurable implementation decisions. Response-byte instrumentation, tracing, and
+fragments coordinated by the reasoning agent. Functional bounds remain configurable,
+with an initial maximum of 16 datasets for connecting-subgraph requests. Response-byte
+instrumentation, tracing, and
 task-level benchmarking are lower-priority work rather than initial-release gates.
 
 ### Goal C — Knowledge unification
@@ -114,7 +118,7 @@ These checks verify the graph product itself. They do not benchmark a consuming 
 | --- | --- |
 | Evidence contract | Given known graph definitions, require search, lookup, and navigation to return the corresponding entity and relationship evidence without inventing unsupported knowledge. |
 | Collection quality | Reject schema-invalid YAML before ingestion. Review ambiguous or conflicting entity and relationship knowledge before publishing a new offline copy; preserve unknowns rather than asserting unsupported knowledge. |
-| Bounded access | Confirm that search result limits, traversal depth, and other configured operation bounds are enforced deterministically. |
+| Bounded access | Confirm that result, traversal, and input-dataset bounds are enforced, and concurrent requests remain responsive. |
 
 ## 5. Reserved goals — future release
 

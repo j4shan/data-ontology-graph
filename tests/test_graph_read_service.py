@@ -429,6 +429,12 @@ def test_traversal_reports_unknown_fields_relative_to_direction() -> None:
     assert hop_from_b.unknown_fields == ["direction.match_existence"]
 
     [path] = service.find_paths("dataset_b", "dataset_a").paths
-    assert path["hops"][0]["unknown_fields"] == ["direction.match_existence"]
+    [hop] = path["hops"]
+    assert hop["direction"] == relationship.b_to_a
+    assert hop["reverse_direction"] == relationship.a_to_b
+    assert hop["unknown_fields"] == ["direction.match_existence"]
     [reverse_path] = service.find_paths("dataset_a", "dataset_b").paths
-    assert reverse_path["hops"][0]["unknown_fields"] == []
+    [reverse_hop] = reverse_path["hops"]
+    assert reverse_hop["direction"] == relationship.a_to_b
+    assert reverse_hop["reverse_direction"] == relationship.b_to_a
+    assert reverse_hop["unknown_fields"] == ["reverse_direction.match_existence"]
