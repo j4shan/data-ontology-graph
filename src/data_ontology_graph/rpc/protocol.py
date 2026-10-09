@@ -95,7 +95,7 @@ class JsonRpcDispatcher:
 
     def _get_relationship(self, params: dict[str, Any]) -> Any:
         request = RelationshipRequest.model_validate(params)
-        return self.service.get_relationship(request.edge_id)
+        return self.service.get_relationship(request.edge_id, request.from_node_id)
 
     def _get_hops(self, params: dict[str, Any]) -> Any:
         request = HopsRequest.model_validate(params)

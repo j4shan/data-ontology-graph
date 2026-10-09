@@ -5,9 +5,10 @@ definitions, and relationships. Source-controlled YAML builds one read-only
 current artifact. One local singleton service reads that artifact and exposes
 sessionless JSON-RPC tools over a Unix-domain socket.
 
-The DDL collector prepares schema-version-3 YAML from curated source catalogs
-with a schema owner's review. It ships as the `ddl_collector` Python package
-beside the graph core in this distribution and runs through `ddl-collector`.
+The DDL collector prepares schema-version-3 YAML from curated source catalogs.
+The user running it may review and answer decisions. The collector ships as the
+`ddl_collector` Python package beside the graph core in this distribution and
+runs through `ddl-collector`.
 
 ## Requirements
 
@@ -17,11 +18,11 @@ beside the graph core in this distribution and runs through `ddl-collector`.
 3. Provide local search, lookup, and graph-navigation evidence for agent-built
    abstract knowledge graphs.
 
-The product requirements are in the [project PRD](project_metadata/product/backend/project-prd.md)
-and the [Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md).
-Detailed contracts live in [`project_metadata/product_spec/`](project_metadata/product_spec/).
-[`project-description.md`](project_metadata/project_description/project-description.md) records the retired legacy inference model for
-historical context.
+The product requirements are organized by category under
+[`project_metadata/product/`](project_metadata/product/). Start with the
+[project PRD](project_metadata/product/backend/project-prd.md), the
+[Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md), and the
+[Knowledge Graph contract](project_metadata/product/data/knowledge-graph.md).
 
 ## Setup
 
@@ -110,7 +111,7 @@ Run the stages from the repository root with a local Critic checkout:
 ```bash
 uv run ddl-collector extract --critic-root ../data-ontology-agent-critic --catalog catalog_name --scratch scratch/catalog-review
 uv run ddl-collector survey --scratch scratch/catalog-review
-# The schema owner edits only the answer blocks in scratch/catalog-review/survey.md.
+# The user may edit the answer blocks in scratch/catalog-review/survey.md.
 uv run ddl-collector apply --scratch scratch/catalog-review
 uv run ddl-collector validate --scratch scratch/catalog-review
 uv run ddl-collector publish --scratch scratch/catalog-review --catalog-root ../data-ontology-agent-critic/resources/data/generated_catalogs
@@ -123,8 +124,10 @@ Replace `catalog_name` with a catalog directory registered in Critic's
 reading it. It creates a session with `session.yaml`, `evidence.json`, `decisions.yaml`,
 `survey.md`, `draft/`, and `report.json` under the git-ignored `scratch/` directory. The survey
 lists unresolved grain decisions before relationship decisions. Declared keys and observed data
-are proposals; only the schema owner answers them. Repeated `apply` and `survey` rounds preserve
-answers and report unresolved decisions and validation findings.
+are proposals; the user may answer them. The current collector publishes only after every
+decision is answered, unknown, or waived; defaulting unanswered decisions is planned. Repeated
+`apply` and `survey` rounds preserve answers and report unresolved decisions and validation
+findings.
 
 The draft has a sibling `directory-manifest.yaml` and a `yaml/` directory with `identities.yaml`,
 one `nodes-<table>.yaml` per table, and `relationships.yaml`. Every physical column remains in

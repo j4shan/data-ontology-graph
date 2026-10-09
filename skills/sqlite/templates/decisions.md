@@ -29,7 +29,7 @@ identity_name: Orders identity
 entity_universe: unknown
 ```
 
-**Rationale.** Confirmed by the schema owner.
+**Rationale.** Confirmed by the user.
 
 ## relationship.order_items.order_id.orders
 
@@ -60,4 +60,4 @@ b_to_a:
   match_existence: unknown
 ```
 
-**Rationale.** Confirmed by the schema owner.
+**Rationale.** Confirmed by the user.

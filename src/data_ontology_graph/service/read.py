@@ -76,12 +76,16 @@ class GraphReadService:
         )
 
     def search(self, request: SearchRequest) -> SearchResponse:
-        normalized, hits, truncated = self.index.search.search(request.query, request.limit)
+        normalized, groups, truncated = self.index.search.search(
+            request.query,
+            request.limit,
+            request.kind,
+        )
         return SearchResponse(
             snapshot=self.snapshot_info(),
             query=request.query,
             normalized_query=normalized,
-            hits=hits,
+            groups=groups,
             truncated=truncated,
         )
 
@@ -102,9 +106,26 @@ class GraphReadService:
     def get_dataset(self, node_id: str) -> DatasetDetail:
         return self._dataset_detail(self._node(node_id))
 
-    def get_relationship(self, edge_id: str) -> RelationshipDetail:
+    def get_relationship(
+        self,
+        edge_id: str,
+        from_node_id: str | None = None,
+    ) -> RelationshipDetail:
         edge = self._edge(edge_id)
         annotation = self.index.annotations.get(edge.edge_id)
+        direction = None
+        reverse_direction = None
+        unknown_fields = edge.unknown_fields()
+        if from_node_id is not None:
+            if from_node_id not in {edge.endpoint_a.node_id, edge.endpoint_b.node_id}:
+                raise ValueError(
+                    f"from_node_id {from_node_id!r} is not an endpoint of edge {edge_id!r}"
+                )
+            direction = edge.direction_from(from_node_id).model_dump(mode="json")
+            reverse_direction = edge.direction_from(
+                edge.opposite(from_node_id).node_id
+            ).model_dump(mode="json")
+            unknown_fields = edge.unknown_fields_from(from_node_id)
         return RelationshipDetail(
             edge_id=edge.edge_id,
             identity_id=edge.endpoint_a.identity_id,
@@ -112,8 +133,11 @@ class GraphReadService:
             endpoint_b=self._resolved_endpoint(edge.endpoint_b.identity_key()),
             a_to_b=edge.a_to_b.model_dump(mode="json"),
             b_to_a=edge.b_to_a.model_dump(mode="json"),
-            unknown_fields=edge.unknown_fields(),
+            unknown_fields=unknown_fields,
             annotation=annotation.model_dump(mode="json") if annotation else None,
+            from_node_id=from_node_id,
+            direction=direction,
+            reverse_direction=reverse_direction,
         )
 
     def get_hops(self, node_id: str) -> list[HopDetail]:

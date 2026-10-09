@@ -24,26 +24,31 @@ class EntityDefinitionRef(ContractModel):
     dataset_columns: list[str]
 
 
-class SearchSubject(ContractModel):
-    kind: Literal["identity", "dataset", "entity_definition", "column"]
-    key: str
-    label: str
-    node_id: str | None = None
-    identity_id: str | None = None
-    dataset_columns: list[str] = Field(default_factory=list)
-    column_name: str | None = None
-    unknown_fields: list[str] = Field(default_factory=list)
+SearchKind = Literal["identity", "dataset", "entity_definition", "column"]
 
 
-class SearchHit(ContractModel):
-    subject: SearchSubject
-    match_kind: Literal["exact", "prefix"]
-    matched_term: str
-    matched_field: str
+SearchCell = str | list[str] | None
+
+
+class SearchGroup(ContractModel):
+    """Search results for one kind as two header-keyed row tables joined by ``key``.
+
+    ``subject_row_header`` names the position of each value in a ``subject_rows`` row, and
+    ``match_row_header`` does the same for ``match_rows``. A subject has one match row for each
+    field value that matched.
+    """
+
+    kind: SearchKind
+    truncated: bool
+    subject_row_header: list[str]
+    subject_rows: list[list[SearchCell]]
+    match_row_header: list[str]
+    match_rows: list[list[str]]
 
 
 class SearchRequest(ContractModel):
     query: str = Field(min_length=1)
+    kind: list[SearchKind] | None = Field(default=None, min_length=1)
     limit: int = Field(default=50, ge=1, le=1000)
 
 
@@ -51,7 +56,7 @@ class SearchResponse(ContractModel):
     snapshot: SnapshotInfo
     query: str
     normalized_query: str
-    hits: list[SearchHit]
+    groups: list[SearchGroup]
     truncated: bool
 
 
@@ -65,6 +70,7 @@ class DatasetRequest(ContractModel):
 
 class RelationshipRequest(ContractModel):
     edge_id: str = Field(min_length=1)
+    from_node_id: str | None = Field(default=None, min_length=1)
 
 
 class HopsRequest(ContractModel):
@@ -118,6 +124,9 @@ class RelationshipDetail(ContractModel):
     b_to_a: dict[str, Any]
     unknown_fields: list[str]
     annotation: dict[str, Any] | None
+    from_node_id: str | None = None
+    direction: dict[str, Any] | None = None
+    reverse_direction: dict[str, Any] | None = None
 
 
 class HopDetail(ContractModel):

@@ -15,21 +15,62 @@ query or mutate graph knowledge.
 
 ### 4.1 Search
 
-Search returns a reduced candidate set of logical identities and associated
-entity-definition and dataset references. Candidates may match a stable ID,
-business name, synonym, tag, qualified dataset name, accessor property,
-dataset-column set, or entity
-entity metadata. Results report the matched term and field plus identifying
-metadata for the reasoning agent to choose what to inspect next.
+Search returns a reduced candidate set of logical identities, datasets, entity
+definitions, and columns. The optional `kind` request field is a non-empty list
+of one or more of `identity`, `dataset`, `entity_definition`, and `column`;
+omitting it searches all four kinds. Candidates may match a stable ID, business
+name, synonym, tag, description, qualified dataset name, accessor property,
+dataset-column set, column metadata, or entity metadata. Each match reports its
+match type, field, matched term, and original value.
+
+The response contains one group for each requested kind, in lexical order:
+`column`, `dataset`, `entity_definition`, `identity`. A group holds two row
+tables. Each table has a header that names the value at each position of its
+rows, so callers read rows by position rather than by repeated property keys:
+
+| Header | Columns |
+| --- | --- |
+| `subject_row_header`, `column` | `key`, `node_id`, `column_name` |
+| `subject_row_header`, `dataset` | `key`, `display_name`, `unknown_fields` |
+| `subject_row_header`, `entity_definition` | `key`, `entity_expression`, `node_id`, `identity_id`, `dataset_columns`, `unknown_fields` |
+| `subject_row_header`, `identity` | `key`, `name` |
+| `match_row_header`, every kind | `key`, `match_type`, `match_field`, `matched_term`, `matched_value` |
+
+`subject_rows` has one row per matched subject. `match_rows` has one row for
+each of that subject's field values that matched, joined to its subject by
+`key`. `match_field` names the property that holds `matched_value`, the
+original field text, and `matched_term` is the normalized text that matched.
+Stored terms are the whole normalized value and each of its words.
+`match_type` is one of:
+
+| `match_type` | Meaning |
+| --- | --- |
+| `exact` | A stored term equals the normalized query. |
+| `prefix` | A stored term starts with the normalized query. |
+| `phrase` | Multi-word query, word-match value only: consecutive words of the value start with the query words, in order. |
+| `all_words` | Multi-word query, word-match value only: each query word starts some word of the value, in any order or position. |
+
+A value that matches more than one way reports only its best type, in table
+order. The word-match values are a dataset's `qualified_name` and
+`display_name` and a logical identity's `name`. All query words must occur in
+the same value; words spread across values or subjects do not match. Every
+other value matches a multi-word query only when it starts with the phrase.
+
+Subjects are ordered by their best match type, then normalized label, then key.
+A subject's match rows are ordered by match type, then field. The result limit
+applies to the subjects of each group separately; a group's `truncated` is true
+when the limit omits eligible subjects, and the response `truncated` is true
+when any group's is.
 
 The initial search implementation mechanically normalizes indexed terms and
-queries, then performs exact lookup and prefix-descendant enumeration over a
-static `marisa-trie` `RecordTrie`. Posting records reference authoritative
-snapshot objects rather than duplicating them. Multiple terms, including
-authored synonyms, may reference the same object; one term may reference more
-than one object. Straightforward filtering, deduplication, stable ordering, and
-caller-configurable result limiting after trie retrieval are sufficient for the expected domain
-scale of at most about 10,000 business entities. The service does not require a
+queries, then performs exact and prefix lookup over a static `marisa-trie`
+`RecordTrie`. A multi-word query also looks up each word and intersects the
+values that contain every word. Posting
+records reference authoritative snapshot objects rather than duplicating them.
+Multiple terms, including authored synonyms, may reference the same object;
+one term may reference more than one object. Filtering, deduplication, stable
+ordering, and a per-kind result limit are sufficient for the expected domain scale
+of at most about 10,000 business entities. The service does not require a
 dedicated relevance-ranking structure.
 
 At build time, a description or value description whose whole normalized value is a
@@ -60,7 +101,7 @@ direction (`direction.*` and `reverse_direction.*`).
 
 Traversal hops from a node are directed views of stored relationships, with
 directional multiplicity and always/optional/unknown match existence as
-defined in the [Data Modeling Spec](../product/data/data-modeling-spec.md).
+defined in the [Data Modeling Spec](../data/data-modeling-spec.md).
 
 ### 4.4 Subgraph expansion
 
@@ -83,11 +124,22 @@ single winner.
 
 ### 4.6 Relationship detail
 
-A hop exposes its `identity_id`, endpoint node IDs and dataset-column sets,
-directional relationship properties, and relationship identity. Connected
-node detail supplies entity expressions, expression context, and accessor
-metadata for the agent's AKG. The interface does not generate or validate SQL,
-join predicates, or recommended SQL join types.
+Relationship lookup accepts an `edge_id` and optional `from_node_id`, which
+must identify one of the edge's endpoint nodes. Its detail always includes
+canonical `endpoint_a`, `endpoint_b`, `a_to_b`, and `b_to_a`. When
+`from_node_id` is supplied, `direction` contains claims moving away from that
+node and `reverse_direction` contains claims moving toward it. `unknown_fields`
+then names unknown claims as `direction.*` or `reverse_direction.*`. Without an
+origin, `from_node_id`, `direction`, and `reverse_direction` are null, and
+`unknown_fields` uses canonical `a_to_b.*` and `b_to_a.*` names. The relative
+fields are a view of the same edge; they do not change its persisted endpoint
+order or directional claims.
+
+Relationship detail also exposes its `identity_id`, endpoint node IDs and
+dataset-column sets, and relationship identity. Connected node detail supplies
+entity expressions, expression context, and accessor metadata for the agent's
+AKG. The interface does not generate or validate SQL, join predicates, or
+recommended SQL join types.
 
 ### 4.7 Entity-model guidance
 
@@ -119,8 +171,10 @@ is not part of the target interface.
 The interface does not generate a complete query from natural language, pick
 a single many-to-many path, choose a physical replica for execution, generate
 or validate SQL, or execute SQL. General semantic-similarity and full-text
-search are also outside the graph service; callers may coordinate with separate
-tools for those capabilities. Data-statistics retrieval is deferred.
+search are also outside the graph service, except for word matching of
+multi-word queries against dataset qualified and display names and logical-identity
+names. Callers may coordinate with
+separate tools for broader search. Data-statistics retrieval is deferred.
 
 ### 4.10 Read-only local surface
 

@@ -91,7 +91,8 @@ feedback onto DDL metadata, or implement override precedence.
 ## 3 Upstream preparation boundary
 
 The DDL collector in `src/ddl_collector/` and the source-family skills in `skills/`
-prepare project-schema YAML from external definitions and owner-reviewed evidence.
+prepare project-schema YAML from external definitions, evidence, and optional input
+from the user running the collector.
 They depend on the graph core's model and builder APIs. The graph core must remain
 independent of the collector and skills. Collector output must enter construction
 only as a finalized YAML intermediary through the validation gate in Section 2;
@@ -99,4 +100,4 @@ the builder must not accept collector evidence or decisions as alternate inputs.
 
 The node identity composition rule remains in the source-controlled intermediary
 schema. Field-preparation, column-inventory, accessor-recipe, and decision-log
-requirements are in [YAML Preparation Skill Product Requirements](yaml-preparation.md).
+requirements are in [YAML Preparation Skill Product Requirements](../data/yaml-preparation.md).
