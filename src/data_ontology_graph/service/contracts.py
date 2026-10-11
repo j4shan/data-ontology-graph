@@ -3,10 +3,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
+from data_ontology_graph.service.tables import ResponseFormat, Table
 
 
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+Collection = Table | list[dict[str, Any]]
+"""A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
 class SnapshotInfo(ContractModel):
@@ -64,6 +69,7 @@ class IdentityRequest(ContractModel):
     identity_id: str = Field(min_length=1)
     entity_universe: list[EntityUniverse] | None = Field(default=None, min_length=1)
     limit: int = Field(default=100, ge=1, le=1000)
+    response_format: ResponseFormat = "table"
 
 
 class DatasetRequest(ContractModel):
@@ -73,11 +79,13 @@ class DatasetRequest(ContractModel):
 class RelationshipRequest(ContractModel):
     edge_id: str = Field(min_length=1)
     from_node_id: str | None = Field(default=None, min_length=1)
+    response_format: ResponseFormat = "table"
 
 
 class HopsRequest(ContractModel):
     node_id: str = Field(min_length=1)
     limit: int = Field(default=100, ge=1, le=1000)
+    response_format: ResponseFormat = "table"
 
 
 class SubgraphRequest(ContractModel):
@@ -85,6 +93,7 @@ class SubgraphRequest(ContractModel):
     max_depth: int = Field(default=1, ge=0, le=10)
     max_nodes: int = Field(default=1000, ge=1, le=10_000)
     max_edges: int = Field(default=1000, ge=1, le=10_000)
+    response_format: ResponseFormat = "table"
 
     @model_validator(mode="after")
     def seeds_must_fit_node_limit(self) -> "SubgraphRequest":
@@ -98,6 +107,7 @@ class PathsRequest(ContractModel):
     to_node_id: str = Field(min_length=1)
     max_hops: int = Field(default=4, ge=1, le=10)
     limit: int = Field(default=50, ge=1, le=1000)
+    response_format: ResponseFormat = "table"
     allowed_multiplicities: list[Multiplicity] | None = Field(
         default=None, min_length=1, max_length=5,
     )
@@ -105,6 +115,7 @@ class PathsRequest(ContractModel):
 
 class ConnectingSubgraphRequest(ContractModel):
     node_ids: list[str] = Field(min_length=2)
+    response_format: ResponseFormat = "table"
 
     @model_validator(mode="after")
     def distinct_endpoints(self) -> "ConnectingSubgraphRequest":
@@ -120,7 +131,8 @@ class IdentityDetail(ContractModel):
     name: str
     description: str
     synonyms: list[str]
-    definitions: list[dict[str, Any]]
+    entity_definitions: Collection
+    datasets: Collection
     truncated: bool
 
 
@@ -146,23 +158,16 @@ class RelationshipDetail(ContractModel):
     from_node_id: str | None = None
     direction: dict[str, Any] | None = None
     reverse_direction: dict[str, Any] | None = None
-
-
-class HopDetail(ContractModel):
-    edge_id: str
-    from_node_id: str
-    to_node_id: str
-    identity_id: str
-    from_endpoint: dict[str, Any]
-    to_endpoint: dict[str, Any]
-    direction: dict[str, Any]
-    reverse_direction: dict[str, Any]
-    unknown_fields: list[str]
+    datasets: Collection
+    entity_definitions: Collection
 
 
 class HopsResponse(ContractModel):
     node_id: str
-    hops: list[HopDetail]
+    hops: Collection
+    relationships: Collection
+    datasets: Collection
+    entity_definitions: Collection
     truncated: bool
 
 
@@ -172,8 +177,10 @@ class SubgraphResponse(ContractModel):
     max_depth: int
     max_nodes: int
     max_edges: int
-    nodes: list[dict[str, Any]]
-    edges: list[RelationshipDetail]
+    datasets: Collection
+    columns: Collection
+    entity_definitions: Collection
+    relationships: Collection
     truncated: bool
 
 
@@ -181,7 +188,11 @@ class PathsResponse(ContractModel):
     snapshot: SnapshotInfo
     from_node_id: str
     to_node_id: str
-    paths: list[dict[str, Any]]
+    path_count: int
+    hops: Collection
+    relationships: Collection
+    datasets: Collection
+    entity_definitions: Collection
     truncated: bool
 
 
@@ -189,6 +200,8 @@ class ConnectingSubgraphResponse(ContractModel):
     snapshot: SnapshotInfo
     node_ids: list[str]
     status: Literal["completed", "disconnected"]
-    nodes: list[DatasetDetail]
-    edges: list[RelationshipDetail]
+    datasets: Collection
+    columns: Collection
+    entity_definitions: Collection
+    relationships: Collection
     algorithm: Literal["mehlhorn_unweighted"] = "mehlhorn_unweighted"

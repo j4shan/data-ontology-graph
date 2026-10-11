@@ -95,6 +95,7 @@ class JsonRpcDispatcher:
         request = IdentityRequest.model_validate(params)
         return self.service.get_identity(
             request.identity_id, request.entity_universe, request.limit,
+            request.response_format,
         )
 
     def _get_dataset(self, params: dict[str, Any]) -> Any:
@@ -103,11 +104,13 @@ class JsonRpcDispatcher:
 
     def _get_relationship(self, params: dict[str, Any]) -> Any:
         request = RelationshipRequest.model_validate(params)
-        return self.service.get_relationship(request.edge_id, request.from_node_id)
+        return self.service.get_relationship(
+            request.edge_id, request.from_node_id, request.response_format,
+        )
 
     def _get_hops(self, params: dict[str, Any]) -> Any:
         request = HopsRequest.model_validate(params)
-        return self.service.get_hops(request.node_id, request.limit)
+        return self.service.get_hops(request.node_id, request.limit, request.response_format)
 
     def _expand_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.expand_subgraph(SubgraphRequest.model_validate(params))
@@ -121,6 +124,7 @@ class JsonRpcDispatcher:
             limit=request.limit,
             allowed_multiplicities=request.allowed_multiplicities,
             cancel_event=cancel_event,
+            response_format=request.response_format,
         )
 
     def _find_connecting_subgraph(self, params: dict[str, Any]) -> Any:

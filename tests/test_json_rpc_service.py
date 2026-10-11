@@ -112,14 +112,22 @@ def test_dispatcher_bounds_hops_and_identity_definitions() -> None:
 
     hops = call("graph.get_hops", {"node_id": "sqlite:lending.account", "limit": 1})["result"]
     assert hops["node_id"] == "sqlite:lending.account"
-    assert len(hops["hops"]) == 1
+    assert len(hops["hops"]["rows"]) == 1
     assert hops["truncated"] is True
 
     identity = call("graph.get_identity", {
         "identity_id": "region_identity", "entity_universe": ["complete"], "limit": 1,
     })["result"]
-    assert [item["node_id"] for item in identity["definitions"]] == ["sqlite:lending.region"]
+    assert [row[0] for row in identity["entity_definitions"]["rows"]] == ["sqlite:lending.region"]
     assert identity["truncated"] is False
+
+    verbose = call("graph.get_hops", {
+        "node_id": "sqlite:lending.account", "limit": 1, "response_format": "records",
+    })["result"]
+    assert verbose["hops"][0]["from_node_id"] == "sqlite:lending.account"
+    assert set(verbose["hops"][0]["direction"]) == {"multiplicity", "match_existence"}
+    unsupported = call("graph.get_hops", {"node_id": "sqlite:lending.account", "response_format": "xml"})
+    assert unsupported["error"]["code"] == INVALID_PARAMS
 
     invalid = call("graph.get_hops", {"node_id": "sqlite:lending.account", "limit": 1001})
     assert invalid["error"]["code"] == INVALID_PARAMS
@@ -174,7 +182,7 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                     "graph.expand_subgraph",
                     {"seed_node_ids": ["sqlite:lending.customer"], "max_depth": 1},
                 )
-                assert follow_up["result"]["nodes"]
+                assert follow_up["result"]["datasets"]["rows"]
             finally:
                 await server.close()
             assert not socket_path.exists()

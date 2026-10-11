@@ -103,10 +103,14 @@ Traversal hops from a node are directed views of stored relationships, with
 directional multiplicity and always/optional/unknown match existence as
 defined in the [Data Modeling Spec](../data/data-modeling-spec.md).
 
-Hops are returned in ascending `edge_id` order. An optional `limit` (default
+Each row of the `hops` collection (4.13) is a step over a relationship in the
+response's `relationships`: `edge_id`, `from_node_id` (the requested node),
+`to_node_id`, and the claims oriented to that step. Hops are returned in
+ascending `edge_id` order. An optional `limit` (default
 100, maximum 1000) caps the hops returned, and `truncated` reports whether more
-exist. Identity detail follows the same rule for its entity definitions, ordered
-by `node_id` and then `dataset_columns`; an optional `entity_universe` filter
+exist. Identity detail follows the same rule for its `entity_definitions`, ordered
+by `node_id` and then `dataset_columns`, with their datasets in `datasets`; an
+optional `entity_universe` filter
 applies before the limit, so a caller can request only the `complete`
 realization.
 
@@ -114,17 +118,23 @@ realization.
 
 Subgraph expansion performs breadth-first traversal from one or more named
 dataset seeds with caller-configurable maximum depth and result-item bounds. It
-returns deduplicated dataset nodes, relationship edges, compound endpoint
-references, directional relationship properties, and distance from a seed.
+returns `datasets` in (distance, `node_id`) order, each with its `distance` from a
+seed, plus the datasets' `columns` and `entity_definitions` and the selected
+edges in `relationships` with their compound endpoint references and directional
+claims (4.13).
 The returned node and edge collections respect the configured bounds. The
 returned subgraph is downstream reasoning evidence; it is not itself a
 completed AKG.
 
 ### 4.5 Ranked paths
 
-Join-path search returns ranked paths between named datasets. Each hop carries
-its logical identity, compound endpoint references, and both directional claims
-of multiplicity and match existence: `direction` moves from the hop's
+Join-path search returns ranked paths between named datasets. `path_count` gives
+the number of paths returned. Each row of `hops` (4.13) is one step: `path` is the
+path's rank from 0, and a path's steps are its rows in order. Each step names a
+relationship listed once in `relationships`, whose endpoint datasets and entity
+definitions are listed once in `datasets` and `entity_definitions`. Each step carries
+`edge_id`, `from_node_id`, `to_node_id`, and both directional claims of
+multiplicity and match existence: `direction` moves from the hop's
 `from_node_id` to its `to_node_id`, and `reverse_direction` moves back.
 `unknown_fields` names unknown claims as `direction.*` or `reverse_direction.*`,
 as on hop and oriented relationship detail. Paths are ranked by
@@ -143,7 +153,8 @@ expansion; filtering must not worsen asymptotic traversal time or space complexi
 
 Relationship lookup accepts an `edge_id` and optional `from_node_id`, which
 must identify one of the edge's endpoint nodes. Its detail always includes
-canonical `endpoint_a`, `endpoint_b`, `a_to_b`, and `b_to_a`. When
+canonical `endpoint_a`, `endpoint_b`, `a_to_b`, and `b_to_a`, with both endpoint
+datasets and entity definitions in `datasets` and `entity_definitions` (4.13). When
 `from_node_id` is supplied, `direction` contains claims moving away from that
 node and `reverse_direction` contains claims moving toward it. `unknown_fields`
 then names unknown claims as `direction.*` or `reverse_direction.*`. Without an
@@ -229,11 +240,58 @@ of all alternatives. Response ordering must be deterministic.
 
 The search runs in time linear in the graph size and stops as soon as the
 tree is settled, so nearby endpoints touch only their neighbourhood. Responses
-report `status` as `completed` or `disconnected`, with dataset and relationship
-collections; a disconnected response returns the endpoint datasets and no
+report `status` as `completed` or `disconnected`, with the tree's datasets in
+tree order in `datasets`, their `columns` and `entity_definitions`, and the tree's
+edges in `relationships` (4.13); a disconnected response returns the endpoint datasets and no
 relationships. The approximation guarantee applies to connected inputs.
 Graph computation runs outside the request event loop, with bounded concurrent
 computations and cancellation support.
+
+### 4.13 Graph-object responses
+
+`graph.get_identity`, `graph.get_relationship`, `graph.get_hops`, `graph.find_paths`,
+`graph.expand_subgraph`, and `graph.find_connecting_subgraph` list each graph object
+once and express structure as references to identifiers:
+
+| Collection | One row per | Columns |
+| --- | --- | --- |
+| `hops` | Step over a relationship. `graph.find_paths` adds `path` first. | `edge_id`, `from_node_id`, `to_node_id`, `direction.multiplicity`, `direction.match_existence`, `reverse_direction.multiplicity`, `reverse_direction.match_existence`, `unknown_fields` |
+| `relationships` | Relationship, in `edge_id` order | `edge_id`, `identity_id`, `endpoint_a.node_id`, `endpoint_a.dataset_columns`, `endpoint_b.node_id`, `endpoint_b.dataset_columns`, `a_to_b.multiplicity`, `a_to_b.match_existence`, `b_to_a.multiplicity`, `b_to_a.match_existence`, `unknown_fields`, `annotation` |
+| `datasets` | Dataset, in `node_id` order (subgraphs: their node order) | `node_id`, `descriptor.qualified_name`, `descriptor.display_name`, `descriptor.description`, `descriptor.synonyms`, `descriptor.tags`, `accessor.schema_id`, `accessor.properties`. Subgraph responses add `grain` and `unknown_fields`, and `graph.expand_subgraph` adds `distance` after `node_id`. |
+| `entity_definitions` | Entity definition | `node_id`, `identity_id`, `dataset_columns`, `entity_universe`, `entity_expression`, `entity_metadata`, `unknown_fields` |
+| `columns` | Column of a subgraph dataset | `node_id`, `name`, `description`, `value_description`, `synonyms` |
+
+- A relationship endpoint's entity definition is the `entity_definitions` row with
+  the endpoint's `node_id` and `dataset_columns` and the relationship's
+  `identity_id`. Hops, paths, and relationship detail list only the definitions
+  their relationships reference; subgraph responses list every definition of
+  their datasets.
+- A step records its traversal direction with `from_node_id` and `to_node_id`.
+  Its `direction`, `reverse_direction`, and `unknown_fields` are oriented to that
+  traversal, so a caller does not invert the canonical claims. The same
+  relationship may be traversed in either direction by different steps.
+- Relationship detail carries its relationship's fields at its top level and its
+  endpoints in `datasets` and `entity_definitions`.
+
+**Response format.** Each of these methods accepts an optional `response_format`:
+
+- `"table"` (default): each collection is `{"header": [...], "rows": [[...], ...]}`.
+  A row holds one value per header column, in header order. A dotted column name is
+  a path into the record: `direction.multiplicity` is the `multiplicity` field of the
+  record's `direction` object. A cell may hold a list or, for `accessor.properties`,
+  `entity_metadata`, `grain`, and `annotation`, an object.
+- `"records"`: each collection is a list of JSON objects with the same content,
+  one per row, with each dotted column name expanded into nested objects. Use it
+  when keyed values are easier to read than positions.
+
+The two formats carry the same information. A table converts to records
+mechanically: for each row, pair each header column with the value at the same
+position, and nest dotted names. Any other `response_format` value is rejected as
+invalid params. Tables state each field name once per collection instead of once
+per row.
+
+Responses currently include full metadata; the lightweight default and requests
+for non-default metadata (PRD 3.2.7) are not yet defined.
 
 ## 5 Non-normative proposals
 

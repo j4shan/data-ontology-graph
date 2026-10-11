@@ -4,9 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 from data_ontology_graph.builder import build_snapshot_from_yaml
-from data_ontology_graph.service.contracts import SearchRequest, SubgraphRequest
+from data_ontology_graph.service.contracts import (
+    ConnectingSubgraphRequest,
+    SearchRequest,
+    SubgraphRequest,
+)
 from data_ontology_graph.service.read import GraphReadService
 from data_ontology_graph.service.search import is_placeholder, normalize_term
+from data_ontology_graph.service.tables import to_records, to_table
+from graph_records import by_id, paths
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -227,8 +233,10 @@ def test_search_ranks_an_identity_by_its_best_match() -> None:
 def test_identity_and_dataset_lookup_expose_target_model() -> None:
     service = _service()
     identity = service.get_identity("customer_identity")
-    assert identity.definitions
-    assert {item["node_id"] for item in identity.definitions} >= {
+    definitions = to_records(identity.entity_definitions)
+    assert definitions
+    assert set(by_id(identity.datasets, "node_id")) == {item["node_id"] for item in definitions}
+    assert {item["node_id"] for item in definitions} >= {
         "sqlite:lending.customer",
         "sqlite:lending.account_holder",
     }
@@ -244,13 +252,13 @@ def test_identity_and_dataset_lookup_expose_target_model() -> None:
 def test_hops_are_ordered_by_edge_id_and_bounded_by_limit() -> None:
     service = _service()
     complete = service.get_hops("sqlite:lending.account")
-    edge_ids = [hop.edge_id for hop in complete.hops]
+    edge_ids = [hop["edge_id"] for hop in to_records(complete.hops)]
     assert len(edge_ids) == 3
     assert edge_ids == sorted(edge_ids)
     assert complete.truncated is False
 
     limited = service.get_hops("sqlite:lending.account", limit=2)
-    assert [hop.edge_id for hop in limited.hops] == edge_ids[:2]
+    assert [hop["edge_id"] for hop in to_records(limited.hops)] == edge_ids[:2]
     assert limited.truncated is True
     assert service.get_hops("sqlite:lending.account", limit=3).truncated is False
     with pytest.raises(ValidationError):
@@ -260,31 +268,34 @@ def test_hops_are_ordered_by_edge_id_and_bounded_by_limit() -> None:
 def test_identity_definitions_filter_by_universe_and_respect_limit() -> None:
     service = _service()
     region = service.get_identity("region_identity")
-    assert [item["node_id"] for item in region.definitions] == [
+    assert [item["node_id"] for item in to_records(region.entity_definitions)] == [
         "sqlite:lending.account", "sqlite:lending.customer", "sqlite:lending.region",
     ]
     assert region.truncated is False
 
     limited = service.get_identity("region_identity", limit=2)
-    assert [item["node_id"] for item in limited.definitions] == [
+    assert [item["node_id"] for item in to_records(limited.entity_definitions)] == [
         "sqlite:lending.account", "sqlite:lending.customer",
     ]
     assert limited.truncated is True
 
     # The filter applies before the limit, so the complete realization is never cut.
     complete = service.get_identity("region_identity", entity_universe=["complete"], limit=1)
-    assert [item["node_id"] for item in complete.definitions] == ["sqlite:lending.region"]
+    assert [item["node_id"] for item in to_records(complete.entity_definitions)] == [
+        "sqlite:lending.region",
+    ]
     assert complete.truncated is False
-    assert service.get_identity("loan_identity", entity_universe=["complete"]).definitions == []
+    empty = service.get_identity("loan_identity", entity_universe=["complete"])
+    assert to_records(empty.entity_definitions) == [] and to_records(empty.datasets) == []
     with pytest.raises(ValidationError):
         service.get_identity("region_identity", entity_universe=[])
 
 
 def test_hops_expose_directional_target_properties_without_sql() -> None:
     service = _service()
-    hops = service.get_hops("sqlite:lending.account").hops
+    hops = to_records(service.get_hops("sqlite:lending.account").hops)
     assert hops
-    payload = hops[0].model_dump(mode="json")
+    payload = hops[0]
     assert payload["direction"]["multiplicity"] in {
         "1:1",
         "1:many",
@@ -309,13 +320,13 @@ def test_multi_seed_bfs_is_bounded_and_deduplicated() -> None:
             max_depth=2,
         )
     )
-    nodes = [item["dataset"]["node_id"] for item in response.nodes]
+    nodes = [item["node_id"] for item in to_records(response.datasets)]
     assert len(nodes) == len(set(nodes))
     assert "sqlite:lending.account_holder" in nodes
     assert "sqlite:lending.account" in nodes
-    assert all(item["distance"] <= 2 for item in response.nodes)
-    edge_ids = [edge.edge_id for edge in response.edges]
-    assert len(edge_ids) == len(set(edge_ids))
+    assert all(item["distance"] <= 2 for item in to_records(response.datasets))
+    assert {item["node_id"] for item in to_records(response.columns)} <= set(nodes)
+    assert to_records(response.relationships)
 
 
 def test_bfs_enforces_node_and_edge_result_limits() -> None:
@@ -329,14 +340,14 @@ def test_bfs_enforces_node_and_edge_result_limits() -> None:
         )
     )
 
-    assert len(response.nodes) == 3
-    assert len(response.edges) <= 1
+    assert len(to_records(response.datasets)) == 3
+    assert len(to_records(response.relationships)) <= 1
     assert response.truncated is True
-    returned_nodes = {item["dataset"]["node_id"] for item in response.nodes}
+    returned_nodes = set(by_id(response.datasets, "node_id"))
     assert all(
-        edge.endpoint_a["node_id"] in returned_nodes
-        and edge.endpoint_b["node_id"] in returned_nodes
-        for edge in response.edges
+        edge["endpoint_a"]["node_id"] in returned_nodes
+        and edge["endpoint_b"]["node_id"] in returned_nodes
+        for edge in to_records(response.relationships)
     )
 
 
@@ -355,8 +366,9 @@ def test_paths_preserve_alternatives_without_sql_fragments() -> None:
         "sqlite:lending.region",
         max_hops=4,
     )
-    assert len(response.paths) >= 2
-    assert response.paths[0]["length"] <= response.paths[1]["length"]
+    assert response.path_count >= 2
+    first, second = paths(response)[:2]
+    assert len(first) <= len(second)
     assert "sql_on" not in str(response.model_dump(mode="json"))
 
     limited = service.find_paths(
@@ -365,8 +377,98 @@ def test_paths_preserve_alternatives_without_sql_fragments() -> None:
         max_hops=4,
         limit=1,
     )
-    assert len(limited.paths) == 1
+    assert limited.path_count == 1
     assert limited.truncated is True
+
+
+def _assert_listed_once(service: GraphReadService, response) -> None:
+    """Relationships and datasets appear once, keyed by ID, and every reference resolves."""
+    hops = to_records(response.hops)
+    relationships = to_records(response.relationships)
+    datasets = to_records(response.datasets)
+    definitions = to_records(response.entity_definitions)
+    edge_ids = [record["edge_id"] for record in relationships]
+    node_ids = [record["node_id"] for record in datasets]
+    assert edge_ids == sorted(set(edge_ids)) and node_ids == sorted(set(node_ids))
+    assert {hop["edge_id"] for hop in hops} == set(edge_ids)
+    by_edge = dict(zip(edge_ids, relationships))
+    for hop in hops:
+        relationship = by_edge[hop["edge_id"]]
+        ends = {relationship["endpoint_a"]["node_id"], relationship["endpoint_b"]["node_id"]}
+        assert {hop["from_node_id"], hop["to_node_id"]} == ends
+    endpoints = {
+        (endpoint["node_id"], relationship["identity_id"], tuple(endpoint["dataset_columns"]))
+        for relationship in relationships
+        for endpoint in (relationship["endpoint_a"], relationship["endpoint_b"])
+    }
+    assert set(node_ids) == {node_id for node_id, _, _ in endpoints}
+    assert {
+        (item["node_id"], item["identity_id"], tuple(item["dataset_columns"]))
+        for item in definitions
+    } == endpoints
+    for item in definitions:
+        node_id = item.pop("node_id")
+        assert item in service.get_dataset(node_id).entity_definitions
+
+
+def test_navigation_responses_list_each_relationship_and_dataset_once() -> None:
+    service = _service()
+    response = service.find_paths("sqlite:lending.customer", "sqlite:lending.region", max_hops=4)
+    assert response.path_count >= 2
+    assert len(to_records(response.datasets)) < 2 * len(to_records(response.hops))
+    _assert_listed_once(service, response)
+
+    hops = service.get_hops("sqlite:lending.account")
+    assert {hop["from_node_id"] for hop in to_records(hops.hops)} == {"sqlite:lending.account"}
+    _assert_listed_once(service, hops)
+
+    edge_id = to_records(hops.hops)[0]["edge_id"]
+    relationship = service.get_relationship(edge_id)
+    assert set(by_id(relationship.datasets, "node_id")) == {
+        relationship.endpoint_a["node_id"], relationship.endpoint_b["node_id"],
+    }
+    assert len(to_records(relationship.entity_definitions)) == 2
+
+    subgraph = service.expand_subgraph(
+        SubgraphRequest(seed_node_ids=["sqlite:lending.account"], max_depth=1),
+    )
+    assert set(by_id(subgraph.relationships, "edge_id")) == set(by_id(hops.hops, "edge_id"))
+
+
+def test_table_and_records_formats_carry_the_same_content() -> None:
+    service = _service()
+    account, region = "sqlite:lending.account", "sqlite:lending.customer"
+    edge_id = service.index.adjacency[account][0].edge_id
+    calls = [
+        lambda f: service.get_identity("region_identity", response_format=f),
+        lambda f: service.get_relationship(edge_id, account, response_format=f),
+        lambda f: service.get_hops(account, response_format=f),
+        lambda f: service.find_paths(region, "sqlite:lending.region", response_format=f),
+        lambda f: service.expand_subgraph(
+            SubgraphRequest(seed_node_ids=[account], max_depth=2, response_format=f)),
+        lambda f: service.find_connecting_subgraph(
+            ConnectingSubgraphRequest(node_ids=[account, region], response_format=f)),
+    ]
+    for call in calls:
+        table = call("table").model_dump(mode="json")
+        records = call("records").model_dump(mode="json")
+        tables = [key for key, value in table.items()
+                  if isinstance(value, dict) and set(value) == {"header", "rows"}]
+        assert tables
+        for key in tables:
+            assert to_records(table[key]) == records[key]
+            assert len(table[key]["header"]) <= 12
+        assert {k: v for k, v in table.items() if k not in tables} == {
+            k: v for k, v in records.items() if k not in tables
+        }
+
+
+def test_tables_reject_records_their_header_does_not_cover() -> None:
+    with pytest.raises(ValueError, match="does not cover"):
+        to_table([{"edge_id": "e", "extra": 1}], ["edge_id"])
+    table = to_table([{"a": {"b": 1, "c": [2]}, "d": None}], ["a.b", "a.c", "d"])
+    assert table.rows == [[1, [2], None]]
+    assert to_records(table) == [{"a": {"b": 1, "c": [2]}, "d": None}]
 
 
 EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid.yaml"
@@ -426,7 +528,7 @@ def test_detail_responses_expose_unknown_claims() -> None:
 
     identity = service.get_identity("customer_identity")
     assert identity.description == "Unknown"
-    assert [item["unknown_fields"] for item in identity.definitions] == [[], []]
+    assert [item["unknown_fields"] for item in to_records(identity.entity_definitions)] == [[], []]
 
     dataset = service.get_dataset("dataset_b")
     assert dataset.grain == "unknown"
@@ -462,18 +564,16 @@ def test_traversal_reports_unknown_fields_relative_to_direction() -> None:
     with pytest.raises(ValueError, match="is not an endpoint"):
         service.get_relationship(edge_id, "dataset_missing")
 
-    [hop_from_a] = service.get_hops("dataset_a").hops
-    assert hop_from_a.unknown_fields == ["reverse_direction.match_existence"]
-    [hop_from_b] = service.get_hops("dataset_b").hops
-    assert hop_from_b.unknown_fields == ["direction.match_existence"]
+    [hop_from_a] = to_records(service.get_hops("dataset_a").hops)
+    assert hop_from_a["unknown_fields"] == ["reverse_direction.match_existence"]
+    [hop_from_b] = to_records(service.get_hops("dataset_b").hops)
+    assert hop_from_b["unknown_fields"] == ["direction.match_existence"]
 
-    [path] = service.find_paths("dataset_b", "dataset_a").paths
-    [hop] = path["hops"]
+    [[hop]] = paths(service.find_paths("dataset_b", "dataset_a"))
     assert hop["direction"] == relationship.b_to_a
     assert hop["reverse_direction"] == relationship.a_to_b
     assert hop["unknown_fields"] == ["direction.match_existence"]
-    [reverse_path] = service.find_paths("dataset_a", "dataset_b").paths
-    [reverse_hop] = reverse_path["hops"]
+    [[reverse_hop]] = paths(service.find_paths("dataset_a", "dataset_b"))
     assert reverse_hop["direction"] == relationship.a_to_b
     assert reverse_hop["reverse_direction"] == relationship.b_to_a
     assert reverse_hop["unknown_fields"] == ["reverse_direction.match_existence"]

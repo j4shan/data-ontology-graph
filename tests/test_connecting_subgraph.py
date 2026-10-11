@@ -15,6 +15,8 @@ from data_ontology_graph.rpc.protocol import INVALID_PARAMS, RESOURCE_NOT_FOUND,
 from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.contracts import ConnectingSubgraphRequest, PathsRequest
 from data_ontology_graph.service.read import GraphReadService
+from data_ontology_graph.service.tables import to_records
+from graph_records import by_id, paths
 from test_json_rpc_service import _rpc_call
 
 
@@ -61,17 +63,17 @@ def test_filter_prunes_calendar_fanout_and_keeps_process_path():
          ("operation", "order", "many:1", "1:many"),
          ("order", "plant", "many:1", "1:many")],
     )
-    assert len(service.find_paths("confirmation", "plant", max_hops=3).paths) == 2
+    assert service.find_paths("confirmation", "plant", max_hops=3).path_count == 2
     filtered = service.find_paths("confirmation", "plant", max_hops=3,
                                   allowed_multiplicities=["many:1", "1:1"])
-    assert len(filtered.paths) == 1
-    assert [hop["to_node_id"] for hop in filtered.paths[0]["hops"]] == [
+    assert filtered.path_count == 1
+    assert [hop["to_node_id"] for hop in paths(filtered)[0]] == [
         "operation", "order", "plant",
     ]
     assert service.find_paths("plant", "confirmation", max_hops=3,
-                              allowed_multiplicities=["many:1"]).paths == []
+                              allowed_multiplicities=["many:1"]).path_count == 0
     assert service.find_paths("plant", "confirmation", max_hops=3,
-                              allowed_multiplicities=["1:many"]).paths
+                              allowed_multiplicities=["1:many"]).path_count
 
 
 def _all_paths(service, source, target, max_hops, allowed):
@@ -114,8 +116,8 @@ def test_path_ranking_and_truncation_match_exhaustive_enumeration():
                             source, target, max_hops=max_hops, limit=limit,
                             allowed_multiplicities=allowed,
                         )
-                        assert [[hop["edge_id"] for hop in path["hops"]]
-                                for path in response.paths] == expected[:limit]
+                        assert [[hop["edge_id"] for hop in path]
+                                for path in paths(response)] == expected[:limit]
                         assert response.truncated is (len(expected) > limit)
 
 
@@ -131,17 +133,30 @@ def test_path_search_stops_once_the_limit_is_filled():
 
     service.index.adjacency = CountingAdjacency(service.index.adjacency)
     response = service.find_paths("n0", "n9", max_hops=8, limit=1)
-    assert [len(path["hops"]) for path in response.paths] == [1]
+    assert [len(path) for path in paths(response)] == [1]
     assert response.truncated is True
     # Exhaustive search would expand on the order of 10^5 partial paths here.
     assert len(expanded) < 20
 
 
+def test_paths_sharing_a_hop_list_its_relationship_once():
+    service = service_for(["a", "b", "c", "d"], [("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")])
+    response = service.find_paths("a", "c", max_hops=3)
+    assert [[(hop["from_node_id"], hop["to_node_id"]) for hop in path]
+            for path in paths(response)] == [[("a", "b"), ("b", "c")],
+                                            [("a", "b"), ("b", "d"), ("d", "c")]]
+    relationships = by_id(response.relationships, "edge_id")
+    assert len(relationships) == 4
+    assert list(by_id(response.datasets, "node_id")) == ["a", "b", "c", "d"]
+    # The c-d edge is stored canonically and traversed from d.
+    last = paths(response)[1][-1]
+    assert relationships[last["edge_id"]]["endpoint_a"]["node_id"] == "c"
+
 def test_unknown_multiplicity_requires_explicit_opt_in():
     service = service_for(["a", "b"], [("a", "b", "unknown", "1:1")])
-    assert service.find_paths("a", "b").paths
-    assert not service.find_paths("a", "b", allowed_multiplicities=["1:1"]).paths
-    assert service.find_paths("a", "b", allowed_multiplicities=["unknown"]).paths
+    assert service.find_paths("a", "b").path_count
+    assert not service.find_paths("a", "b", allowed_multiplicities=["1:1"]).path_count
+    assert service.find_paths("a", "b", allowed_multiplicities=["unknown"]).path_count
     with pytest.raises(ValidationError):
         PathsRequest(from_node_id="a", to_node_id="b", allowed_multiplicities=[])
     with pytest.raises(ValidationError):
@@ -154,11 +169,12 @@ def test_connecting_tree_uses_shared_intermediate_and_preserves_evidence():
                            ("b", "hub"), ("c", "hub"), ("hub", "unused")])
     response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["c", "a", "b"]))
     assert response.status == "completed"
-    assert [node.node_id for node in response.nodes] == ["a", "b", "c", "hub"]
-    assert len(response.edges) == 3
-    edge = next(edge for edge in response.edges if edge.endpoint_a["node_id"] == "a")
-    assert edge.a_to_b["multiplicity"] == "many:1"
-    assert edge.b_to_a["multiplicity"] == "1:many"
+    assert list(by_id(response.datasets, "node_id")) == ["a", "b", "c", "hub"]
+    relationships = to_records(response.relationships)
+    assert len(relationships) == 3
+    edge = next(edge for edge in relationships if edge["endpoint_a"]["node_id"] == "a")
+    assert edge["a_to_b"]["multiplicity"] == "many:1"
+    assert edge["b_to_a"]["multiplicity"] == "1:many"
     reverse = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["b", "a", "c"]))
     assert response == reverse
 
@@ -167,7 +183,8 @@ def test_disconnected_endpoints_return_no_tree():
     service = service_for(["a", "b", "c"], [("a", "b")])
     response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["a", "c"]))
     assert response.status == "disconnected"
-    assert [node.node_id for node in response.nodes] == ["a", "c"] and not response.edges
+    assert list(by_id(response.datasets, "node_id")) == ["a", "c"]
+    assert not to_records(response.relationships)
 
 
 def test_endpoint_cap_is_configurable_and_rpc_validates_inputs():
@@ -182,7 +199,7 @@ def test_endpoint_cap_is_configurable_and_rpc_validates_inputs():
     assert call("graph.find_connecting_subgraph", {"node_ids": ["a", "missing"]})["error"]["code"] == RESOURCE_NOT_FOUND
     assert call("graph.find_connecting_subgraph", {"node_ids": ["a", "b"]})["result"]["status"] == "completed"
     assert call("graph.find_paths", {"from_node_id": "a", "to_node_id": "c",
-                                    "allowed_multiplicities": ["many:1"]})["result"]["paths"] == []
+                                    "allowed_multiplicities": ["many:1"]})["result"]["path_count"] == 0
     assert call("graph.find_connecting_subgraph", {"node_ids": ["a", "b"], "max_work": 1})["error"]["code"] == INVALID_PARAMS
 
 
@@ -212,14 +229,16 @@ def test_approximation_against_exhaustive_small_graph_optimum():
         service = service_for(names, links)
         terminals = ["a", "d", "f"]
         response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=terminals))
-        result = [(edge.endpoint_a["node_id"], edge.endpoint_b["node_id"]) for edge in response.edges]
+        result = [(edge["endpoint_a"]["node_id"], edge["endpoint_b"]["node_id"])
+                  for edge in to_records(response.relationships)]
+        datasets = by_id(response.datasets, "node_id")
         assert response.status == "completed" and is_connected(terminals, result)
-        assert len(result) == len(response.nodes) - 1
+        assert len(result) == len(datasets) - 1
         optimum = next(k for k in range(1, len(links) + 1)
                        if any(is_connected(terminals, subset) for subset in combinations(links, k)))
         assert len(result) <= 2 * optimum
-        assert all(sum(node.node_id in pair for pair in result) > 1
-                   for node in response.nodes if node.node_id not in terminals)
+        assert all(sum(node_id in pair for pair in result) > 1
+                   for node_id in datasets if node_id not in terminals)
 
 
 class CountingAdjacency(dict):
