@@ -14,7 +14,6 @@ from data_ontology_graph.service.contracts import (
     ConnectingSubgraphRequest,
     ConnectingSubgraphResponse,
     DatasetDetail,
-    HopDetail,
     HopsRequest,
     HopsResponse,
     IdentityDetail,
@@ -30,6 +29,18 @@ from data_ontology_graph.service.contracts import (
 )
 from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.service.search import LexicalSearchIndex
+from data_ontology_graph.service.tables import (
+    COLUMN_HEADER,
+    DATASET_DETAIL_HEADER,
+    DATASET_HEADER,
+    DEFINITION_HEADER,
+    PATH_STEP_HEADER,
+    RELATIONSHIP_HEADER,
+    STEP_HEADER,
+    SUBGRAPH_DATASET_HEADER,
+    ResponseFormat,
+    collection,
+)
 
 
 DefinitionKey = tuple[str, str, tuple[str, ...]]
@@ -105,9 +116,11 @@ class GraphReadService:
         identity_id: str,
         entity_universe: list[EntityUniverse] | None = None,
         limit: int = 100,
+        response_format: ResponseFormat = "table",
     ) -> IdentityDetail:
         request = IdentityRequest(
             identity_id=identity_id, entity_universe=entity_universe, limit=limit,
+            response_format=response_format,
         )
         identity = self._identity(request.identity_id)
         universes = (set(request.entity_universe)
@@ -118,15 +131,22 @@ class GraphReadService:
             for node_id, definition in self.index.definitions_by_identity.get(identity_id, ())
             if universes is None or definition.entity_universe in universes
         ]
+        selected = matching[:request.limit]
         return IdentityDetail(
             identity_id=identity.identity_id,
             name=identity.name,
             description=identity.description,
             synonyms=identity.synonyms,
-            definitions=[
-                self._resolved_definition(node_id, definition)
-                for node_id, definition in matching[:request.limit]
-            ],
+            entity_definitions=collection(
+                [{"node_id": node_id, **_claim_payload(definition)}
+                 for node_id, definition in selected],
+                DEFINITION_HEADER, request.response_format,
+            ),
+            datasets=collection(
+                [self._dataset_record(node_id)
+                 for node_id in sorted({node_id for node_id, _ in selected})],
+                DATASET_HEADER, request.response_format,
+            ),
             truncated=len(matching) > request.limit,
         )
 
@@ -137,9 +157,9 @@ class GraphReadService:
         self,
         edge_id: str,
         from_node_id: str | None = None,
+        response_format: ResponseFormat = "table",
     ) -> RelationshipDetail:
         edge = self._edge(edge_id)
-        annotation = self.index.annotations.get(edge.edge_id)
         direction = None
         reverse_direction = None
         unknown_fields = edge.unknown_fields()
@@ -148,46 +168,40 @@ class GraphReadService:
                 raise ValueError(
                     f"from_node_id {from_node_id!r} is not an endpoint of edge {edge_id!r}"
                 )
-            direction = edge.direction_from(from_node_id).model_dump(mode="json")
-            reverse_direction = edge.direction_from(
-                edge.opposite(from_node_id).node_id
-            ).model_dump(mode="json")
-            unknown_fields = edge.unknown_fields_from(from_node_id)
+            step = _step(edge, from_node_id)
+            direction = step["direction"]
+            reverse_direction = step["reverse_direction"]
+            unknown_fields = step["unknown_fields"]
+        objects = _GraphObjects(self, response_format)
+        record = objects.add_relationship(edge)
         return RelationshipDetail(
-            edge_id=edge.edge_id,
-            identity_id=edge.endpoint_a.identity_id,
-            endpoint_a=self._resolved_endpoint(edge.endpoint_a.identity_key()),
-            endpoint_b=self._resolved_endpoint(edge.endpoint_b.identity_key()),
-            a_to_b=edge.a_to_b.model_dump(mode="json"),
-            b_to_a=edge.b_to_a.model_dump(mode="json"),
-            unknown_fields=unknown_fields,
-            annotation=annotation.model_dump(mode="json") if annotation else None,
+            **{**record, "unknown_fields": unknown_fields},
             from_node_id=from_node_id,
             direction=direction,
             reverse_direction=reverse_direction,
+            datasets=objects.datasets(),
+            entity_definitions=objects.entity_definitions(),
         )
 
-    def get_hops(self, node_id: str, limit: int = 100) -> HopsResponse:
-        request = HopsRequest(node_id=node_id, limit=limit)
+    def get_hops(
+        self, node_id: str, limit: int = 100, response_format: ResponseFormat = "table",
+    ) -> HopsResponse:
+        request = HopsRequest(node_id=node_id, limit=limit, response_format=response_format)
         self._node(request.node_id)
         edges = sorted(self.index.adjacency.get(node_id, ()), key=lambda edge: edge.edge_id)
+        objects = _GraphObjects(self, request.response_format)
         hops = []
         for edge in edges[:request.limit]:
-            other = edge.opposite(node_id)
-            hops.append(
-                HopDetail(
-                    edge_id=edge.edge_id,
-                    from_node_id=node_id,
-                    to_node_id=other.node_id,
-                    identity_id=edge.endpoint(node_id).identity_id,
-                    from_endpoint=self._resolved_endpoint(edge.endpoint(node_id).identity_key()),
-                    to_endpoint=self._resolved_endpoint(other.identity_key()),
-                    direction=edge.direction_from(node_id).model_dump(mode="json"),
-                    reverse_direction=edge.direction_from(other.node_id).model_dump(mode="json"),
-                    unknown_fields=edge.unknown_fields_from(node_id),
-                )
-            )
-        return HopsResponse(node_id=node_id, hops=hops, truncated=len(edges) > request.limit)
+            objects.add_relationship(edge)
+            hops.append(_step(edge, node_id))
+        return HopsResponse(
+            node_id=node_id,
+            hops=collection(hops, STEP_HEADER, request.response_format),
+            relationships=objects.relationships(),
+            datasets=objects.datasets(),
+            entity_definitions=objects.entity_definitions(),
+            truncated=len(edges) > request.limit,
+        )
 
     def expand_subgraph(self, request: SubgraphRequest) -> SubgraphResponse:
         seeds = list(dict.fromkeys(request.seed_node_ids))
@@ -219,22 +233,19 @@ class GraphReadService:
             and self.index.edges[edge_id].endpoint_b.node_id in selected_node_ids
         ]
         selected_edge_ids = eligible_edge_ids[: request.max_edges]
-        nodes = [
-            {
-                "distance": distance,
-                "dataset": self.get_dataset(node_id).model_dump(mode="json"),
-            }
-            for node_id, distance in selected_nodes
-        ]
-        edges = [self.get_relationship(edge_id) for edge_id in selected_edge_ids]
+        objects = _GraphObjects(self, request.response_format)
+        for edge_id in selected_edge_ids:
+            objects.add_relationship(self.index.edges[edge_id])
         return SubgraphResponse(
             snapshot=self.snapshot_info(),
             seed_node_ids=seeds,
             max_depth=request.max_depth,
             max_nodes=request.max_nodes,
             max_edges=request.max_edges,
-            nodes=nodes,
-            edges=edges,
+            **self._dataset_detail_collections(
+                selected_nodes, SUBGRAPH_DATASET_HEADER, request.response_format,
+            ),
+            relationships=objects.relationships(),
             truncated=(
                 len(ordered_nodes) > request.max_nodes
                 or len(eligible_edge_ids) > request.max_edges
@@ -249,6 +260,7 @@ class GraphReadService:
         limit: int = 50,
         allowed_multiplicities: list[Multiplicity] | None = None,
         cancel_event: Event | None = None,
+        response_format: ResponseFormat = "table",
     ) -> PathsResponse:
         request = PathsRequest(
             from_node_id=from_node_id,
@@ -256,6 +268,7 @@ class GraphReadService:
             max_hops=max_hops,
             limit=limit,
             allowed_multiplicities=allowed_multiplicities,
+            response_format=response_format,
         )
         from_node_id = request.from_node_id
         to_node_id = request.to_node_id
@@ -301,38 +314,22 @@ class GraphReadService:
             found.extend(tier)
             frontier = next_frontier
 
-        payloads = []
-        for path in found[:limit]:
-            payloads.append(
-                {
-                    "length": len(path),
-                    "hops": [
-                        {
-                            "edge_id": edge.edge_id,
-                            "from_node_id": source,
-                            "to_node_id": target,
-                            "identity_id": edge.endpoint(source).identity_id,
-                            "from_endpoint": self._resolved_endpoint(
-                                edge.endpoint(source).identity_key()
-                            ),
-                            "to_endpoint": self._resolved_endpoint(
-                                edge.endpoint(target).identity_key()
-                            ),
-                            "direction": edge.direction_from(source).model_dump(mode="json"),
-                            "reverse_direction": edge.direction_from(target).model_dump(
-                                mode="json"
-                            ),
-                            "unknown_fields": edge.unknown_fields_from(source),
-                        }
-                        for source, target, edge in path
-                    ],
-                }
-            )
+        objects = _GraphObjects(self, request.response_format)
+        hops = []
+        # Each hop row names its path by rank; a path's hops are its rows in order.
+        for rank, path in enumerate(found[:limit]):
+            for source, _, edge in path:
+                objects.add_relationship(edge)
+                hops.append({"path": rank, **_step(edge, source)})
         return PathsResponse(
             snapshot=self.snapshot_info(),
             from_node_id=from_node_id,
             to_node_id=to_node_id,
-            paths=payloads,
+            path_count=len(found[:limit]),
+            hops=collection(hops, PATH_STEP_HEADER, request.response_format),
+            relationships=objects.relationships(),
+            datasets=objects.datasets(),
+            entity_definitions=objects.entity_definitions(),
             truncated=cancelled or len(found) > limit,
         )
 
@@ -360,10 +357,16 @@ class GraphReadService:
         for node_id in terminals:
             self._node(node_id)
         result = connecting_tree(self.index.adjacency, terminals)
+        objects = _GraphObjects(self, request.response_format)
+        for edge_id in result.edge_ids:
+            objects.add_relationship(self.index.edges[edge_id])
         return ConnectingSubgraphResponse(
             snapshot=self.snapshot_info(), node_ids=terminals, status=result.status,
-            nodes=[self.get_dataset(node_id) for node_id in result.node_ids],
-            edges=[self.get_relationship(edge_id) for edge_id in result.edge_ids],
+            **self._dataset_detail_collections(
+                [(node_id, None) for node_id in result.node_ids],
+                DATASET_DETAIL_HEADER, request.response_format,
+            ),
+            relationships=objects.relationships(),
         )
 
     def _identity(self, identity_id: str) -> LogicalIdentity:
@@ -395,27 +398,107 @@ class GraphReadService:
             unknown_fields=node.unknown_fields(),
         )
 
-    def _resolved_definition(
-        self,
-        node_id: str,
-        definition: EntityDefinition,
-    ) -> dict[str, Any]:
+    def _dataset_record(self, node_id: str) -> dict[str, Any]:
         node = self._node(node_id)
         return {
             "node_id": node_id,
-            "dataset": {
-                "descriptor": node.descriptor.model_dump(mode="json"),
-                "accessor": node.accessor.model_dump(mode="json", by_alias=True),
-            },
-            **_claim_payload(definition),
+            "descriptor": node.descriptor.model_dump(mode="json"),
+            "accessor": node.accessor.model_dump(mode="json", by_alias=True),
         }
 
-    def _resolved_endpoint(self, key: DefinitionKey) -> dict[str, Any]:
-        try:
-            definition = self.index.definitions[key]
-        except KeyError as error:
-            raise KeyError(f"unresolved entity definition {key}") from error
-        return self._resolved_definition(key[0], definition)
+    def _dataset_detail_collections(
+        self,
+        nodes: list[tuple[str, int | None]],
+        header: list[str],
+        response_format: ResponseFormat,
+    ) -> dict[str, Any]:
+        """Dataset detail split into dataset, column, and entity-definition collections."""
+        datasets, columns, definitions = [], [], []
+        for node_id, distance in nodes:
+            detail = self.get_dataset(node_id)
+            datasets.append({
+                "node_id": node_id,
+                **({"distance": distance} if distance is not None else {}),
+                "descriptor": detail.descriptor,
+                "accessor": detail.accessor,
+                "grain": detail.grain,
+                "unknown_fields": detail.unknown_fields,
+            })
+            columns.extend({"node_id": node_id, **column} for column in detail.columns)
+            definitions.extend(
+                {"node_id": node_id, **definition} for definition in detail.entity_definitions
+            )
+        return {
+            "datasets": collection(datasets, header, response_format),
+            "columns": collection(columns, COLUMN_HEADER, response_format),
+            "entity_definitions": collection(definitions, DEFINITION_HEADER, response_format),
+        }
+
+
+class _GraphObjects:
+    """Relationships and datasets a response references, each listed once by its ID."""
+
+    def __init__(self, service: GraphReadService, response_format: ResponseFormat) -> None:
+        self.service = service
+        self.response_format = response_format
+        self._relationships: dict[str, dict[str, Any]] = {}
+        self._definitions: dict[str, set[DefinitionKey]] = defaultdict(set)
+
+    def add_relationship(self, edge: JoinRelationship) -> dict[str, Any]:
+        record = self._relationships.get(edge.edge_id)
+        if record is None:
+            annotation = self.service.index.annotations.get(edge.edge_id)
+            record = {
+                "edge_id": edge.edge_id,
+                "identity_id": edge.endpoint_a.identity_id,
+                "endpoint_a": {
+                    "node_id": edge.endpoint_a.node_id,
+                    "dataset_columns": edge.endpoint_a.dataset_columns,
+                },
+                "endpoint_b": {
+                    "node_id": edge.endpoint_b.node_id,
+                    "dataset_columns": edge.endpoint_b.dataset_columns,
+                },
+                "a_to_b": edge.a_to_b.model_dump(mode="json"),
+                "b_to_a": edge.b_to_a.model_dump(mode="json"),
+                "unknown_fields": edge.unknown_fields(),
+                "annotation": annotation.model_dump(mode="json") if annotation else None,
+            }
+            self._relationships[edge.edge_id] = record
+            for endpoint in (edge.endpoint_a, edge.endpoint_b):
+                self._definitions[endpoint.node_id].add(endpoint.identity_key())
+        return record
+
+    def relationships(self) -> Any:
+        records = [record for _, record in sorted(self._relationships.items())]
+        return collection(records, RELATIONSHIP_HEADER, self.response_format)
+
+    def datasets(self) -> Any:
+        """Endpoint datasets in node_id order."""
+        records = [self.service._dataset_record(node_id) for node_id in sorted(self._definitions)]
+        return collection(records, DATASET_HEADER, self.response_format)
+
+    def entity_definitions(self) -> Any:
+        """The endpoint entity definitions, in node_id, identity, then column order."""
+        records = [
+            {"node_id": node_id, **_claim_payload(self.service.index.definitions[key])}
+            for node_id in sorted(self._definitions)
+            for key in sorted(self._definitions[node_id])
+        ]
+        return collection(records, DEFINITION_HEADER, self.response_format)
+
+
+def _step(edge: JoinRelationship, source: str) -> dict[str, Any]:
+    """A traversal of ``edge`` away from ``source``, with claims relative to that direction."""
+    target = edge.opposite(source).node_id
+    return {
+        "edge_id": edge.edge_id,
+        "from_node_id": source,
+        "to_node_id": target,
+        "direction": edge.direction_from(source).model_dump(mode="json"),
+        "reverse_direction": edge.direction_from(target).model_dump(mode="json"),
+        "unknown_fields": edge.unknown_fields_from(source),
+    }
 
 
 def _claim_payload(subject: ClaimModel) -> dict[str, Any]:
