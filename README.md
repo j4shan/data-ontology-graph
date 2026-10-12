@@ -18,11 +18,12 @@ runs through `ddl-collector`.
 3. Provide local search, lookup, and graph-navigation evidence for agent-built
    abstract knowledge graphs.
 
-The product requirements are organized by category under
-[`project_metadata/product/`](project_metadata/product/). Start with the
-[project PRD](project_metadata/product/backend/project-prd.md), the
-[Data Modeling Spec](project_metadata/product/data/data-modeling-spec.md), and the
-[Knowledge Graph contract](project_metadata/product/data/knowledge-graph.md).
+Project decisions live under [`project_metadata/`](project_metadata/):
+[product functions](project_metadata/product/functional.md) and
+[qualities](project_metadata/product/non_functional.md),
+[system design](project_metadata/system_design/functional.md) and its
+[non-functional design](project_metadata/system_design/non_functional.md), and
+[project configuration](project_metadata/project_configuration.md).
 
 ## Setup
 
@@ -205,3 +206,24 @@ data-ontology-graph-launchd reload --snapshot-dir path/to/current-graph
 The lifecycle command also supports `start`, `status`, and `uninstall`. It uses the configured
 stable artifact path directly and performs no release discovery, version selection, or manifest
 validation.
+
+## AKG contract and the query-graph-api skill
+
+An abstract knowledge graph (AKG) is a forest of one or more graph cuts that an agent selects from
+the served snapshot to resolve a question. Each cut uses the graph's own node and edge model.
+Disconnected cuts are a valid answer: the question may ask for unrelated facts, or the graph may
+lack a connection, which the AKG records as a data gap.
+
+[`resources/schema/akg.schema.json`](resources/schema/akg.schema.json) is the public contract. It
+defines only the document envelope and the query reasoning, and references nodes, edges, and
+logical identities from `intermediary.schema.json`. Check a document against the contract, and
+with `--socket` against the served snapshot:
+
+```bash
+data-ontology-graph-akg validate path/to/akg.yaml --socket /tmp/data-ontology-graph.sock
+```
+
+The [`query-graph-api` skill](skills/query-graph-api/SKILL.md) guides an agent from a question to a
+validated AKG document through the service. Its standard-library client,
+`skills/query-graph-api/scripts/graph_call.py`, prints compact projections and copies cuts from
+the service verbatim.
