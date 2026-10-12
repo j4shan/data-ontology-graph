@@ -19,6 +19,7 @@ data-ontology-graph-server = "data_ontology_graph.rpc.server:main"
 data-ontology-graph-client = "data_ontology_graph.rpc.client:main"
 data-ontology-graph-launchd = "data_ontology_graph.rpc.launchd:main"
 data-ontology-graph-publish = "data_ontology_graph.builder.publish:main"
+data-ontology-graph-akg = "data_ontology_graph.akg.cli:main"
 ddl-collector = "ddl_collector.cli:main"
 
 # Source families that need drivers or toolchains add one extra each, named
