@@ -1,6 +1,6 @@
 # Project Working State: Data Ontology Graph
 
-This document tracks the current implementation and open decisions relative to the [project PRD](../product/backend/project-prd.md). It records working state, not product requirements.
+This document tracks the current implementation and open decisions relative to the [product requirements](../product/functional.md). It records working state, not product requirements.
 
 Last reconciled with the repository: **2026-10-04**.
 
@@ -10,19 +10,20 @@ The repository implements the governed YAML-directory-to-current-artifact path, 
 replacement, the sessionless local read service, user-owned daemon lifecycle commands, and
 functional request bounds. The DDL collector implements the current SQLite preparation workflow;
 evidence-backed defaults and composite or state identity proposals remain open under Goal D.
-AKG guidance under PRD 5.1.8 moves to Critic.
+The public AKG contract and the bundled `query-graph-api` skill resolve questions into AKGs
+(`product/functional.md#2.4.1`, `#3.5.1`).
 
 | Area | Current baseline | Gap against the PRD |
 | --- | --- | --- |
 | Knowledge model | Intermediary schema version 3 and snapshot version 5.0 persist the global logical identity registry; dataset descriptors; schema-identified accessors with provider-specific JSON properties; a required grain that is either a compound grain object or the explicit value `unknown`; relevant columns; entity definitions with definition-scoped `entity_universe` (`complete`, `partial`, or `unknown`); compound edge endpoint references; directional multiplicity; and match existence. The canonical model contains no SQL-key, replica, or relationship-inference fields. | Statistics integration is intentionally deferred. A second source environment has not demonstrated that the model is source-independent in practice. |
 | Unknown knowledge | Typed claims (`grain`, `entity_universe`, `multiplicity`, `match_existence`) state unknown through their own `unknown` value. Descriptive text is free text and may hold placeholders such as `unknown` or `N/A`. The build report and read responses list unknown claims as `unknown_fields`. | None for the initial release. |
-| Definition source | A source-controlled JSON Schema, valid and invalid examples, and a blocking Pydantic/YAML validator govern the complete intermediary. The synthetic [lending graph fixture](../../tests/fixtures/lending/catalog.yaml) is a single-file schema version `"3"` catalog with five datasets, 17 described columns, five logical identities, and five explicit relationships. It describes no real data source. [YAML Preparation Conventions](../product/data/yaml-preparation.md) record node-ID, column-inventory, accessor, and decision-log conventions for upstream authoring. | The DDL collector and `skills/sqlite/` prepare SQLite YAML with user review. A second storage environment has not been modeled. |
+| Definition source | A source-controlled JSON Schema, valid and invalid examples, and a blocking Pydantic/YAML validator govern the complete intermediary. The synthetic [lending graph fixture](../../tests/fixtures/lending/catalog.yaml) is a single-file schema version `"3"` catalog with five datasets, 17 described columns, five logical identities, and five explicit relationships. It describes no real data source. [preparation capabilities](../product/functional.md) record node-ID, column-inventory, accessor, and decision-log conventions for upstream authoring. | The DDL collector and `skills/sqlite/` prepare SQLite YAML with user review. A second storage environment has not been modeled. |
 | Source preparation | The DDL collector in `src/ddl_collector/` ships beside the graph core with `extract`, `survey`, `apply`, `validate`, and `publish` stages. SQLite collects read-only schema, description, and optional profiling evidence from Critic's hash-verified sources. Decisions, draft YAML, and reports live in a git-ignored session; publication rechecks sources and writes a generated catalog with a decision log and provenance to Critic. The graph core never imports the collector. Collector unit tests use a separate synthetic SQLite fixture under [`tests/fixtures/minibank/`](../../tests/fixtures/minibank/). | Critic C0.9 scoring of generated catalogs is not implemented. |
 | Builder input boundary | `build_snapshot_from_yaml` accepts a finalized `yaml/` directory governed by a sibling `directory-manifest.yaml` ([manifest schema](../../resources/schema/intermediary-directory.schema.json)). The manifest lists one identities file, one or more node files, and one edges file relative to `yaml/`; each file must hold schema version `"3"` and only its owned collection. The builder rejects missing manifests, unlisted, missing, unsupported, or escaping files, ownership and schema-version conflicts, and duplicate definitions, then assembles one deterministic definition and maps only the rule-valid result into the graph model. Single-file input remains supported. | No initial-release builder-input gap remains. |
 | Relationship construction | The builder resolves explicit endpoints to registered entity definitions and creates exactly the authored edges. The local read service exposes relationship detail, directed hops, bounded BFS subgraphs, and bounded ranked paths. | Larger-corpus behavior remains optional Tier 1 validation. |
-| Agent access | One sessionless service loads the current artifact, builds a MARISA exact-and-prefix search index plus graph lookup and adjacency indexes, and serves typed request/response methods through JSON-RPC 2.0 over a protected Unix-domain socket. A description whose whole value is a placeholder, such as `null`, `N/A`, or `TBD`, contributes no search terms. Search, BFS, and path responses expose configurable functional bounds. The Python `launchd` command manages the user-owned daemon. | AKG guidance under PRD 5.1.8 is developed in Critic against the sessionless service API. |
+| Agent access | One sessionless service loads the current artifact, builds a MARISA exact-and-prefix search index plus graph lookup and adjacency indexes, and serves typed request/response methods through JSON-RPC 2.0 over a protected Unix-domain socket. A description whose whole value is a placeholder, such as `null`, `N/A`, or `TBD`, contributes no search terms. Search, BFS, and path responses expose configurable functional bounds. The Python `launchd` command manages the user-owned daemon. | The `query-graph-api` skill guides AKG resolution against the sessionless service; a structured field for the preserved side of an unmatched population is not yet in the contract. |
 | Publication | `CurrentArtifactStore` builds and reload-validates a complete candidate, safely replaces one current-artifact directory at a caller-supplied path outside this repository, restores the prior artifact if promotion fails, and removes its transient backup after success. Cross-file envelopes must agree. | No initial-release publication gap remains. The application does not manage prior releases or manifests. |
-| Downstream accuracy evaluation | The read tools return evidence fragments that a reasoning agent may use when assembling an AKG or SQL-query plan. | Out of scope. The sibling [Critic](../../../data-ontology-agent-critic/) project owns the AKG submission schema, gold AKGs, scoring, test data sources, reference catalogs, and published artifacts. |
+| Downstream accuracy evaluation | The `akg.schema.json` contract and `data-ontology-graph-akg validate` check an agent's AKG against the contract and the served snapshot. | Scoring AKGs against reference selections and measuring downstream accuracy are out of scope (`product/functional.md#4.1.12`). |
 | Ingestion quality | Validation blocks graph construction on YAML syntax, schema, registry, canonical dataset-column ordering, endpoint resolution, identity alignment, grain resolution, duplicate definitions, duplicate edges, unsupported directory files, and cross-file conflicts, with rule and location findings. The committed JSON Schema is checked against the validator model. | The DDL collector records proposals but cannot yet default unanswered decisions; publication requires no open or blocking decision. |
 
 The category-based [product requirements](../product/) describe the target contracts.
@@ -52,7 +53,7 @@ The baseline above was checked against the [DDL collector](../../src/ddl_collect
 17. `entity_universe` (`complete`, `partial`, or `unknown`) is required on each entity definition because a dataset may contain multiple identities with different population coverage.
 18. A dataset node has exactly one required `grain`: a grain object whose components collectively describe one record boundary, or the explicit value `unknown`.
 19. Unknown is a typed claim value only. Descriptive text is free text, is not validated for meaning, and carries no unknown state of its own. The model records knowledge, not how or why it was obtained.
-20. This repository stores the graph core, DDL collector, preparation skills, YAML schemas, and unit-test fixtures. Test data sources, reviewed reference catalogs, generated catalogs, published graph artifacts, and evaluation results live in Critic.
+20. This repository stores the graph core, DDL collector, preparation skills, the `query-graph-api` skill, the YAML and AKG schemas, and unit-test fixtures. Test data sources, reference catalogs and AKGs, generated catalogs, published graph artifacts, and evaluation results live outside it.
 
 **Open initial-release decisions**
 
@@ -63,7 +64,7 @@ The baseline above was checked against the [DDL collector](../../src/ddl_collect
 7. Which data statistics are necessary for query reasoning, and what variance is tolerable for each type?
 8. Which source CRUD events should be subscribed to, and how should they feed the batch update process without mutating published offline copies?
 9. When would an optional online knowledge store add value beyond local offline access?
-11. What AKG guidance and submission form should Critic provide for tools developed against the graph service API?
+11. How should an external evaluator compare an AKG with reference selections without merging alternative readings or rewarding missing evidence?
 12. Which response-size, tracing, and task-level measurements would be useful if lower-priority retrieval instrumentation is implemented?
 
 ## 3. Synthetic graph fixture and preparation lessons
@@ -84,7 +85,7 @@ The fixture exercises graph behavior; source preparation uses evidence and user 
 
 ## 4. Data modeling adoption audit
 
-This audit compares the current node and edge design with the independent [Data Modeling Spec](../product/data/data-modeling-spec.md).
+This audit compares the current node and edge design with the independent [product concepts](../product/functional.md).
 
 | Relevant concept | Current node or edge design | Initial-release gap |
 | --- | --- | --- |
@@ -100,7 +101,7 @@ The current [intermediary model](../../src/data_ontology_graph/model/intermediar
 
 ## 5. Delivery priorities by tier
 
-These priorities translate the [project PRD](../product/backend/project-prd.md), the data-modeling boundary, and the fixture-backed lessons above into delivery order. Tier 0 establishes accurate entity and relationship knowledge, a local offline read surface, controlled batch publication, and functional request bounds. Tier 1 records local validation coverage that is not itself a PRD commitment. Goal D covers SQLite preparation in this repository; AKG guidance remains reserved in PRD 5.1.8 and moves to Critic. Collection quality takes precedence over collection speed and refresh frequency in every tier.
+These priorities translate the [product requirements](../product/functional.md), the data-modeling boundary, and the fixture-backed lessons above into delivery order. Tier 0 establishes accurate entity and relationship knowledge, a local offline read surface, controlled batch publication, and functional request bounds. Tier 1 records local validation coverage that is not itself a PRD commitment. Goal D covers SQLite preparation in this repository; the AKG contract and `query-graph-api` skill are delivered in this repository. Collection quality takes precedence over collection speed and refresh frequency in every tier.
 
 ### Tier 0 — accurate graph knowledge and local offline use
 
@@ -130,7 +131,6 @@ These priorities translate the [project PRD](../product/backend/project-prd.md),
 | T2.2 | Optionally add an online knowledge store as another serving mode. Preserve the local offline tool contract and immutable-copy workflow. | The initial local-agent use case has no network boundary. | An online mode, if adopted, serves the same entity and relationship meaning without becoming a dependency of offline agents. |
 | T2.3 | Integrate data statistics into persistence and tools, then define validation tolerance by statistic type. | Descriptive metadata alone does not provide measured statistics. | Tools can return measured statistics, and their data quality can be validated independently of downstream GenAI accuracy. |
 | T2.5 | Add optional retrieval instrumentation for response bytes, tool-call traces, task-level context totals, result volume, and traversal work. | Functional limits can be enforced without monitoring or benchmarking infrastructure. | Optional measurements describe service behavior without changing response semantics or becoming an initial-release gate. |
-| T2.6 | Agent skill B (PRD 5.1.8): develop AKG guidance tools in Critic against the graph service API. | Agents need guidance for assembling an AKG from sessionless evidence responses. | Critic can evaluate a task-specific AKG without adding reasoning state to the graph service. |
 
 Usage-frequency collection and human approval remain reserved goals outside these priorities. Tier 2 event subscription does not imply real-time mutation of offline copies.
 
@@ -147,7 +147,7 @@ Keep the following boundaries available for later design work:
 
 The graph service's initial-release Tier 0 implementation is complete. Tier 1 records local
 validation gaps rather than product requirements; Tier 2 remains reserved roadmap work, while
-AKG guidance moves to Critic.
+The `query-graph-api` skill and AKG contract are delivered.
 Performance work and AKG benchmarking are excluded.
 
 ### Completed
@@ -160,31 +160,31 @@ Performance work and AKG benchmarking are excluded.
 | W0.6 | The builder maps one validated complete YAML artifact into the internal graph model and creates only explicit edges; SQL catalog ingestion, inference, overlays, key decomposition, and replica resolution have been removed. |
 | W0.7 | A singleton sessionless service provides MARISA exact-and-prefix search, target-model lookup, directed hops, BFS subgraphs, and ranked paths through JSON-RPC 2.0 request/response calls over a protected Unix-domain socket. The HTTP surface was retired; a development client and `launchd` generator use the same interface. |
 | W0.8 | Finalized YAML directories are assembled deterministically; unsupported files, conflicting schema versions, duplicate identities or nodes, and invalid combined definitions block construction with findings. |
-| W0.10 | The publication contract is recorded in [Current Graph Artifact Publication](../product/backend/artifact-publication.md): one current artifact at a caller-supplied path, rule-based validation, safe whole-artifact replacement, no application-managed release history, and unit-test-only verification. |
+| W0.10 | The publication contract is recorded in [system design](../system_design/functional.md): one current artifact at a caller-supplied path, rule-based validation, safe whole-artifact replacement, no application-managed release history, and unit-test-only verification. |
 | W0.11 | The current-artifact publisher builds and validates a candidate before safe whole-directory replacement, restores the previous current artifact after promotion failure, rejects mixed cross-file envelopes, and retains no prior release. |
 | W0.12 | The Python `data-ontology-graph-launchd` command generates configuration and constructs install, start, reload, status, and uninstall `launchctl` operations against one artifact path. |
 | W0.13 | Search, BFS, and path contracts enforce configurable response-semantic bounds. BFS limits returned nodes and edges and reports truncation; path calls enforce hop and result limits. |
 | W0.14 | The canonical dataset model uses descriptor and accessor objects, keeps provider-specific access properties behind schema-dispatched JSON validation, scopes universe status to entity definitions, and omits SQL catalog primitives. |
 | W0.15 | Intermediary schema 3 and snapshot 5.0: `entity_universe` is `complete`, `partial`, or `unknown`; grain is required as an object or explicit `unknown`; the build report and read responses list unknown claims as `unknown_fields`. Field provenance and ambiguity records were removed; descriptive text is free text. |
 | W0.16 | The search index skips descriptions whose whole normalized value is a placeholder such as `null`, `N/A`, `unknown`, `undefined`, `missing`, or `TBD`. Names, synonyms, and tags are never filtered. |
-| W0.17 | `accessor.sqlite.v1` records `host`, absolute `database_path`, `schema`, and `object`; the intermediary schema defines node-ID composition, and [YAML Preparation Skill Product Requirements](../product/data/yaml-preparation.md) define full column inventory and decision-log placement. |
+| W0.17 | `accessor.sqlite.v1` records `host`, absolute `database_path`, `schema`, and `object`; the intermediary schema defines node-ID composition, and [preparation capabilities](../product/functional.md) define full column inventory and decision-log placement. |
 | W0.18 | Test data sources, the reviewed reference catalog, and legacy overlays moved to Critic. Graph tests use `tests/fixtures/lending/`; collector tests use `tests/fixtures/minibank/`. Published artifacts live outside the repository. |
 | W0.20 | `JoinAnnotation` no longer carries `weight` or `notes`. Paths rank by hop count, then canonical edge IDs. |
-| W0.21 | PRD 3.3.13 now matches the Data Modeling Spec and code: exactly one `grain`, either a grain object or explicit `unknown`, with omission invalid and `unknown` persisted. |
+| W0.21 | `product/functional.md#3.2.4` matches the code: exactly one `grain`, either a grain object or explicit `unknown`, with omission invalid and `unknown` persisted. |
 | W0.22 | Directory input requires a sibling `directory-manifest.yaml` that owns the collection-file inventory: one identities file, one or more node files, and one edges file, each holding only its collection. The manifest has a checked-in JSON Schema, and tests cover path, ownership, inventory, and schema-version rejections. |
-| W0.23 | [YAML Preparation Skill Product Requirements](../product/data/yaml-preparation.md) define Goal D's goals, packaging, evidence classes, field-preparation matrix, survey and decision-log lifecycle, bundled tools, workflow, and acceptance criteria. |
+| W0.23 | [preparation capabilities](../product/functional.md) define Goal D's goals, packaging, evidence classes, field-preparation matrix, survey and decision-log lifecycle, bundled tools, workflow, and acceptance criteria. |
 | W0.24 | The DDL collector and SQLite skill implement staged extraction, user review, builder validation, and guarded publication to Critic `generated_catalogs/`. |
+| W0.26 | The AKG contract (`resources/schema/akg.schema.json`, referencing the intermediary node and edge model), `data-ontology-graph-akg validate` with snapshot resolution, and the `query-graph-api` skill with its standard-library client are implemented and covered by lending fixtures. |
 
 ### Remaining
 
 | ID | Tier | Category | TODO | Depends on | Observable completion |
 | --- | --- | --- | --- | --- | --- |
 | W0.19 | 0 | Documentation | Resolve open initial-release decision 1 (`JoinAnnotation` authoring). | — | The PRD, specs, and code agree on whether annotations exist and how they are authored. |
-| W0.25 | 0 | Preparation | Add evidence-backed resolution of unanswered decisions with `defaulted` status and update the publication gate, which currently rejects open or blocking decisions. Add composite and state identity candidates and their relationships; current relationship proposals come only from declared foreign keys to grain identities. | YAML preparation requirements 4.1.5, 5.3, and 7.1.6 | The collector can publish valid YAML without user answers when no blocking condition remains, and its drafts propose evidence-supported composite or state identities with corresponding definitions and edges. |
+| W0.25 | 0 | Preparation | Add evidence-backed resolution of unanswered decisions with `defaulted` status and update the publication gate, which currently rejects open or blocking decisions. Add composite and state identity candidates and their relationships; current relationship proposals come only from declared foreign keys to grain identities. | `product/functional.md#2.3.6`, `#2.3.13`–`#2.3.16`, and `#2.3.25` | The collector can publish valid YAML without user answers when no blocking condition remains, and its drafts propose evidence-supported composite or state identities with corresponding definitions and edges. |
 | W1.1 | 1 | Local coverage validation | Exercise a second catalog from another storage or access environment through the same YAML contract. | W0.11 | Unit tests confirm both catalogs build, reload, and are served without source-specific builder or read-service behavior. This is validation coverage, not a PRD deliverable. |
 | W1.2 | 1 | Large-pool validation | Shift local tests to a large metadata pool and exercise search and traversal limits. | W0.13 | Local tests expose high-volume result and path behavior without creating a PRD benchmark or release score. |
 | W1.3 | 1 | Retrieval refinement | Change search or navigation only where large-pool local validation demonstrates a concrete functional failure. | W1.2 | Each refinement is tied to a reproducible failing case and preserves the tool contract. |
-| W2.8 | 2 | AKG guidance (skill B) | Develop agent guidance tools in Critic against the graph service API. | Future decision 11 | Critic can evaluate an agent-assembled AKG without server-side reasoning state. |
 | W2.2 | 2 | Refresh | Subscribe to source CRUD events as signals for later batch rebuilding. | Initial-release publication stabilized | Events queue source-of-truth refresh work without mutating published offline copies. |
 | W2.3 | 2 | Statistics | Add data statistics to persistence and tools, with tolerance-aware validation of the statistics themselves. | Statistics contract defined | Statistical variance is validated independently of downstream GenAI accuracy. |
 | W2.4 | 2 | Serving | Evaluate and, if justified, add an online store using the same logical contract. | Initial local access stabilized | Online serving does not become a dependency of offline agents. |
