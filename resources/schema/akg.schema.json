@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "AbstractKnowledgeGraph": {
+      "additionalProperties": false,
+      "description": "One reading of a question: a forest of graph cuts plus its reasoning.",
+      "properties": {
+        "cuts": {
+          "items": {
+            "$ref": "#/$defs/GraphCut"
+          },
+          "minItems": 1,
+          "title": "Cuts",
+          "type": "array"
+        },
+        "interpretation": {
+          "minLength": 1,
+          "title": "Interpretation",
+          "type": "string"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/Reasoning"
+        }
+      },
+      "required": [
+        "interpretation",
+        "cuts"
+      ],
+      "title": "AbstractKnowledgeGraph",
+      "type": "object"
+    },
+    "Attribute": {
+      "additionalProperties": false,
+      "description": "How the answer uses one column of a selected node.",
+      "properties": {
+        "column": {
+          "minLength": 1,
+          "title": "Column",
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "title": "Node Id",
+          "type": "string"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "usage": {
+          "enum": [
+            "measure",
+            "count",
+            "group",
+            "filter",
+            "time",
+            "absence",
+            "join_only",
+            "output"
+          ],
+          "title": "Usage",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "intermediary.schema.json#/$defs/JsonValue",
+          "default": null,
+          "description": "Filter value or threshold, when the question states one."
+        }
+      },
+      "required": [
+        "node_id",
+        "column",
+        "usage"
+      ],
+      "title": "Attribute",
+      "type": "object"
+    },
+    "ColumnReference": {
+      "additionalProperties": false,
+      "properties": {
+        "column": {
+          "minLength": 1,
+          "title": "Column",
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "title": "Node Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "column"
+      ],
+      "title": "ColumnReference",
+      "type": "object"
+    },
+    "DataGap": {
+      "additionalProperties": false,
+      "description": "Knowledge the answer needs that the graph could not connect or supply.",
+      "properties": {
+        "cuts": {
+          "description": "Zero-based indices of the cuts involved.",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Cuts",
+          "type": "array"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "node_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Node Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "DataGap",
+      "type": "object"
+    },
+    "DrillAcross": {
+      "additionalProperties": false,
+      "description": "Two or more anchors compared on shared cut columns rather than joined to each other.",
+      "properties": {
+        "anchors": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "title": "Anchors",
+          "type": "array"
+        },
+        "comparison": {
+          "enum": [
+            "coverage",
+            "difference",
+            "co_occurrence"
+          ],
+          "title": "Comparison",
+          "type": "string"
+        },
+        "shared_columns": {
+          "items": {
+            "$ref": "#/$defs/ColumnReference"
+          },
+          "minItems": 1,
+          "title": "Shared Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "anchors",
+        "shared_columns",
+        "comparison"
+      ],
+      "title": "DrillAcross",
+      "type": "object"
+    },
+    "GraphCut": {
+      "additionalProperties": false,
+      "description": "One connected component of an AKG, in the graph's own node and edge model.",
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "intermediary.schema.json#/$defs/RelationshipDefinition"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "logical_identities": {
+          "additionalProperties": {
+            "$ref": "intermediary.schema.json#/$defs/LogicalIdentityDefinition"
+          },
+          "description": "Registry entries keyed by identity_id. Every identity an edge uses is required; other identities of the cut's entity definitions may be listed.",
+          "title": "Logical Identities",
+          "type": "object"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "intermediary.schema.json#/$defs/IntermediaryNode"
+          },
+          "minItems": 1,
+          "title": "Nodes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes"
+      ],
+      "title": "GraphCut",
+      "type": "object"
+    },
+    "Reasoning": {
+      "additionalProperties": false,
+      "description": "Query reasoning that accompanies an AKG. It never adds a node or edge.",
+      "properties": {
+        "anchors": {
+          "description": "Nodes whose grain carries a measure.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Anchors",
+          "type": "array"
+        },
+        "attributes": {
+          "items": {
+            "$ref": "#/$defs/Attribute"
+          },
+          "title": "Attributes",
+          "type": "array"
+        },
+        "data_gaps": {
+          "items": {
+            "$ref": "#/$defs/DataGap"
+          },
+          "title": "Data Gaps",
+          "type": "array"
+        },
+        "drill_across": {
+          "items": {
+            "$ref": "#/$defs/DrillAcross"
+          },
+          "title": "Drill Across",
+          "type": "array"
+        },
+        "traversals": {
+          "items": {
+            "$ref": "#/$defs/Traversal"
+          },
+          "title": "Traversals",
+          "type": "array"
+        }
+      },
+      "title": "Reasoning",
+      "type": "object"
+    },
+    "SnapshotReference": {
+      "additionalProperties": false,
+      "description": "The served snapshot the AKG was selected from, as reported by `graph.snapshot_info`.",
+      "properties": {
+        "schema_fingerprint": {
+          "minLength": 1,
+          "title": "Schema Fingerprint",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "schema_fingerprint"
+      ],
+      "title": "SnapshotReference",
+      "type": "object"
+    },
+    "Traversal": {
+      "additionalProperties": false,
+      "description": "The anchor-side orientation of one selected edge.",
+      "properties": {
+        "aggregate_before_join": {
+          "default": false,
+          "description": "Aggregate the target side to the origin's grain before combining.",
+          "title": "Aggregate Before Join",
+          "type": "boolean"
+        },
+        "note": {
+          "default": "",
+          "title": "Note",
+          "type": "string"
+        },
+        "origin": {
+          "$ref": "intermediary.schema.json#/$defs/EntityDefinitionReference"
+        },
+        "target": {
+          "$ref": "intermediary.schema.json#/$defs/EntityDefinitionReference"
+        }
+      },
+      "required": [
+        "origin",
+        "target"
+      ],
+      "title": "Traversal",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The AKGs that resolve one question, one per reading, the preferred reading first.",
+  "properties": {
+    "akg_version": {
+      "const": "1.0",
+      "title": "Akg Version",
+      "type": "string"
+    },
+    "akgs": {
+      "items": {
+        "$ref": "#/$defs/AbstractKnowledgeGraph"
+      },
+      "minItems": 1,
+      "title": "Akgs",
+      "type": "array"
+    },
+    "question": {
+      "minLength": 1,
+      "title": "Question",
+      "type": "string"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/SnapshotReference"
+    }
+  },
+  "required": [
+    "akg_version",
+    "question",
+    "snapshot",
+    "akgs"
+  ],
+  "title": "AkgDocument",
+  "type": "object"
+}
