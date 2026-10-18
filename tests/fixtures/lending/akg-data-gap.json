@@ -1,0 +1,57 @@
+{
+  "status": "draft",
+  "question": "What is the total loan amount per region where the loan was disbursed?",
+  "objective": "Sum loan amounts grouped by disbursement region.",
+  "datasets": {
+    "sqlite:lending.loan": {
+      "name": "lending.main.loan",
+      "source": "sqlite",
+      "grain": [
+        "loan_id"
+      ],
+      "columns": {
+        "amount": {
+          "description": "approved loan amount"
+        }
+      },
+      "usage": {
+        "role": "anchor",
+        "columns": {
+          "amount": {
+            "as": "measure"
+          }
+        }
+      }
+    },
+    "sqlite:lending.region": {
+      "name": "lending.main.region",
+      "source": "sqlite",
+      "grain": [
+        "region_id"
+      ],
+      "columns": {
+        "region_name": {
+          "description": "the region name"
+        }
+      },
+      "usage": {
+        "role": "grouping",
+        "columns": {
+          "region_name": {
+            "as": "group"
+          }
+        }
+      }
+    }
+  },
+  "relationships": {},
+  "gaps": {
+    "disbursement-region": {
+      "description": "No relationship records the region where a loan was disbursed. The path loan -> account -> region carries the account's opening-branch region, a different role, so loan and region stay disconnected.",
+      "datasets": [
+        "sqlite:lending.loan",
+        "sqlite:lending.region"
+      ]
+    }
+  }
+}

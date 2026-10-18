@@ -1,0 +1,141 @@
+{
+  "status": "draft",
+  "question": "List each loan with its repayment account, and separately list customers with their home region.",
+  "objective": "Two disjoint facts: loans by repayment account, and customers by home region.",
+  "datasets": {
+    "sqlite:lending.loan": {
+      "name": "lending.main.loan",
+      "source": "sqlite",
+      "grain": [
+        "loan_id"
+      ],
+      "columns": {
+        "loan_id": {
+          "description": "the id of the loan"
+        }
+      },
+      "usage": {
+        "role": "anchor",
+        "columns": {
+          "loan_id": {
+            "as": "output"
+          }
+        }
+      }
+    },
+    "sqlite:lending.account": {
+      "name": "lending.main.account",
+      "source": "sqlite",
+      "grain": [
+        "account_id"
+      ],
+      "columns": {
+        "account_id": {
+          "description": "the id of the account"
+        }
+      },
+      "usage": {
+        "columns": {
+          "account_id": {
+            "as": "output"
+          }
+        }
+      }
+    },
+    "sqlite:lending.customer": {
+      "name": "lending.main.customer",
+      "source": "sqlite",
+      "grain": [
+        "customer_id"
+      ],
+      "columns": {
+        "customer_id": {
+          "description": "the id of the customer"
+        }
+      },
+      "usage": {
+        "role": "anchor",
+        "columns": {
+          "customer_id": {
+            "as": "output"
+          }
+        }
+      }
+    },
+    "sqlite:lending.region": {
+      "name": "lending.main.region",
+      "source": "sqlite",
+      "grain": [
+        "region_id"
+      ],
+      "columns": {
+        "region_name": {
+          "description": "the region name"
+        }
+      },
+      "usage": {
+        "columns": {
+          "region_name": {
+            "as": "output"
+          }
+        }
+      }
+    }
+  },
+  "relationships": {
+    "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id": {
+      "endpoint_a": {
+        "node_id": "sqlite:lending.account",
+        "identity_id": "account_identity",
+        "dataset_columns": [
+          "account_id"
+        ]
+      },
+      "endpoint_b": {
+        "node_id": "sqlite:lending.loan",
+        "identity_id": "account_identity",
+        "dataset_columns": [
+          "account_id"
+        ]
+      },
+      "a_to_b": {
+        "multiplicity": "1:many",
+        "match_existence": "optional"
+      },
+      "b_to_a": {
+        "multiplicity": "many:1",
+        "match_existence": "always"
+      },
+      "usage": {
+        "from": "sqlite:lending.loan"
+      }
+    },
+    "sqlite:lending.customer:region_identity:region_id__sqlite:lending.region:region_identity:region_id": {
+      "endpoint_a": {
+        "node_id": "sqlite:lending.customer",
+        "identity_id": "region_identity",
+        "dataset_columns": [
+          "region_id"
+        ]
+      },
+      "endpoint_b": {
+        "node_id": "sqlite:lending.region",
+        "identity_id": "region_identity",
+        "dataset_columns": [
+          "region_id"
+        ]
+      },
+      "a_to_b": {
+        "multiplicity": "many:1",
+        "match_existence": "always"
+      },
+      "b_to_a": {
+        "multiplicity": "1:many",
+        "match_existence": "optional"
+      },
+      "usage": {
+        "from": "sqlite:lending.customer"
+      }
+    }
+  }
+}

@@ -15,7 +15,7 @@
 | ID | Clause |
 | --- | --- |
 | 2.1 | Publication promotes a fully built and reload-validated candidate in one replacement, keeps a transient backup until success, and restores the prior artifact if promotion fails. Serves `product/non_functional.md#2.3`. |
-| 2.2 | `launchd` starts the service at login and restarts it after an unexpected failure. Serves `product/non_functional.md#3.2`. |
+| 2.2 | `launchd` starts the service when the job is loaded on demand, never at login, and restarts it after an unexpected failure while the job stays loaded; on `SIGTERM` the service closes and removes its socket. Serves `product/non_functional.md#3.2`. |
 
 ## Security
 
@@ -37,6 +37,6 @@
 
 | ID | Clause |
 | --- | --- |
-| 5.1 | One singleton graph service runs per user as a user-owned `launchd` agent, loading the current artifact from one stable, caller-configured path. Serves `product/non_functional.md#3.2`. |
+| 5.1 | At most one graph service runs per user as an on-demand, user-owned `launchd` job, loading the current artifact from the service home or a path given at setup. Serves `product/non_functional.md#3.2`. |
 | 5.2 | The current graph artifact lives at a caller-supplied path outside this repository. Serves `product/non_functional.md#2.3`. |
 | 5.3 | Production and local development use the same socket interface and process model. Serves `product/non_functional.md#5.2`. |

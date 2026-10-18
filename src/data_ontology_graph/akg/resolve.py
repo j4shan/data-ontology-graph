@@ -1,28 +1,93 @@
-"""Resolve an AKG document against a served graph snapshot.
+"""Resolve an AKG document against the graph it was built from.
 
-The resolver speaks only the public JSON-RPC methods, so it checks a document the same way
-whether the service is in process or behind the socket.
+The graph is either the running service, reached through its public JSON-RPC methods, or the
+YAML intermediary the snapshot was built from. Both are compared through the same projection,
+so a document resolves the same way against either.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
-from data_ontology_graph.akg.model import AkgDocument, GraphCut
-from data_ontology_graph.builder.intermediary import ValidationFinding
-from data_ontology_graph.model.intermediary import (
-    IntermediaryNode,
-    LogicalIdentityDefinition,
-    RelationshipDefinition,
-)
+from data_ontology_graph.akg.check import AkgFinding
+from data_ontology_graph.akg.projection import project_dataset, project_relationship
+from data_ontology_graph.builder.intermediary import load_intermediary_yaml
+from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.rpc import client
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
 
 
 GraphCall = Callable[[str, dict[str, Any]], dict[str, Any]]
 """Send one JSON-RPC request and return the full response object."""
+
+DATASET_FIELDS = ("name", "source", "grain", "description", "entity_definitions", "synonyms", "tags")
+COLUMN_FIELDS = ("description", "value_description", "synonyms")
+
+
+class GraphSource(Protocol):
+    def dataset(self, node_id: str) -> tuple[dict[str, Any] | None, str]: ...
+
+    def relationship(self, edge_id: str) -> tuple[dict[str, Any] | None, str]: ...
+
+    def snapshot(self) -> dict[str, Any] | None: ...
+
+
+class ServiceSource:
+    """The running graph service."""
+
+    def __init__(self, call: GraphCall) -> None:
+        self._call = call
+
+    def dataset(self, node_id: str) -> tuple[dict[str, Any] | None, str]:
+        return self._result("graph.get_dataset", {"node_id": node_id})
+
+    def relationship(self, edge_id: str) -> tuple[dict[str, Any] | None, str]:
+        return self._result(
+            "graph.get_relationship", {"edge_id": edge_id, "response_format": "records"}
+        )
+
+    def snapshot(self) -> dict[str, Any] | None:
+        return self._result("graph.snapshot_info", {})[0]
+
+    def _result(self, method: str, params: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
+        response = self._call(method, params)
+        if "error" in response:
+            return None, response["error"]["message"]
+        return response["result"], ""
+
+
+class YamlSource:
+    """The YAML intermediary, as one file or a directory manifest."""
+
+    def __init__(self, definition: IntermediaryDefinition) -> None:
+        self._nodes = {node.node_id: node.model_dump(mode="json") for node in definition.nodes}
+        self._edges = {edge.canonical_edge_id(): edge for edge in definition.edges}
+
+    @classmethod
+    def load(cls, path: Path | str) -> "YamlSource":
+        return cls(load_intermediary_yaml(path))
+
+    def dataset(self, node_id: str) -> tuple[dict[str, Any] | None, str]:
+        node = self._nodes.get(node_id)
+        return (node, "") if node else (None, f"unknown dataset {node_id}")
+
+    def relationship(self, edge_id: str) -> tuple[dict[str, Any] | None, str]:
+        edge = self._edges.get(edge_id)
+        if edge is None:
+            return None, f"unknown relationship {edge_id}"
+        record = edge.model_dump(mode="json")
+        if not edge_id.startswith(_side(record["endpoint_a"]) + "__"):
+            record = {
+                "endpoint_a": record["endpoint_b"],
+                "endpoint_b": record["endpoint_a"],
+                "a_to_b": record["b_to_a"],
+                "b_to_a": record["a_to_b"],
+            }
+        return record, ""
+
+    def snapshot(self) -> dict[str, Any] | None:
+        return None
 
 
 def dispatcher_call(dispatcher: JsonRpcDispatcher) -> GraphCall:
@@ -39,124 +104,81 @@ def socket_call(socket_path: Path) -> GraphCall:
     return call
 
 
-def resolve_akg(document: AkgDocument, call: GraphCall) -> list[ValidationFinding]:
-    """Return one finding per document value that differs from the served snapshot."""
-    findings: list[ValidationFinding] = []
-    info = call("graph.snapshot_info", {})
-    if "error" in info:
-        return [_finding("$.snapshot", "service_error", info["error"]["message"])]
-    for field in ("version", "schema_fingerprint"):
-        expected = info["result"][field]
-        actual = getattr(document.snapshot, field)
-        if actual != expected:
+def resolve_document(payload: dict[str, Any], source: GraphSource) -> list[AkgFinding]:
+    """Return one finding per element or graph field that differs from the graph.
+
+    `payload` must already pass the document model. Only graph fields present in the document
+    are compared; agent fields and unknown keys are not.
+    """
+    findings: list[AkgFinding] = []
+    recorded = (payload.get("graph") or {}).get("snapshot")
+    served = source.snapshot()
+    if recorded and served:
+        for field in ("version", "schema_fingerprint"):
+            if recorded.get(field) != served.get(field):
+                findings.append(
+                    _mismatch(f"$.graph.snapshot.{field}", recorded.get(field), served.get(field))
+                )
+
+    for node_id, dataset in payload["datasets"].items():
+        location = f"$.datasets[{node_id!r}]"
+        node, error = source.dataset(node_id)
+        if node is None:
+            findings.append(_finding(location, "unknown_element", error))
+            continue
+        findings.extend(_compare_dataset(location, dataset, project_dataset(node, "full")))
+
+    for edge_id, relationship in payload["relationships"].items():
+        location = f"$.relationships[{edge_id!r}]"
+        record, error = source.relationship(edge_id)
+        if record is None:
+            findings.append(_finding(location, "unknown_element", error))
+            continue
+        expected = project_relationship(record)
+        for side, claims in expected.items():
+            for key, value in claims.items():
+                actual = relationship[side].get(key)
+                if actual != value:
+                    findings.append(_mismatch(f"{location}.{side}.{key}", actual, value))
+    return findings
+
+
+def _compare_dataset(
+    location: str, dataset: dict[str, Any], expected: dict[str, Any]
+) -> list[AkgFinding]:
+    findings = [
+        _mismatch(f"{location}.{field}", dataset[field], expected.get(field))
+        for field in DATASET_FIELDS
+        if field in dataset and dataset[field] != expected.get(field)
+    ]
+    served_columns = expected.get("columns", {})
+    for name, column in (dataset.get("columns") or {}).items():
+        if name not in served_columns:
             findings.append(
-                _mismatch(f"$.snapshot.{field}", "the served snapshot", actual, expected)
+                _finding(f"{location}.columns[{name!r}]", "unknown_element", f"no column {name!r}")
             )
-
-    for akg_index, akg in enumerate(document.akgs):
-        for cut_index, cut in enumerate(akg.cuts):
-            prefix = f"$.akgs[{akg_index}].cuts[{cut_index}]"
-            findings.extend(_resolve_cut(cut, prefix, call))
-    return findings
-
-
-def _resolve_cut(cut: GraphCut, prefix: str, call: GraphCall) -> list[ValidationFinding]:
-    findings: list[ValidationFinding] = []
-    for identity_id, identity in cut.logical_identities.items():
-        location = f"{prefix}.logical_identities.{identity_id}"
-        response = call("graph.get_identity", {"identity_id": identity_id, "limit": 1})
-        if "error" in response:
-            findings.append(_finding(location, "unknown_element", response["error"]["message"]))
             continue
-        served = LogicalIdentityDefinition.model_validate(
-            {key: response["result"][key] for key in ("name", "description", "synonyms")}
-        )
-        findings.extend(_compare(location, f"identity {identity_id!r}", identity, served))
-
-    for index, node in enumerate(cut.nodes):
-        location = f"{prefix}.nodes[{index}]"
-        response = call("graph.get_dataset", {"node_id": node.node_id})
-        if "error" in response:
-            findings.append(_finding(location, "unknown_element", response["error"]["message"]))
-            continue
-        served = IntermediaryNode.model_validate(_without_unknown_fields(response["result"]))
-        findings.extend(_compare(location, f"node {node.node_id!r}", node, served))
-
-    for index, edge in enumerate(cut.edges):
-        location = f"{prefix}.edges[{index}]"
-        edge_id = edge.canonical_edge_id()
-        response = call(
-            "graph.get_relationship", {"edge_id": edge_id, "response_format": "records"}
-        )
-        if "error" in response:
-            findings.append(_finding(location, "unknown_element", response["error"]["message"]))
-            continue
-        findings.extend(_compare_edge(location, edge_id, edge, response["result"]))
-    return findings
-
-
-def _compare_edge(
-    location: str, edge_id: str, edge: RelationshipDefinition, served: dict[str, Any]
-) -> list[ValidationFinding]:
-    # The canonical edge ID matched, so the endpoints agree; only the authored order may differ.
-    same_order = (
-        edge.endpoint_a.node_id == served["endpoint_a"]["node_id"]
-        and edge.endpoint_a.dataset_columns == served["endpoint_a"]["dataset_columns"]
-    )
-    served_claims = {
-        "a_to_b": served["a_to_b" if same_order else "b_to_a"],
-        "b_to_a": served["b_to_a" if same_order else "a_to_b"],
-    }
-    findings = []
-    for direction, claims in served_claims.items():
-        document_claims = getattr(edge, direction).model_dump(mode="json")
-        for claim, expected in claims.items():
-            if document_claims[claim] != expected:
+        for field in COLUMN_FIELDS:
+            if field in column and column[field] != served_columns[name].get(field):
                 findings.append(
                     _mismatch(
-                        f"{location}.{direction}.{claim}",
-                        f"edge {edge_id!r}",
-                        document_claims[claim],
-                        expected,
+                        f"{location}.columns[{name!r}].{field}",
+                        column[field],
+                        served_columns[name].get(field),
                     )
                 )
     return findings
 
 
-def _compare(location: str, element: str, document: Any, served: Any) -> list[ValidationFinding]:
-    actual = document.model_dump(mode="json")
-    expected = served.model_dump(mode="json")
-    return [
-        _mismatch(f"{location}.{field}", element, actual[field], expected[field])
-        for field in actual
-        if actual[field] != expected[field]
-    ]
+def _side(endpoint: dict[str, Any]) -> str:
+    return f"{endpoint['node_id']}:{endpoint['identity_id']}:{'+'.join(endpoint['dataset_columns'])}"
 
 
-def _without_unknown_fields(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            key: _without_unknown_fields(item)
-            for key, item in value.items()
-            if key != "unknown_fields"
-        }
-    if isinstance(value, list):
-        return [_without_unknown_fields(item) for item in value]
-    return value
-
-
-def _mismatch(location: str, element: str, actual: Any, expected: Any) -> ValidationFinding:
+def _mismatch(location: str, actual: Any, expected: Any) -> AkgFinding:
     return _finding(
-        location,
-        "snapshot_mismatch",
-        f"{element}: document has {_short(actual)}, snapshot has {_short(expected)}",
+        location, "graph_mismatch", f"document has {actual!r}, graph has {expected!r}"
     )
 
 
-def _finding(location: str, rule: str, message: str) -> ValidationFinding:
-    return ValidationFinding(location=location, rule=rule, message=message)
-
-
-def _short(value: Any, limit: int = 160) -> str:
-    text = json.dumps(value, sort_keys=True)
-    return text if len(text) <= limit else text[: limit - 3] + "..."
+def _finding(location: str, rule: str, message: str) -> AkgFinding:
+    return AkgFinding(location=location, rule=rule, severity="error", message=message)

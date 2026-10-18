@@ -153,77 +153,73 @@ uv run pytest -q
 
 ## Local graph service
 
-Build and replace the one current artifact, then start the singleton against its
-stable directory:
+The service and its files live in one private, per-user service home, `~/.data-ontology-graph`
+(or `$DOG_HOME`):
+
+| Path | Content |
+| --- | --- |
+| `current-graph/` | The published artifact |
+| `service.plist` | The on-demand `launchd` job that runs the service |
+| `graph.sock` | The service socket, present only while the service runs |
+| `logs/` | Service output and error logs |
+
+Publish the current artifact into the home, then set up the job once:
 
 ```console
-data-ontology-graph-publish \
-  --yaml-dir path/to/finalized-yaml-directory \
-  --artifact-dir path/to/current-graph
+data-ontology-graph-publish --yaml-dir path/to/finalized-yaml-directory
+data-ontology-graph-launchd setup
 ```
 
-```bash
-data-ontology-graph-server \
-  --snapshot-dir path/to/current-graph \
-  --socket /tmp/data-ontology-graph.sock
-```
-
-In another shell, call the same JSON-RPC request/response interface used by
-production. Every call carries a request ID; fire-and-forget notifications are
-not supported:
-
-```bash
-data-ontology-graph-client \
-  --socket /tmp/data-ontology-graph.sock \
-  graph.search \
-  --params '{"query":"customer"}'
-```
-
-The service supports snapshot information, lexical search, identity and
-dataset lookup, relationship detail, directed hops, breadth-first subgraph
-expansion, and path retrieval. It does not generate or validate SQL.
-
-### launchd singleton
-
-Install a user-agent property list with the resolved Python and current-artifact
-paths, then let `launchd` start the daemon:
-
-```bash
-data-ontology-graph-launchd install \
-  --snapshot-dir path/to/current-graph \
-  --socket /tmp/data-ontology-graph.sock \
-  --log-dir "$HOME/Library/Logs/data-ontology-graph" \
-  --output "$HOME/Library/LaunchAgents/com.data-ontology-graph.service.plist"
-```
-
-The service starts at login and restarts after unexpected failure. After publishing a new current
-artifact, restart the in-memory daemon with:
+The service runs only on demand. Nothing starts it at login, because the job's property list sits
+in the service home rather than in `~/Library/LaunchAgents`. Start and stop it as needed; while it
+is started, `launchd` restarts it after an unexpected failure, and logging out stops it:
 
 ```console
-data-ontology-graph-launchd reload --snapshot-dir path/to/current-graph
+data-ontology-graph-launchd start     # waits until the service answers
+data-ontology-graph-launchd status
+data-ontology-graph-launchd reload    # after publishing a new artifact
+data-ontology-graph-launchd stop
 ```
 
-The lifecycle command also supports `start`, `status`, and `uninstall`. It uses the configured
-stable artifact path directly and performs no release discovery, version selection, or manifest
-validation.
+Every command finds the socket by itself: an explicit `--socket`, then `$DOG_SOCKET`, then the
+service home's. Call the same JSON-RPC request/response interface used by production. Every call
+carries a request ID; fire-and-forget notifications are not supported:
+
+```bash
+data-ontology-graph-client graph.search --params '{"query":"customer"}'
+```
+
+The service supports snapshot information, lexical search, identity and dataset lookup,
+relationship detail, directed hops, breadth-first subgraph expansion, and path retrieval. It does
+not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
+the foreground with the same defaults.
 
 ## AKG contract and the query-graph-api skill
 
-An abstract knowledge graph (AKG) is a forest of one or more graph cuts that an agent selects from
-the served snapshot to resolve a question. Each cut uses the graph's own node and edge model.
-Disconnected cuts are a valid answer: the question may ask for unrelated facts, or the graph may
-lack a connection, which the AKG records as a data gap.
+An abstract knowledge graph (AKG) is the subset of graph datasets and relationships that an agent
+selects for one objective. One JSON file holds the whole objective: datasets keyed by `node_id`,
+relationships keyed by canonical edge ID, trimmed graph fields such as name, source, grain, and
+the columns that matter, and the agent's reasoning under each element's `usage`, plus gaps and
+comparisons. Connected components are derived from the relationships; disconnected components are
+a valid answer when the objective asks for unrelated facts or the graph lacks a connection, which
+the AKG records as a data gap.
 
-[`resources/schema/akg.schema.json`](resources/schema/akg.schema.json) is the public contract. It
-defines only the document envelope and the query reasoning, and references nodes, edges, and
-logical identities from `intermediary.schema.json`. Check a document against the contract, and
-with `--socket` against the served snapshot:
+[`resources/schema/akg.schema.json`](resources/schema/akg.schema.json) is the public contract. The
+[`query-graph-api` skill](skills/query-graph-api/SKILL.md) builds an AKG file incrementally in file
+mode: it discovers through `scripts/graph_call.py` and writes the file only through
+`scripts/akg.py`, which copies graph objects from the service and never changes a graph field
+already present. `scripts/service.py start|stop|status` starts and stops the on-demand service
+for the agent. The scripts are standard-library only and find the service by themselves.
 
 ```bash
-data-ontology-graph-akg validate path/to/akg.yaml --socket /tmp/data-ontology-graph.sock
+python3 skills/query-graph-api/scripts/service.py start
+python3 skills/query-graph-api/scripts/akg.py init akg.json --question "..."
+python3 skills/query-graph-api/scripts/akg.py add-relationship akg.json EDGE_ID
+data-ontology-graph-akg check akg.json                          # findings by severity
+data-ontology-graph-akg finalize akg.json                       # or --yaml PATH
+data-ontology-graph-akg export akg.json --format markdown       # read-only copy for review
 ```
 
-The [`query-graph-api` skill](skills/query-graph-api/SKILL.md) guides an agent from a question to a
-validated AKG document through the service. Its standard-library client,
-`skills/query-graph-api/scripts/graph_call.py`, prints compact projections and copies cuts from
-the service verbatim.
+`check` never refuses to load a parseable file; `finalize` requires no error, resolves every
+dataset and relationship against the service or the YAML intermediary, and marks the file
+`final`.

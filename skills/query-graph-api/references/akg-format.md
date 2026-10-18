@@ -1,112 +1,153 @@
-# AKG document format (version 1.0)
+# AKG file format
 
 The [AKG schema](../../../resources/schema/akg.schema.json) is the authority; this page explains
-it. One document answers one question. Write it as JSON, which is valid YAML, so `cut` output
-pastes in unchanged; the example below uses YAML only for readability.
+it. One JSON file holds everything that serves one objective: the graph datasets and
+relationships it needs, keyed by their graph IDs, and the reasoning that goes with them.
+Connected components are derived from the relationships; disconnected components are valid.
 
-An AKG is a forest of graph cuts. A cut uses the graph's own node and edge model: its `nodes`,
-`edges`, and `logical_identities` follow the definitions in
-[`intermediary.schema.json`](../../../resources/schema/intermediary.schema.json), and every value
-must equal the served snapshot's. The AKG format adds only the envelope and the reasoning.
+Fields come from two writers:
 
-## Envelope
+- **graph**: copied from service responses by `scripts/akg.py`. Never edit them by hand; the
+  finalize check compares them with the graph.
+- **agent**: your reasoning, written with `annotate`, `gap`, and `comparison`.
 
-| Field | Required | Content |
-| --- | --- | --- |
-| `akg_version` | yes | `"1.0"` |
-| `question` | yes | The question text, verbatim. |
-| `snapshot` | yes | `version` and `schema_fingerprint` from `snapshot_info`. |
-| `akgs` | yes | One AKG per reading of the question, preferred reading first. |
+Unknown keys are allowed anywhere. `check` reports them as `info` and never checks them.
 
-## AKG
+## Document
 
-| Field | Required | Content |
-| --- | --- | --- |
-| `interpretation` | yes | The reading of the question this AKG answers, in one or two sentences. |
-| `cuts` | yes | One or more graph cuts. |
-| `reasoning` | no | Query reasoning; it never adds a node or edge. |
+| Field | Required | Writer | Content |
+| --- | --- | --- | --- |
+| `status` | yes | tool | `draft`, or `final` after `finalize`. Any `akg.py` write resets it to `draft`. |
+| `question` | yes | agent | The question, verbatim (`init --question`). |
+| `objective` | no | agent | The reading of the question this file serves (`init --objective`). |
+| `graph.snapshot` | no | tool | `version` and `schema_fingerprint`, recorded by `init`. |
+| `datasets` | yes | tool | Map from `node_id` to a dataset. May be empty. |
+| `relationships` | yes | tool | Map from canonical `edge_id` to a relationship. May be empty. |
+| `comparisons` | no | agent | Map from an ID you choose to a comparison. |
+| `gaps` | no | agent | Map from an ID you choose to a data gap. |
 
-## Cut
+## Dataset
 
-Produce each cut with `scripts/graph_call.py cut` and paste it unchanged.
+| Field | Writer | Detail | Content |
+| --- | --- | --- | --- |
+| `name` | graph | all | The qualified name, such as `shop.main.fact_sale`. Required. |
+| `source` | graph | all | The data system family, such as `sqlite`. Required. |
+| `grain` | graph | all | The grain columns as one list, or `"unknown"`. |
+| `columns` | graph | `essential`: named with `--columns`; `standard`, `full`: all | Map from column name to `description` and `value_description`; `full` adds `synonyms`. |
+| `description` | graph | `standard`, `full` | The dataset description. |
+| `entity_definitions` | graph | `standard`, `full` | `identity_id`, `dataset_columns`, `entity_universe`. |
+| `synonyms`, `tags` | graph | `full` | Dataset synonyms and tags. |
+| `stats` | graph | — | Reserved for statistics once the graph serves them. |
+| `usage` | agent | — | See below. |
 
-| Field | Required | Content |
-| --- | --- | --- |
-| `nodes` | yes | Whole dataset nodes, as the snapshot holds them. |
-| `edges` | no | The selected relationships, each with `endpoint_a`, `endpoint_b`, `a_to_b`, and `b_to_a`. Endpoint order may be either way round, as long as the claims move with their endpoints. |
-| `logical_identities` | when edges exist | Registry entries keyed by `identity_id`. Every identity an edge uses is required; other identities of the cut's entity definitions may be listed. `cut` lists exactly the edge identities. |
+Accessor properties, entity expressions, and entity metadata are never copied. Fetch them with
+`graph_call.py get_dataset` when needed.
 
-The validator enforces the forest shape:
-
-- every edge endpoint is a node in the same cut;
-- each cut is connected through its own edges, so a lone dataset is its own cut;
-- no node appears in two cuts of one AKG.
-
-## Reasoning
-
-Datasets are named by `node_id`; columns by `node_id` and `column`. Every node and column named
-here must be in a cut.
+`usage` on a dataset:
 
 | Field | Content |
 | --- | --- |
-| `anchors` | Datasets whose grain carries a measure. |
-| `attributes` | `node_id`, `column`, `usage`, and optional `value` and `note`. `usage` is `measure`, `count`, `group`, `filter`, `time`, `absence`, `join_only`, or `output`. |
-| `traversals` | `origin` and `target` entity-definition references of one selected edge, from the anchor side, with optional `aggregate_before_join` and `note`. |
-| `drill_across` | `anchors` (two or more), `shared_columns`, and `comparison` (`coverage`, `difference`, or `co_occurrence`). |
-| `data_gaps` | `description`, and the `cuts` (zero-based indices) and `node_ids` involved. |
+| `role` | `anchor`, `grouping`, `filter`, or `bridge`. |
+| `columns` | Map from a listed column name to `as` (`measure`, `count`, `group`, `filter`, `time`, `absence`, `join_only`, `output`), with optional `value` (a stated filter value or threshold) and `note`. |
+| `note` | Free text. |
 
-## Example (illustrative domain)
+## Relationship
 
-Nodes are abbreviated here; a real document holds each node exactly as `cut` prints it.
+| Field | Writer | Content |
+| --- | --- | --- |
+| `endpoint_a`, `endpoint_b` | graph | `node_id`, `identity_id`, `dataset_columns`, in canonical order. |
+| `a_to_b`, `b_to_a` | graph | `multiplicity` (`1:1`, `1:many`, `many:1`, `many:many`, `unknown`) and `match_existence` (`always`, `optional`, `unknown`) for each direction. |
+| `stats` | graph | Reserved for statistics once the graph serves them. |
+| `usage` | agent | See below. |
 
-```yaml
-akg_version: "1.0"
-question: What is the refund value per selling store, and which stores have no refunds?
-snapshot: {version: "5.0", schema_fingerprint: "0000000000000000"}
-akgs:
-  - interpretation: Sum refund amounts by the store on the original sale, keeping stores with none.
-    cuts:
-      - logical_identities:
-          sale_identity: {name: Sale identity, description: "", synonyms: []}
-          store_identity: {name: Store identity, description: "", synonyms: []}
-        nodes:
-          - node_id: sqlite:shop.fact_refund      # whole node, copied by `cut`
-          - node_id: sqlite:shop.fact_sale
-          - node_id: sqlite:shop.dim_store
-        edges:
-          - endpoint_a: {node_id: sqlite:shop.fact_refund, identity_id: sale_identity, dataset_columns: [sale_id]}
-            endpoint_b: {node_id: sqlite:shop.fact_sale, identity_id: sale_identity, dataset_columns: [sale_id]}
-            a_to_b: {multiplicity: "many:1", match_existence: always}
-            b_to_a: {multiplicity: "1:many", match_existence: optional}
-          - endpoint_a: {node_id: sqlite:shop.dim_store, identity_id: store_identity, dataset_columns: [store_id]}
-            endpoint_b: {node_id: sqlite:shop.fact_sale, identity_id: store_identity, dataset_columns: [store_id]}
-            a_to_b: {multiplicity: "1:many", match_existence: optional}
-            b_to_a: {multiplicity: "many:1", match_existence: always}
-    reasoning:
-      anchors: [sqlite:shop.fact_refund]
-      attributes:
-        - {node_id: sqlite:shop.fact_refund, column: refund_amount, usage: measure}
-        - {node_id: sqlite:shop.dim_store, column: store_name, usage: group}
-      traversals:
-        - origin: {node_id: sqlite:shop.fact_refund, identity_id: sale_identity, dataset_columns: [sale_id]}
-          target: {node_id: sqlite:shop.fact_sale, identity_id: sale_identity, dataset_columns: [sale_id]}
-        - origin: {node_id: sqlite:shop.fact_sale, identity_id: store_identity, dataset_columns: [store_id]}
-          target: {node_id: sqlite:shop.dim_store, identity_id: store_identity, dataset_columns: [store_id]}
-          note: Stores without refunds stay visible from the store side (1:many optional).
-      data_gaps: []
+`a_to_b` describes how each `endpoint_a` row matches `endpoint_b` rows. Canonical order is not
+traversal order: record the direction you traverse with `usage.from` and leave the claims as
+they are.
+
+`usage` on a relationship:
+
+| Field | Content |
+| --- | --- |
+| `from` | The endpoint `node_id` the traversal starts from, normally the anchor side. |
+| `keep` | Endpoint `node_id` values whose unmatched rows must stay visible. |
+| `aggregate_before_join` | `true` when the far side must be aggregated to the `from` side's grain before combining. |
+| `note` | Free text, such as the join that `keep` implies. |
+
+## Comparison and gap
+
+| Element | Field | Content |
+| --- | --- | --- |
+| Comparison | `anchors` | Two or more anchor `node_id` values. |
+| | `shared_columns` | `{node_id, column}` pairs the anchors are compared on. |
+| | `comparison` | `coverage`, `difference`, or `co_occurrence`. |
+| Gap | `description` | What the graph cannot connect or supply. Required. |
+| | `datasets`, `relationships` | The `node_id` and `edge_id` values involved. |
+
+## Checks
+
+`data-ontology-graph-akg check FILE` and `finalize FILE` report findings by location, rule, and
+severity. Only errors block `finalize`.
+
+| Rule | Severity |
+| --- | --- |
+| The file does not parse, or a required field is missing or has the wrong type or value | error |
+| A relationship key differs from the canonical ID of its endpoints (`relationship_key`) | error |
+| `usage.from` or `keep` names a dataset that is not an endpoint (`not_an_endpoint`) | error |
+| A reference names a dataset or relationship missing from the file (`dangling_reference`) | warning; error at `finalize` |
+| A `usage` column or shared column is not listed in the dataset's `columns` (`unlisted_column`) | warning; error at `finalize` |
+| An element or graph field does not match the graph (`unknown_element`, `graph_mismatch`) | error; with `--socket` or `--yaml`, always at `finalize` |
+| A key the contract does not name (`unknown_key`) | info |
+
+## Example
+
+An illustrative retail domain, abbreviated; the IDs do not exist in any shipped catalog.
+
+```json
+{
+  "status": "draft",
+  "question": "What is the refund value per selling store, including stores with no refunds?",
+  "objective": "Sum refund amounts by the store on the original sale, keeping stores with none.",
+  "datasets": {
+    "sqlite:shop.fact_refund": {
+      "name": "shop.main.fact_refund",
+      "source": "sqlite",
+      "grain": ["refund_id"],
+      "columns": {"refund_amount": {"description": "refunded amount"}, "sale_id": {"description": "the refunded sale"}},
+      "usage": {"role": "anchor", "columns": {"refund_amount": {"as": "measure"}}}
+    },
+    "sqlite:shop.fact_sale": {"name": "shop.main.fact_sale", "source": "sqlite", "grain": ["sale_id"], "columns": {"…": {}}, "usage": {"role": "bridge"}},
+    "sqlite:shop.dim_store": {"name": "shop.main.dim_store", "source": "sqlite", "grain": ["store_id"], "columns": {"…": {}}, "usage": {"role": "grouping", "columns": {"store_name": {"as": "group"}}}}
+  },
+  "relationships": {
+    "sqlite:shop.fact_refund:sale_identity:sale_id__sqlite:shop.fact_sale:sale_identity:sale_id": {
+      "endpoint_a": {"node_id": "sqlite:shop.fact_refund", "identity_id": "sale_identity", "dataset_columns": ["sale_id"]},
+      "endpoint_b": {"node_id": "sqlite:shop.fact_sale", "identity_id": "sale_identity", "dataset_columns": ["sale_id"]},
+      "a_to_b": {"multiplicity": "many:1", "match_existence": "always"},
+      "b_to_a": {"multiplicity": "1:many", "match_existence": "optional"},
+      "usage": {"from": "sqlite:shop.fact_refund", "keep": ["sqlite:shop.fact_sale"], "note": "fact_sale LEFT JOIN fact_refund keeps sales with no refund."}
+    },
+    "sqlite:shop.dim_store:store_identity:store_id__sqlite:shop.fact_sale:store_identity:store_id": {"…": "…", "usage": {"from": "sqlite:shop.fact_sale", "keep": ["sqlite:shop.dim_store"]}}
+  },
+  "gaps": {
+    "store-match": {"description": "Whether every sale matches a store is unknown.", "datasets": ["sqlite:shop.fact_sale", "sqlite:shop.dim_store"]}
+  }
+}
 ```
 
-When the question asks for unrelated facts, or the graph cannot connect two datasets, list each
-part as its own cut. When the cause is missing knowledge, add a data gap:
+## Human-readable copy
 
-```yaml
-    cuts:
-      - nodes: [ ... loan ... ]
-      - nodes: [ ... region ... ]
-    reasoning:
-      data_gaps:
-        - description: >-
-            No relationship records the region where a loan was disbursed; the account's
-            opening-branch region is a different role.
-          cuts: [0, 1]
+`data-ontology-graph-akg export FILE --format markdown` writes a deterministic, read-only copy
+for review: a dataset table with short aliases, the columns and their usage, each relationship
+oriented by `usage.from` with its claims in plain sentences, comparisons, and gaps. For the
+first relationship above:
+
+```markdown
+### fact_refund.sale_id → fact_sale.sale_id
+
+- Every fact_refund row matches exactly one fact_sale row.
+- Each fact_sale row matches any number of fact_refund rows; some match none.
+- Keep unmatched rows of: fact_sale
+- Note: fact_sale LEFT JOIN fact_refund keeps sales with no refund.
 ```
+
+The export is never read back; the JSON file stays the only source of truth.

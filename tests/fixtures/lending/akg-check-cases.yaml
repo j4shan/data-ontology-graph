@@ -1,0 +1,75 @@
+# Lending AKG check cases: one rule per case.
+# Each case changes a valid fixture at a key path (a list of keys): delete a value, set a value,
+# or rename a map key. `final: true` checks with the finalize rules.
+cases:
+- case: missing question
+  base: akg-single.json
+  expected: missing
+  severity: error
+  delete: [question]
+- case: datasets written as a list
+  base: akg-single.json
+  expected: dict_type
+  severity: error
+  set:
+    path: [datasets]
+    value: []
+- case: unknown match_existence
+  base: akg-single.json
+  expected: enum
+  severity: error
+  set:
+    path: [relationships, "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id", a_to_b, match_existence]
+    value: sometimes
+- case: unknown column usage
+  base: akg-single.json
+  expected: literal_error
+  severity: error
+  set:
+    path: [datasets, "sqlite:lending.loan", usage, columns, loan_id, as]
+    value: sum
+- case: relationship key is not the canonical edge ID
+  base: akg-single.json
+  expected: relationship_key
+  severity: error
+  rename:
+    path: [relationships]
+    from: "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+    to: "sqlite:lending.loan:account_identity:account_id__sqlite:lending.account:account_identity:account_id"
+- case: traversal starts outside the relationship
+  base: akg-single.json
+  expected: not_an_endpoint
+  severity: error
+  set:
+    path: [relationships, "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id", usage, from]
+    value: sqlite:lending.region
+- case: dangling endpoint in a draft
+  base: akg-disjoint.json
+  expected: dangling_reference
+  severity: warning
+  delete: [datasets, "sqlite:lending.region"]
+- case: dangling endpoint at finalize
+  base: akg-disjoint.json
+  expected: dangling_reference
+  severity: error
+  final: true
+  delete: [datasets, "sqlite:lending.region"]
+- case: usage column not listed
+  base: akg-single.json
+  expected: unlisted_column
+  severity: warning
+  delete: [datasets, "sqlite:lending.loan", columns, loan_id]
+- case: gap names an absent dataset
+  base: akg-single.json
+  expected: dangling_reference
+  severity: warning
+  set:
+    path: [gaps, region-match, datasets]
+    value: [sqlite:lending.branch]
+- case: unknown key
+  base: akg-single.json
+  expected: unknown_key
+  severity: info
+  set:
+    path: [datasets, "sqlite:lending.loan", row_count]
+    value: 10

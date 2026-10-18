@@ -25,7 +25,7 @@
 | ID | Clause |
 | --- | --- |
 | 3.1 | Local agents read knowledge from an offline copy on the same machine, with no network dependency between agents and the knowledge service. |
-| 3.2 | The local graph service runs whenever the user is logged in and restarts after an unexpected failure without manual action. |
+| 3.2 | The local graph service runs on demand: the user or an agent starts and stops it, nothing starts it at login, and while it is started it restarts after an unexpected failure without manual action. |
 
 ## Security and privacy
 

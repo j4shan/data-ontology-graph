@@ -5,7 +5,8 @@ Standard library only; imports no graph-core code.
 
     graph_call.py METHOD [PARAMS_JSON] [--socket PATH] [--full [--records]] [--detail]
 
-The socket comes from --socket or $DOG_SOCKET. The client changes into the socket's directory and
+The socket comes from --socket, then $DOG_SOCKET, then the service home's `graph.sock`; the home
+is $DOG_HOME or ~/.data-ontology-graph. The client changes into the socket's directory and
 connects by basename, so socket paths longer than the platform sun_path limit still work.
 
 By default a result is printed as a compact projection:
@@ -21,9 +22,8 @@ By default a result is printed as a compact projection:
   `unknown` counts steps with an unknown claim.
 - expand_subgraph: one line per node and per edge.
 
-`cut` is a client-side method. Given {"node_ids": [...], "edge_ids": [...]}, it fetches each node
-and edge and prints one graph cut in the AKG contract's node and edge model, ready to paste into
-an AKG document. --full prints the raw result; --full --records converts each table to records.
+--full prints the raw result; --full --records converts each table to records. To build an AKG,
+use the sibling `akg.py`, which writes graph objects into the AKG file directly.
 """
 from __future__ import annotations
 
@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 
 DEFAULT_PATH_LIMIT = 10
+DEFAULT_HOME = "~/.data-ontology-graph"
 FAN_OUT = ("1:many", "many:many")
 
 
@@ -42,6 +43,16 @@ class ServiceError(RuntimeError):
     def __init__(self, error: dict) -> None:
         super().__init__(error.get("message", "graph service error"))
         self.error = error
+
+
+def service_home() -> Path:
+    """The private per-user service home; keep equal to data_ontology_graph.home."""
+    return Path(os.environ.get("DOG_HOME") or DEFAULT_HOME).expanduser()
+
+
+def default_socket() -> Path:
+    override = os.environ.get("DOG_SOCKET")
+    return Path(override).expanduser() if override else service_home() / "graph.sock"
 
 
 def call(socket_path: Path, method: str, params: dict) -> dict:
@@ -266,76 +277,28 @@ def compact(method: str, result, *, detail: bool = False):
     return result
 
 
-def _without_unknown_fields(value):
-    if isinstance(value, dict):
-        return {k: _without_unknown_fields(v) for k, v in value.items() if k != "unknown_fields"}
-    if isinstance(value, list):
-        return [_without_unknown_fields(item) for item in value]
-    return value
-
-
-def build_cut(socket_path: Path, node_ids: list[str], edge_ids: list[str]) -> dict:
-    """Fetch nodes and edges and return one cut in the AKG contract's graph model."""
-    nodes = [
-        _without_unknown_fields(result_of(socket_path, "graph.get_dataset", {"node_id": node_id}))
-        for node_id in node_ids
-    ]
-    edges = []
-    for edge_id in edge_ids:
-        relationship = result_of(
-            socket_path,
-            "graph.get_relationship",
-            {"edge_id": edge_id, "response_format": "records"},
-        )
-        identity_id = relationship["identity_id"]
-        edges.append({
-            side: {
-                "node_id": relationship[side]["node_id"],
-                "identity_id": identity_id,
-                "dataset_columns": relationship[side]["dataset_columns"],
-            }
-            for side in ("endpoint_a", "endpoint_b")
-        } | {"a_to_b": relationship["a_to_b"], "b_to_a": relationship["b_to_a"]})
-    identities = {}
-    for identity_id in sorted({edge["endpoint_a"]["identity_id"] for edge in edges}):
-        detail = result_of(socket_path, "graph.get_identity", {"identity_id": identity_id, "limit": 1})
-        identities[identity_id] = {
-            "name": detail["name"],
-            "description": detail["description"],
-            "synonyms": detail["synonyms"],
-        }
-    return {"logical_identities": identities, "nodes": nodes, "edges": edges}
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("method")
     parser.add_argument("params", nargs="?", default="{}")
-    parser.add_argument("--socket", default=os.environ.get("DOG_SOCKET"))
+    parser.add_argument("--socket", help="default: $DOG_SOCKET or the service home's socket")
     parser.add_argument("--full", action="store_true")
     parser.add_argument("--records", action="store_true",
                         help="with --full, convert each table to a list of records")
     parser.add_argument("--detail", action="store_true",
                         help="with find_paths, list each path's hops")
     args = parser.parse_args(argv)
-    if not args.socket:
-        parser.error("set --socket or DOG_SOCKET")
-    socket_path = Path(args.socket).expanduser().resolve()
+    socket_path = (Path(args.socket).expanduser() if args.socket else default_socket()).resolve()
     params = json.loads(args.params)
     try:
-        if args.method == "cut":
-            output = build_cut(
-                socket_path, params.get("node_ids", []), params.get("edge_ids", [])
-            )
+        method = args.method if args.method.startswith("graph.") else f"graph.{args.method}"
+        if method == "graph.find_paths":
+            params.setdefault("limit", DEFAULT_PATH_LIMIT)
+        result = result_of(socket_path, method, params)
+        if args.full:
+            output = expand_tables(result) if args.records else result
         else:
-            method = args.method if args.method.startswith("graph.") else f"graph.{args.method}"
-            if method == "graph.find_paths":
-                params.setdefault("limit", DEFAULT_PATH_LIMIT)
-            result = result_of(socket_path, method, params)
-            if args.full:
-                output = expand_tables(result) if args.records else result
-            else:
-                output = compact(method, result, detail=args.detail)
+            output = compact(method, result, detail=args.detail)
     except ServiceError as error:
         print(json.dumps(error.error, indent=1))
         return 1

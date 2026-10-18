@@ -1,82 +1,53 @@
 {
   "$defs": {
-    "AbstractKnowledgeGraph": {
-      "additionalProperties": false,
-      "description": "One reading of a question: a forest of graph cuts plus its reasoning.",
+    "ColumnFacts": {
+      "additionalProperties": true,
       "properties": {
-        "cuts": {
-          "items": {
-            "$ref": "#/$defs/GraphCut"
-          },
-          "minItems": 1,
-          "title": "Cuts",
-          "type": "array"
-        },
-        "interpretation": {
-          "minLength": 1,
-          "title": "Interpretation",
-          "type": "string"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/Reasoning"
-        }
-      },
-      "required": [
-        "interpretation",
-        "cuts"
-      ],
-      "title": "AbstractKnowledgeGraph",
-      "type": "object"
-    },
-    "Attribute": {
-      "additionalProperties": false,
-      "description": "How the answer uses one column of a selected node.",
-      "properties": {
-        "column": {
-          "minLength": 1,
-          "title": "Column",
-          "type": "string"
-        },
-        "node_id": {
-          "minLength": 1,
-          "title": "Node Id",
-          "type": "string"
-        },
-        "note": {
-          "default": "",
-          "title": "Note",
-          "type": "string"
-        },
-        "usage": {
-          "enum": [
-            "measure",
-            "count",
-            "group",
-            "filter",
-            "time",
-            "absence",
-            "join_only",
-            "output"
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
           ],
-          "title": "Usage",
-          "type": "string"
-        },
-        "value": {
-          "$ref": "intermediary.schema.json#/$defs/JsonValue",
           "default": null,
-          "description": "Filter value or threshold, when the question states one."
+          "title": "Description"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synonyms"
+        },
+        "value_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value Description"
         }
       },
-      "required": [
-        "node_id",
-        "column",
-        "usage"
-      ],
-      "title": "Attribute",
+      "title": "ColumnFacts",
       "type": "object"
     },
     "ColumnReference": {
-      "additionalProperties": false,
+      "additionalProperties": true,
       "properties": {
         "column": {
           "minLength": 1,
@@ -96,40 +67,50 @@
       "title": "ColumnReference",
       "type": "object"
     },
-    "DataGap": {
-      "additionalProperties": false,
-      "description": "Knowledge the answer needs that the graph could not connect or supply.",
+    "ColumnUsage": {
+      "additionalProperties": true,
       "properties": {
-        "cuts": {
-          "description": "Zero-based indices of the cuts involved.",
-          "items": {
-            "type": "integer"
-          },
-          "title": "Cuts",
-          "type": "array"
-        },
-        "description": {
-          "minLength": 1,
-          "title": "Description",
+        "as": {
+          "enum": [
+            "measure",
+            "count",
+            "group",
+            "filter",
+            "time",
+            "absence",
+            "join_only",
+            "output"
+          ],
+          "title": "As",
           "type": "string"
         },
-        "node_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Node Ids",
-          "type": "array"
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "value": {
+          "$ref": "#/$defs/JsonValue",
+          "default": null,
+          "description": "Filter value or threshold."
         }
       },
       "required": [
-        "description"
+        "as"
       ],
-      "title": "DataGap",
+      "title": "ColumnUsage",
       "type": "object"
     },
-    "DrillAcross": {
-      "additionalProperties": false,
-      "description": "Two or more anchors compared on shared cut columns rather than joined to each other.",
+    "Comparison": {
+      "additionalProperties": true,
+      "description": "Two or more anchors compared on shared columns rather than joined to each other.",
       "properties": {
         "anchors": {
           "items": {
@@ -162,90 +143,490 @@
         "shared_columns",
         "comparison"
       ],
-      "title": "DrillAcross",
+      "title": "Comparison",
       "type": "object"
     },
-    "GraphCut": {
-      "additionalProperties": false,
-      "description": "One connected component of an AKG, in the graph's own node and edge model.",
+    "Dataset": {
+      "additionalProperties": true,
+      "description": "One graph dataset, keyed by `node_id` in the document.",
       "properties": {
-        "edges": {
-          "items": {
-            "$ref": "intermediary.schema.json#/$defs/RelationshipDefinition"
-          },
-          "title": "Edges",
-          "type": "array"
+        "columns": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/ColumnFacts"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Columns"
         },
-        "logical_identities": {
-          "additionalProperties": {
-            "$ref": "intermediary.schema.json#/$defs/LogicalIdentityDefinition"
-          },
-          "description": "Registry entries keyed by identity_id. Every identity an edge uses is required; other identities of the cut's entity definitions may be listed.",
-          "title": "Logical Identities",
-          "type": "object"
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
-        "nodes": {
-          "items": {
-            "$ref": "intermediary.schema.json#/$defs/IntermediaryNode"
-          },
-          "minItems": 1,
-          "title": "Nodes",
-          "type": "array"
+        "entity_definitions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EntityDefinitionFacts"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entity Definitions"
+        },
+        "grain": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Grain"
+        },
+        "name": {
+          "description": "descriptor.qualified_name",
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "description": "Accessor family, such as sqlite.",
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "stats": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reserved for statistics once the graph serves them.",
+          "title": "Stats"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synonyms"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tags"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatasetUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
-        "nodes"
+        "name",
+        "source"
       ],
-      "title": "GraphCut",
+      "title": "Dataset",
       "type": "object"
     },
-    "Reasoning": {
-      "additionalProperties": false,
-      "description": "Query reasoning that accompanies an AKG. It never adds a node or edge.",
+    "DatasetUsage": {
+      "additionalProperties": true,
+      "description": "Agent reasoning about one dataset.",
       "properties": {
-        "anchors": {
-          "description": "Nodes whose grain carries a measure.",
+        "columns": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/ColumnUsage"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Columns"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "anchor",
+                "grouping",
+                "filter",
+                "bridge"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        }
+      },
+      "title": "DatasetUsage",
+      "type": "object"
+    },
+    "Direction": {
+      "additionalProperties": true,
+      "properties": {
+        "match_existence": {
+          "$ref": "#/$defs/MatchExistence"
+        },
+        "multiplicity": {
+          "$ref": "#/$defs/Multiplicity"
+        }
+      },
+      "required": [
+        "multiplicity",
+        "match_existence"
+      ],
+      "title": "Direction",
+      "type": "object"
+    },
+    "Endpoint": {
+      "additionalProperties": true,
+      "properties": {
+        "dataset_columns": {
           "items": {
             "type": "string"
           },
-          "title": "Anchors",
+          "minItems": 1,
+          "title": "Dataset Columns",
           "type": "array"
         },
-        "attributes": {
-          "items": {
-            "$ref": "#/$defs/Attribute"
-          },
-          "title": "Attributes",
-          "type": "array"
+        "identity_id": {
+          "minLength": 1,
+          "title": "Identity Id",
+          "type": "string"
         },
-        "data_gaps": {
-          "items": {
-            "$ref": "#/$defs/DataGap"
-          },
-          "title": "Data Gaps",
-          "type": "array"
-        },
-        "drill_across": {
-          "items": {
-            "$ref": "#/$defs/DrillAcross"
-          },
-          "title": "Drill Across",
-          "type": "array"
-        },
-        "traversals": {
-          "items": {
-            "$ref": "#/$defs/Traversal"
-          },
-          "title": "Traversals",
-          "type": "array"
+        "node_id": {
+          "minLength": 1,
+          "title": "Node Id",
+          "type": "string"
         }
       },
-      "title": "Reasoning",
+      "required": [
+        "node_id",
+        "identity_id",
+        "dataset_columns"
+      ],
+      "title": "Endpoint",
       "type": "object"
     },
-    "SnapshotReference": {
-      "additionalProperties": false,
-      "description": "The served snapshot the AKG was selected from, as reported by `graph.snapshot_info`.",
+    "EntityDefinitionFacts": {
+      "additionalProperties": true,
+      "properties": {
+        "dataset_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dataset Columns",
+          "type": "array"
+        },
+        "entity_universe": {
+          "$ref": "#/$defs/EntityUniverse"
+        },
+        "identity_id": {
+          "minLength": 1,
+          "title": "Identity Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "identity_id",
+        "dataset_columns",
+        "entity_universe"
+      ],
+      "title": "EntityDefinitionFacts",
+      "type": "object"
+    },
+    "EntityUniverse": {
+      "enum": [
+        "complete",
+        "partial",
+        "unknown"
+      ],
+      "title": "EntityUniverse",
+      "type": "string"
+    },
+    "Gap": {
+      "additionalProperties": true,
+      "description": "Knowledge the objective needs that the graph cannot connect or supply.",
+      "properties": {
+        "datasets": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Datasets"
+        },
+        "description": {
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "relationships": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relationships"
+        }
+      },
+      "required": [
+        "description"
+      ],
+      "title": "Gap",
+      "type": "object"
+    },
+    "GraphInfo": {
+      "additionalProperties": true,
+      "properties": {
+        "snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Snapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The served snapshot, recorded by `akg.py init`."
+        }
+      },
+      "title": "GraphInfo",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MatchExistence": {
+      "enum": [
+        "always",
+        "optional",
+        "unknown"
+      ],
+      "title": "MatchExistence",
+      "type": "string"
+    },
+    "Multiplicity": {
+      "enum": [
+        "1:1",
+        "1:many",
+        "many:1",
+        "many:many",
+        "unknown"
+      ],
+      "title": "Multiplicity",
+      "type": "string"
+    },
+    "Relationship": {
+      "additionalProperties": true,
+      "description": "One graph relationship, keyed by its canonical edge ID in the document.",
+      "properties": {
+        "a_to_b": {
+          "$ref": "#/$defs/Direction"
+        },
+        "b_to_a": {
+          "$ref": "#/$defs/Direction"
+        },
+        "endpoint_a": {
+          "$ref": "#/$defs/Endpoint"
+        },
+        "endpoint_b": {
+          "$ref": "#/$defs/Endpoint"
+        },
+        "stats": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reserved for statistics once the graph serves them.",
+          "title": "Stats"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RelationshipUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "endpoint_a",
+        "endpoint_b",
+        "a_to_b",
+        "b_to_a"
+      ],
+      "title": "Relationship",
+      "type": "object"
+    },
+    "RelationshipUsage": {
+      "additionalProperties": true,
+      "description": "Agent reasoning about one relationship.",
+      "properties": {
+        "aggregate_before_join": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Aggregate Before Join"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The endpoint node_id traversal starts from.",
+          "title": "From"
+        },
+        "keep": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Endpoint node_id values whose unmatched rows must survive.",
+          "title": "Keep"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "RelationshipUsage",
+      "type": "object"
+    },
+    "Snapshot": {
+      "additionalProperties": true,
       "properties": {
         "schema_fingerprint": {
           "minLength": 1,
@@ -262,69 +643,99 @@
         "version",
         "schema_fingerprint"
       ],
-      "title": "SnapshotReference",
-      "type": "object"
-    },
-    "Traversal": {
-      "additionalProperties": false,
-      "description": "The anchor-side orientation of one selected edge.",
-      "properties": {
-        "aggregate_before_join": {
-          "default": false,
-          "description": "Aggregate the target side to the origin's grain before combining.",
-          "title": "Aggregate Before Join",
-          "type": "boolean"
-        },
-        "note": {
-          "default": "",
-          "title": "Note",
-          "type": "string"
-        },
-        "origin": {
-          "$ref": "intermediary.schema.json#/$defs/EntityDefinitionReference"
-        },
-        "target": {
-          "$ref": "intermediary.schema.json#/$defs/EntityDefinitionReference"
-        }
-      },
-      "required": [
-        "origin",
-        "target"
-      ],
-      "title": "Traversal",
+      "title": "Snapshot",
       "type": "object"
     }
   },
-  "additionalProperties": false,
-  "description": "The AKGs that resolve one question, one per reading, the preferred reading first.",
+  "additionalProperties": true,
+  "description": "The graph datasets and relationships that serve one objective.",
   "properties": {
-    "akg_version": {
-      "const": "1.0",
-      "title": "Akg Version",
-      "type": "string"
+    "comparisons": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/Comparison"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comparisons"
     },
-    "akgs": {
-      "items": {
-        "$ref": "#/$defs/AbstractKnowledgeGraph"
+    "datasets": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Dataset"
       },
-      "minItems": 1,
-      "title": "Akgs",
-      "type": "array"
+      "title": "Datasets",
+      "type": "object"
+    },
+    "gaps": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/Gap"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gaps"
+    },
+    "graph": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GraphInfo"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "objective": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Objective"
     },
     "question": {
       "minLength": 1,
       "title": "Question",
       "type": "string"
     },
-    "snapshot": {
-      "$ref": "#/$defs/SnapshotReference"
+    "relationships": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Relationship"
+      },
+      "title": "Relationships",
+      "type": "object"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "final"
+      ],
+      "title": "Status",
+      "type": "string"
     }
   },
   "required": [
-    "akg_version",
+    "status",
     "question",
-    "snapshot",
-    "akgs"
+    "datasets",
+    "relationships"
   ],
   "title": "AkgDocument",
   "type": "object"

@@ -5,12 +5,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from data_ontology_graph.akg import akg_json_schema, load_akg_yaml, validate_akg_payload
+from data_ontology_graph.akg import akg_json_schema, check_document, load_payload
 from data_ontology_graph.akg.cli import main
-from data_ontology_graph.akg.model import AkgDocument
-from data_ontology_graph.akg.resolve import dispatcher_call, resolve_akg
+from data_ontology_graph.akg.resolve import ServiceSource, YamlSource, dispatcher_call, resolve_document
 from data_ontology_graph.builder import build_snapshot_from_yaml
-from data_ontology_graph.builder.intermediary import intermediary_json_schema
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
 from data_ontology_graph.service.read import GraphReadService
 
@@ -18,145 +16,155 @@ from data_ontology_graph.service.read import GraphReadService
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = ROOT / "resources" / "schema" / "akg.schema.json"
 LENDING = ROOT / "tests" / "fixtures" / "lending"
-VALID = ["akg-one-cut.yaml", "akg-forest.yaml", "akg-data-gap.yaml"]
-INVALID_CASES = yaml.safe_load((LENDING / "akg-invalid.yaml").read_text(encoding="utf-8"))["cases"]
+VALID = ["akg-single.json", "akg-disjoint.json", "akg-data-gap.json"]
+CASES = yaml.safe_load((LENDING / "akg-check-cases.yaml").read_text(encoding="utf-8"))["cases"]
 
 
 def _payload(name: str) -> dict:
-    return yaml.safe_load((LENDING / name).read_text(encoding="utf-8"))
-
-
-def _call():
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
-    return dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot)))
-
-
-def _resolve(payload: dict):
-    return resolve_akg(AkgDocument.model_validate(payload), _call())
-
-
-def _parent(document: object, path: str) -> tuple[object, str | int]:
-    *parts, last = [int(part) if part.isdigit() else part for part in path.split(".")]
-    for part in parts:
-        document = document[part]
-    return document, last
-
-
-def _get(document: object, path: str) -> object:
-    parent, key = _parent(document, path)
-    return copy.deepcopy(parent[key])
+    return json.loads((LENDING / name).read_text(encoding="utf-8"))
 
 
 def _apply(document: dict, case: dict) -> dict:
-    if "delete" in case:
-        parent, key = _parent(document, case["delete"])
-        del parent[key]
-    if "set" in case:
-        parent, key = _parent(document, case["set"]["path"])
-        parent[key] = case["set"]["value"]
-    if "append" in case:
-        change = case["append"]
-        value = _get(document, change["from"]) if "from" in change else change["value"]
-        parent, key = _parent(document, change["path"])
-        parent[key].append(value)
-    if "copy" in case:
-        parent, key = _parent(document, case["copy"]["to"])
-        parent[key] = _get(document, case["copy"]["from"])
+    document = copy.deepcopy(document)
+    for operation in ("delete", "set", "rename"):
+        if operation not in case:
+            continue
+        change = case[operation]
+        path = change if operation == "delete" else change["path"]
+        parent = document
+        for key in path[:-1] if operation != "rename" else path:
+            parent = parent[key]
+        if operation == "delete":
+            del parent[path[-1]]
+        elif operation == "set":
+            parent[path[-1]] = change["value"]
+        else:
+            parent[change["to"]] = parent.pop(change["from"])
     return document
 
 
-def test_source_controlled_schema_matches_validator_model() -> None:
+def test_source_controlled_schema_matches_model() -> None:
     assert json.loads(SCHEMA.read_text(encoding="utf-8")) == akg_json_schema()
 
 
-def test_schema_references_graph_model_instead_of_redefining_it() -> None:
-    schema = akg_json_schema()
-    graph_definitions = intermediary_json_schema()["$defs"]
-    assert not set(schema["$defs"]) & set(graph_definitions)
-
-    references: list[str] = []
-
-    def collect(value: object) -> None:
-        if isinstance(value, dict):
-            if isinstance(value.get("$ref"), str):
-                references.append(value["$ref"])
-            for item in value.values():
-                collect(item)
-        elif isinstance(value, list):
-            for item in value:
-                collect(item)
-
-    collect(schema)
-    external = {ref.split("#/$defs/")[1] for ref in references if not ref.startswith("#")}
-    assert {"IntermediaryNode", "RelationshipDefinition", "LogicalIdentityDefinition"} <= external
-    assert external <= set(graph_definitions)
+def test_schema_is_self_contained() -> None:
+    text = json.dumps(akg_json_schema())
+    assert "intermediary.schema.json" not in text
+    assert set(akg_json_schema()["required"]) == {"status", "question", "datasets", "relationships"}
 
 
 @pytest.mark.parametrize("name", VALID)
-def test_valid_fixtures_satisfy_contract_and_snapshot(name: str) -> None:
-    document = load_akg_yaml(LENDING / name)
-    assert resolve_akg(document, _call()) == []
+def test_valid_fixtures_have_no_findings(name: str) -> None:
+    payload, findings = load_payload(LENDING / name)
+    assert findings == []
+    assert check_document(payload, final=True) == []
 
 
-@pytest.mark.parametrize("case", INVALID_CASES, ids=[case["case"] for case in INVALID_CASES])
-def test_each_contract_violation_is_rejected(case: dict) -> None:
-    report = validate_akg_payload(_apply(_payload(case["base"]), case))
-    assert report.valid is False
-    assert [finding.rule for finding in report.findings] == [case["expected"]]
-
-
-def test_forest_may_be_disconnected_and_records_data_gap() -> None:
-    forest = load_akg_yaml(LENDING / "akg-forest.yaml").akgs[0]
-    gap = load_akg_yaml(LENDING / "akg-data-gap.yaml").akgs[0]
-    assert len(forest.cuts) == 2 and not forest.reasoning.data_gaps
-    assert len(gap.cuts) == 2 and gap.reasoning.data_gaps[0].cuts == [0, 1]
-
-
-def test_changed_claim_is_reported_by_element_and_field() -> None:
-    findings = _resolve(_payload("akg-inverted-claim.yaml"))
-    assert [(finding.location, finding.rule) for finding in findings] == [
-        ("$.akgs[0].cuts[0].edges[0].a_to_b.match_existence", "snapshot_mismatch")
+@pytest.mark.parametrize("case", CASES, ids=[case["case"] for case in CASES])
+def test_each_check_case_reports_its_rule_and_severity(case: dict) -> None:
+    findings = check_document(_apply(_payload(case["base"]), case), final=case.get("final", False))
+    assert [(finding.rule, finding.severity) for finding in findings] == [
+        (case["expected"], case["severity"])
     ]
-    assert "document has \"optional\", snapshot has \"always\"" in findings[0].message
 
 
-def test_edge_may_be_written_in_either_endpoint_order() -> None:
-    payload = _payload("akg-one-cut.yaml")
-    edge = payload["akgs"][0]["cuts"][0]["edges"][0]
-    edge["endpoint_a"], edge["endpoint_b"] = edge["endpoint_b"], edge["endpoint_a"]
-    edge["a_to_b"], edge["b_to_a"] = edge["b_to_a"], edge["a_to_b"]
-    assert _resolve(payload) == []
+def test_parse_error_is_one_located_error(tmp_path: Path) -> None:
+    broken = tmp_path / "akg.json"
+    broken.write_text('{"status": "draft",\n  "question": }', encoding="utf-8")
+    payload, findings = load_payload(broken)
+    assert payload is None
+    assert [(finding.rule, finding.severity, finding.line) for finding in findings] == [
+        ("parse_error", "error", 2)
+    ]
 
 
-def test_changed_node_metadata_and_snapshot_identity_are_reported() -> None:
-    payload = _payload("akg-one-cut.yaml")
-    payload["snapshot"]["schema_fingerprint"] = "0000000000000000"
-    payload["akgs"][0]["cuts"][0]["nodes"][2]["descriptor"]["display_name"] = "Region"
-    locations = [finding.location for finding in _resolve(payload)]
+def test_yaml_documents_load_like_json(tmp_path: Path) -> None:
+    source = tmp_path / "akg.yaml"
+    source.write_text(yaml.safe_dump(_payload("akg-single.json")), encoding="utf-8")
+    payload, findings = load_payload(source)
+    assert findings == [] and check_document(payload) == []
+
+
+def test_disconnected_components_need_no_gap() -> None:
+    disjoint = _payload("akg-disjoint.json")
+    assert "gaps" not in disjoint and len(disjoint["relationships"]) == 2
+    assert check_document(disjoint, final=True) == []
+
+
+def _service() -> ServiceSource:
+    snapshot, _, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
+    return ServiceSource(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
+
+
+def _sources() -> list:
+    return [_service(), YamlSource.load(LENDING / "catalog.yaml")]
+
+
+@pytest.mark.parametrize("name", VALID)
+@pytest.mark.parametrize("source", ["service", "yaml"])
+def test_valid_fixtures_resolve_against_service_and_yaml(name: str, source: str) -> None:
+    graph = _service() if source == "service" else YamlSource.load(LENDING / "catalog.yaml")
+    assert resolve_document(_payload(name), graph) == []
+
+
+@pytest.mark.parametrize("graph", _sources(), ids=["service", "yaml"])
+def test_changed_claim_is_one_mismatch_at_its_field(graph) -> None:
+    findings = resolve_document(_payload("akg-changed-claim.json"), graph)
+    edge = "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+    assert [(finding.location, finding.rule) for finding in findings] == [
+        (f"$.relationships[{edge!r}].b_to_a.match_existence", "graph_mismatch")
+    ]
+    assert "document has 'optional', graph has 'always'" in findings[0].message
+
+
+def test_unknown_dataset_column_and_changed_field_are_reported() -> None:
+    payload = _payload("akg-data-gap.json")
+    payload["datasets"]["sqlite:lending.branch"] = {"name": "lending.main.branch", "source": "sqlite"}
+    loan = payload["datasets"]["sqlite:lending.loan"]
+    loan["columns"]["principal"] = {}
+    loan["grain"] = ["loan_id", "account_id"]
+    locations = [(finding.location, finding.rule) for finding in resolve_document(payload, _service())]
     assert locations == [
-        "$.snapshot.schema_fingerprint",
-        "$.akgs[0].cuts[0].nodes[2].descriptor",
+        ("$.datasets['sqlite:lending.loan'].grain", "graph_mismatch"),
+        ("$.datasets['sqlite:lending.loan'].columns['principal']", "unknown_element"),
+        ("$.datasets['sqlite:lending.branch']", "unknown_element"),
     ]
 
 
-def test_unknown_node_is_reported() -> None:
-    payload = _payload("akg-data-gap.yaml")
-    payload["akgs"][0]["cuts"][1]["nodes"][0]["node_id"] = "sqlite:lending.branch"
-    payload["akgs"][0]["reasoning"]["data_gaps"][0]["node_ids"] = ["sqlite:lending.loan"]
-    payload["akgs"][0]["reasoning"]["attributes"] = payload["akgs"][0]["reasoning"]["attributes"][:1]
-    findings = _resolve(payload)
-    assert [(finding.location, finding.rule) for finding in findings] == [
-        ("$.akgs[0].cuts[1].nodes[0]", "unknown_element")
-    ]
+def test_snapshot_identity_is_compared_when_recorded() -> None:
+    payload = _payload("akg-single.json")
+    payload["graph"] = {"snapshot": {"version": "0.0", "schema_fingerprint": "0000"}}
+    rules = [finding.location for finding in resolve_document(payload, _service())]
+    assert rules == ["$.graph.snapshot.version", "$.graph.snapshot.schema_fingerprint"]
 
 
-def test_cli_validates_contract_and_snapshot(lending_socket: Path, capsys) -> None:
-    assert main(["validate", str(LENDING / "akg-one-cut.yaml")]) == 0
-    assert main(["validate", str(LENDING / "akg-forest.yaml"), "--socket", str(lending_socket)]) == 0
-    assert (
-        main(["validate", str(LENDING / "akg-inverted-claim.yaml"), "--socket", str(lending_socket)])
-        == 1
-    )
+def test_cli_check_and_finalize(lending_socket: Path, tmp_path: Path, capsys) -> None:
+    draft = tmp_path / "akg.json"
+    draft.write_text((LENDING / "akg-single.json").read_text(encoding="utf-8"), encoding="utf-8")
+    catalog = str(LENDING / "catalog.yaml")
+    assert main(["check", str(LENDING / "akg-changed-claim.json")]) == 0
+    assert main(["check", str(LENDING / "akg-changed-claim.json"), "--yaml", catalog]) == 1
+    assert main(["finalize", str(draft), "--socket", str(lending_socket)]) == 0
+    assert json.loads(draft.read_text(encoding="utf-8"))["status"] == "final"
     output = capsys.readouterr().out
-    assert "[snapshot_mismatch]" in output
-    assert "valid against the contract and snapshot" in output
+    assert "[graph_mismatch]" in output and f"{draft}: final" in output
+
+
+def test_finalize_refuses_dangling_reference(tmp_path: Path) -> None:
+    payload = _payload("akg-disjoint.json")
+    del payload["datasets"]["sqlite:lending.region"]
+    draft = tmp_path / "akg.json"
+    draft.write_text(json.dumps(payload), encoding="utf-8")
+    assert main(["check", str(draft)]) == 0
+    assert main(["finalize", str(draft), "--yaml", str(LENDING / "catalog.yaml")]) == 1
+    assert json.loads(draft.read_text(encoding="utf-8"))["status"] == "draft"
+
+
+def test_finalize_defaults_to_the_service_home_socket(
+    lending_socket: Path, tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DOG_SOCKET", str(lending_socket))
+    draft = tmp_path / "akg.json"
+    draft.write_text((LENDING / "akg-single.json").read_text(encoding="utf-8"), encoding="utf-8")
+    assert main(["finalize", str(draft)]) == 0
+    assert json.loads(draft.read_text(encoding="utf-8"))["status"] == "final"

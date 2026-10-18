@@ -78,7 +78,7 @@
 
 | ID | Clause |
 | --- | --- |
-| 2.4.1 | An agent can follow the `query-graph-api` skill bundled with this project to resolve one question into AKGs from graph-service responses, and can validate the result against the public AKG contract, resolving every node and edge against the served snapshot when the graph service is running. |
+| 2.4.1 | An agent can follow the `query-graph-api` skill bundled with this project to build an AKG for one objective incrementally in a local file, adding and removing graph datasets and relationships through bundled tools during a session, and can finalize it after checking every element against the graph service or the YAML intermediary it was built from. |
 
 ## Concepts
 
@@ -131,9 +131,9 @@
 
 | ID | Clause |
 | --- | --- |
-| 3.5.1 | An abstract knowledge graph (AKG) is a forest of one or more graph cuts that a question-answering agent selects from one identified graph snapshot through incremental evidence discovery; no single tool response is itself an AKG. Its three pillars are datasets, relationships, and statistics. Each cut shares the graph's node and edge metadata model, so every selected element keeps its ontology meaning, claims, and explicit unknowns, and relationships are selected explicitly rather than implied by their datasets. |
-| 3.5.3 | The connectivity of the data model shapes the forest. Disconnected cuts are a valid answer: the question may ask for disjoint facts, or the data model may lack the connection, in which case the AKG identifies an outstanding data gap. The agent never invents a connection to join cuts. Each alternative reading of a question is its own AKG, never merged with another. |
-| 3.5.5 | Query reasoning that accompanies an AKG, such as anchors, column usage, aggregation choices, derived comparisons, and identified data gaps, stays separate from its cuts and never adds a node or edge. |
+| 3.5.1 | An abstract knowledge graph (AKG) is the subset of graph datasets and relationships that a question-answering agent selects for one objective through incremental evidence discovery; no single tool response is itself an AKG. Its three pillars are datasets, relationships, and statistics. Every element is referenced by its canonical graph identifier and carries a trimmed copy of the graph properties the objective needs, with its claims and explicit unknowns unchanged, so an agent can fetch further properties and navigate related objects from it. Relationships are selected explicitly rather than implied by their datasets. |
+| 3.5.3 | One AKG holds everything that serves one objective, and its connected components are derived from its selected relationships. Disconnected components are a valid answer: the objective may need disjoint facts, or the data model may lack the connection, in which case the AKG identifies an outstanding data gap. The agent never invents a connection to join components. A question with materially different readings has one objective, and one AKG, per reading. |
+| 3.5.5 | Query reasoning, such as anchors, column usage, traversal direction, preserved populations, aggregation choices, comparisons, and identified data gaps, is recorded as annotations on the elements it concerns or as document-level gaps and comparisons. It is distinguishable from graph properties, never changes one, and never adds a dataset or relationship. |
 
 ### Preparation evidence
 

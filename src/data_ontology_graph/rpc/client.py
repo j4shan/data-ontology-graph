@@ -6,6 +6,8 @@ import socket
 from pathlib import Path
 from typing import Any
 
+from data_ontology_graph.home import default_socket
+
 
 def call(socket_path: Path, method: str, params: dict[str, Any], request_id: object = 1) -> Any:
     request = {
@@ -35,14 +37,15 @@ def _receive_line(connection: socket.socket) -> bytes:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Call the local ontology graph service")
-    parser.add_argument("--socket", type=Path, required=True)
+    parser.add_argument("--socket", type=Path, default=None,
+                        help="service socket (default: $DOG_SOCKET or the service home's)")
     parser.add_argument("method")
     parser.add_argument("--params", default="{}", help="JSON object of method parameters")
     args = parser.parse_args()
     params = json.loads(args.params)
     if not isinstance(params, dict):
         parser.error("--params must decode to a JSON object")
-    response = call(args.socket, args.method, params)
+    response = call(args.socket or default_socket(), args.method, params)
     print(json.dumps(response, indent=2, sort_keys=True))
 
 

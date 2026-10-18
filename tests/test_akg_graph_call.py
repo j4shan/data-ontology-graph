@@ -4,9 +4,6 @@ import json
 import sys
 from pathlib import Path
 
-from data_ontology_graph.akg.model import AkgDocument
-from data_ontology_graph.akg.resolve import resolve_akg, socket_call
-
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "skills" / "query-graph-api" / "scripts" / "graph_call.py"
@@ -100,26 +97,6 @@ def test_search_lists_one_line_per_subject_with_its_matches(lending_socket: Path
         f"{LOAN}.loan_id <- exact:column_name='loan_id'; exact:description='the id of the loan'"
         in hits
     )
-
-
-def test_cut_is_copied_verbatim_from_the_snapshot(lending_socket: Path, capsys) -> None:
-    params = json.dumps({"node_ids": [LOAN, ACCOUNT], "edge_ids": [LOAN_ACCOUNT]})
-    code, cut = _run(lending_socket, capsys, "cut", params)
-    assert code == 0
-    _, info = _run(lending_socket, capsys, "snapshot_info")
-    document = AkgDocument.model_validate(
-        {
-            "akg_version": "1.0",
-            "question": "How many loans does each account repay?",
-            "snapshot": {
-                "version": info["version"],
-                "schema_fingerprint": info["schema_fingerprint"],
-            },
-            "akgs": [{"interpretation": "Count loans per account.", "cuts": [cut]}],
-        }
-    )
-    assert list(cut["logical_identities"]) == ["account_identity"]
-    assert resolve_akg(document, socket_call(lending_socket)) == []
 
 
 def test_service_error_exits_non_zero(lending_socket: Path, capsys) -> None:

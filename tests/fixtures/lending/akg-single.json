@@ -1,0 +1,140 @@
+{
+  "status": "draft",
+  "question": "How many loans are there per region of the account's opening branch, including accounts with no loan?",
+  "objective": "Count loans by the opening region of their repayment account, keeping accounts without loans.",
+  "datasets": {
+    "sqlite:lending.loan": {
+      "name": "lending.main.loan",
+      "source": "sqlite",
+      "grain": [
+        "loan_id"
+      ],
+      "columns": {
+        "loan_id": {
+          "description": "the id of the loan"
+        },
+        "account_id": {
+          "description": "the account that repays the loan"
+        }
+      },
+      "usage": {
+        "role": "anchor",
+        "columns": {
+          "loan_id": {
+            "as": "count"
+          }
+        }
+      }
+    },
+    "sqlite:lending.account": {
+      "name": "lending.main.account",
+      "source": "sqlite",
+      "grain": [
+        "account_id"
+      ],
+      "columns": {
+        "account_id": {
+          "description": "the id of the account"
+        },
+        "region_id": {
+          "description": "region of the opening branch"
+        }
+      },
+      "usage": {
+        "role": "bridge"
+      }
+    },
+    "sqlite:lending.region": {
+      "name": "lending.main.region",
+      "source": "sqlite",
+      "grain": [
+        "region_id"
+      ],
+      "columns": {
+        "region_id": {
+          "description": "the id of the region"
+        },
+        "region_name": {
+          "description": "the region name"
+        }
+      },
+      "usage": {
+        "role": "grouping",
+        "columns": {
+          "region_name": {
+            "as": "group"
+          }
+        }
+      }
+    }
+  },
+  "relationships": {
+    "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id": {
+      "endpoint_a": {
+        "node_id": "sqlite:lending.account",
+        "identity_id": "account_identity",
+        "dataset_columns": [
+          "account_id"
+        ]
+      },
+      "endpoint_b": {
+        "node_id": "sqlite:lending.loan",
+        "identity_id": "account_identity",
+        "dataset_columns": [
+          "account_id"
+        ]
+      },
+      "a_to_b": {
+        "multiplicity": "1:many",
+        "match_existence": "optional"
+      },
+      "b_to_a": {
+        "multiplicity": "many:1",
+        "match_existence": "always"
+      },
+      "usage": {
+        "from": "sqlite:lending.loan",
+        "keep": [
+          "sqlite:lending.account"
+        ],
+        "note": "account LEFT JOIN loan keeps accounts with no loan; they count as zero."
+      }
+    },
+    "sqlite:lending.account:region_identity:region_id__sqlite:lending.region:region_identity:region_id": {
+      "endpoint_a": {
+        "node_id": "sqlite:lending.account",
+        "identity_id": "region_identity",
+        "dataset_columns": [
+          "region_id"
+        ]
+      },
+      "endpoint_b": {
+        "node_id": "sqlite:lending.region",
+        "identity_id": "region_identity",
+        "dataset_columns": [
+          "region_id"
+        ]
+      },
+      "a_to_b": {
+        "multiplicity": "many:1",
+        "match_existence": "unknown"
+      },
+      "b_to_a": {
+        "multiplicity": "1:many",
+        "match_existence": "optional"
+      },
+      "usage": {
+        "from": "sqlite:lending.account"
+      }
+    }
+  },
+  "gaps": {
+    "region-match": {
+      "description": "Whether every account matches a region is unknown, so accounts may drop out of the grouping.",
+      "datasets": [
+        "sqlite:lending.account",
+        "sqlite:lending.region"
+      ]
+    }
+  }
+}
