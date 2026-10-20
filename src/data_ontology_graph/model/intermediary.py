@@ -91,6 +91,14 @@ class IntermediaryEntityDefinition(ClaimModel):
     entity_universe: EntityUniverse
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
+    description: str = Field(
+        default="",
+        description=(
+            "What this realization identifies in its dataset, such as the role it plays. Write it "
+            "when the key is composite or transformed, or when its column description does not "
+            "say the role; a single unmodified column otherwise lends its column description."
+        ),
+    )
 
     @field_validator("dataset_columns")
     @classmethod

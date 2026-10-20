@@ -14,7 +14,8 @@ By default a result is printed as a compact projection:
 - search: per kind, one line per subject with each matching field value.
 - get_dataset: names first, then grain, columns, and entity definitions; no accessor.
 - get_identity: the datasets that realize the identity, with their entity universe.
-- get_hops: one {edge_id, step} entry per hop; the step shows both directions.
+- get_hops: one {edge_id, step} entry per hop; the step shows both directions, and each endpoint's
+  effective description with its source (`entity`, or `column` for a single raw column).
 - get_relationship: canonical claims, plus `direction` and `reverse_direction` when the params
   name `from_node_id`.
 - find_paths: one line per path (default limit 10), fan-out-free paths first; --detail adds each
@@ -126,11 +127,28 @@ def _columns(relationship: dict, node_id: str) -> list[str]:
     raise KeyError(node_id)
 
 
-def _step(relationships: dict, step: dict) -> str:
-    """One hop as `from[cols] -> to[cols] identity direction | reverse`."""
+def _described(definitions: dict, relationship: dict, node_id: str) -> str:
+    """`node[cols]`, followed by the endpoint's effective description and its source, if any."""
+    columns = _columns(relationship, node_id)
+    text = f'{node_id}[{",".join(columns)}]'
+    definition = definitions.get((node_id, relationship["identity_id"], tuple(columns)))
+    if definition and definition.get("effective_description"):
+        text += f' "{definition["effective_description"]}" ({definition["description_source"]})'
+    return text
+
+
+def _definitions(result: dict) -> dict:
+    return {
+        (d["node_id"], d["identity_id"], tuple(d["dataset_columns"])): d
+        for d in result.get("entity_definitions", [])
+    }
+
+
+def _step(relationships: dict, definitions: dict, step: dict) -> str:
+    """One hop as `from[cols] "desc" -> to[cols] "desc" identity direction | reverse`."""
     relationship = relationships[step["edge_id"]]
-    origin = f'{step["from_node_id"]}[{",".join(_columns(relationship, step["from_node_id"]))}]'
-    target = f'{step["to_node_id"]}[{",".join(_columns(relationship, step["to_node_id"]))}]'
+    origin = _described(definitions, relationship, step["from_node_id"])
+    target = _described(definitions, relationship, step["to_node_id"])
     unknown = f' unknown={",".join(step["unknown_fields"])}' if step["unknown_fields"] else ""
     return (
         f'{origin} -> {target} {relationship["identity_id"]} '
@@ -174,8 +192,8 @@ def _search(result: dict) -> dict:
             "groups": groups}
 
 
-def _hop(relationships: dict, step: dict) -> dict:
-    return {"edge_id": step["edge_id"], "step": _step(relationships, step)}
+def _hop(relationships: dict, definitions: dict, step: dict) -> dict:
+    return {"edge_id": step["edge_id"], "step": _step(relationships, definitions, step)}
 
 
 def compact(method: str, result, *, detail: bool = False):
@@ -198,6 +216,9 @@ def compact(method: str, result, *, detail: bool = False):
                     "identity_id": definition["identity_id"],
                     "dataset_columns": definition["dataset_columns"],
                     "entity_universe": definition["entity_universe"],
+                    **({"description": definition["effective_description"],
+                        "description_source": definition["description_source"]}
+                       if definition.get("effective_description") else {}),
                 }
                 for definition in result["entity_definitions"]
             ],
@@ -205,17 +226,22 @@ def compact(method: str, result, *, detail: bool = False):
         }
     result = expand_tables(result)
     relationships = {r["edge_id"]: r for r in result.get("relationships", [])}
+    definitions = _definitions(result)
     if method == "graph.get_hops":
         return {
             "truncated": result["truncated"],
-            "hops": [_hop(relationships, step) for step in result["hops"]],
+            "hops": [_hop(relationships, definitions, step) for step in result["hops"]],
         }
     if method == "graph.get_relationship":
         return {
             "edge_id": result["edge_id"],
             "identity_id": result["identity_id"],
-            "endpoint_a": _side(result["endpoint_a"]),
-            "endpoint_b": _side(result["endpoint_b"]),
+            "endpoint_a": _described(definitions, result, result["endpoint_a"]["node_id"])
+            if result["endpoint_a"]["node_id"] != result["endpoint_b"]["node_id"]
+            else _side(result["endpoint_a"]),
+            "endpoint_b": _described(definitions, result, result["endpoint_b"]["node_id"])
+            if result["endpoint_a"]["node_id"] != result["endpoint_b"]["node_id"]
+            else _side(result["endpoint_b"]),
             "a_to_b": _claims(result["a_to_b"]),
             "b_to_a": _claims(result["b_to_a"]),
             "from_node_id": result["from_node_id"],
@@ -242,7 +268,7 @@ def compact(method: str, result, *, detail: bool = False):
                 "fan_out": fan_out,
                 "unknown": unknown,
                 "line": f"#{rank} [{shape}] fan_out={fan_out} unknown={unknown}: {route}",
-                "hops": [_hop(relationships, step) for step in steps],
+                "hops": [_hop(relationships, definitions, step) for step in steps],
             })
         # Fan-out-free chains first, then fewer unknown hops; service rank breaks ties.
         paths.sort(key=lambda path: (path["fan_out"], path["unknown"], path["rank"]))

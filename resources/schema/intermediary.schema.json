@@ -203,6 +203,12 @@
           "title": "Dataset Columns",
           "type": "array"
         },
+        "description": {
+          "default": "",
+          "description": "What this realization identifies in its dataset, such as the role it plays. Write it when the key is composite or transformed, or when its column description does not say the role; a single unmodified column otherwise lends its column description.",
+          "title": "Description",
+          "type": "string"
+        },
         "entity_expression": {
           "items": {
             "type": "string"

@@ -79,12 +79,9 @@ def project_dataset(node: dict, detail: str = "essential", columns=None) -> dict
             for name in selected
         }
     if detail != "essential":
+        descriptions = {name: column.get("description", "") for name, column in inventory.items()}
         dataset["entity_definitions"] = [
-            {
-                "identity_id": definition["identity_id"],
-                "dataset_columns": definition["dataset_columns"],
-                "entity_universe": definition["entity_universe"],
-            }
+            _definition(definition, descriptions)
             for definition in node.get("entity_definitions", [])
         ]
     if full:
@@ -106,6 +103,40 @@ def project_relationship(relationship: dict) -> dict:
         direction: {key: relationship[direction][key] for key in ("multiplicity", "match_existence")}
         for direction in ("a_to_b", "b_to_a")
     }
+
+
+RAW_REFERENCE_WRAPPERS = ("", "[]", '""', "``")
+
+
+def effective_description(description, dataset_columns, entity_expression, column_descriptions):
+    """Keep equal to data_ontology_graph.model.dataset.effective_description."""
+    if description.strip():
+        return description, "entity"
+    if len(dataset_columns) != 1:
+        return None
+    column = dataset_columns[0]
+    references = {f"{pair[:1]}{column}{pair[1:]}" for pair in RAW_REFERENCE_WRAPPERS}
+    if any(expression.strip() not in references for expression in entity_expression):
+        return None
+    text = column_descriptions.get(column, "")
+    return (text, "column") if text.strip() else None
+
+
+def _definition(definition: dict, descriptions: dict) -> dict:
+    projected = {
+        "identity_id": definition["identity_id"],
+        "dataset_columns": definition["dataset_columns"],
+        "entity_universe": definition["entity_universe"],
+    }
+    effective = effective_description(
+        definition.get("description", ""),
+        definition["dataset_columns"],
+        definition.get("entity_expression", []),
+        descriptions,
+    )
+    if effective:
+        projected["description"], projected["description_source"] = effective
+    return projected
 
 
 def _grain(grain) -> list | str:

@@ -42,7 +42,7 @@ compact projection; add `--full` only when a field you need is missing.
 | `search` | `{"query": str, "kind"?: [str], "limit"?: int}` | Candidate datasets, columns, identities, entity definitions. |
 | `get_dataset` | `{"node_id": str}` | Grain, columns with descriptions, entity definitions. |
 | `get_identity` | `{"identity_id": str, "entity_universe"?: [str], "limit"?: int}` | Every dataset that realizes one logical identity. |
-| `get_hops` | `{"node_id": str, "limit"?: int}` | Relationships touching one dataset: one `{edge_id, step}` entry per hop, where `step` reads `from[columns] -> to[columns] identity direction | reverse direction`. |
+| `get_hops` | `{"node_id": str, "limit"?: int}` | Relationships touching one dataset: one `{edge_id, step}` entry per hop, where `step` reads `from[columns] "description" (source) -> to[columns] "description" (source) identity direction | reverse direction`. Each endpoint's description says what its columns identify, which tells apart relationships that join the same datasets in different roles. |
 | `find_paths` | `{"from_node_id", "to_node_id", "max_hops", "limit"?}` | Ranked paths, one line each, fan-out-free first. `fan_out` counts steps that multiply rows (`1:many`, `many:many`); `unknown` counts steps with an unknown claim. Default `limit` is 10. Add `--detail` for each path's `{edge_id, step}` hops. |
 | `get_relationship` | `{"edge_id": str, "from_node_id"?: str}` | One relationship; with `from_node_id`, `direction` moves away from that dataset. |
 | `expand_subgraph` | `{"seed_node_ids": [..], "max_depth": 1}` | Neighbourhood listing. Use depth 1 only. |

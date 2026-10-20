@@ -11,7 +11,7 @@ from data_ontology_graph.model.relationship import (
 )
 
 
-SNAPSHOT_VERSION = "5.0"
+SNAPSHOT_VERSION = "5.1"
 
 
 def schema_fingerprint() -> str:

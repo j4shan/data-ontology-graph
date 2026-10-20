@@ -35,7 +35,7 @@ Unknown keys are allowed anywhere. `check` reports them as `info` and never chec
 | `grain` | graph | all | The grain columns as one list, or `"unknown"`. |
 | `columns` | graph | `essential`: named with `--columns`; `standard`, `full`: all | Map from column name to `description` and `value_description`; `full` adds `synonyms`. |
 | `description` | graph | `standard`, `full` | The dataset description. |
-| `entity_definitions` | graph | `standard`, `full` | `identity_id`, `dataset_columns`, `entity_universe`. |
+| `entity_definitions` | graph | `standard`, `full` | `identity_id`, `dataset_columns`, `entity_universe`, and, when there is one, the effective `description` with its `description_source`: `entity` when the maintainer wrote it, `column` when it comes from the definition's single unmodified column. |
 | `synonyms`, `tags` | graph | `full` | Dataset synonyms and tags. |
 | `stats` | graph | — | Reserved for statistics once the graph serves them. |
 | `usage` | agent | — | See below. |

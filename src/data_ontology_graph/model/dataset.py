@@ -1,3 +1,4 @@
+from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, ClassVar
 
@@ -139,6 +140,13 @@ class EntityDefinition(ClaimModel):
     entity_universe: EntityUniverse
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
+    description: str = Field(
+        default="",
+        description=(
+            "What this realization identifies in its dataset, such as the role it plays. "
+            "Needed mainly for composite or transformed keys and generic column descriptions."
+        ),
+    )
 
     @field_validator("identity_id")
     @classmethod
@@ -167,6 +175,41 @@ class EntityDefinition(ClaimModel):
 
     def key(self, node_id: str) -> tuple[str, str, tuple[str, ...]]:
         return (node_id, self.identity_id, tuple(self.dataset_columns))
+
+    def effective_description(self, columns: list[ColumnMetadata]) -> tuple[str, str] | None:
+        return effective_description(
+            self.description,
+            self.dataset_columns,
+            self.entity_expression,
+            {column.name: column.description for column in columns},
+        )
+
+
+RAW_REFERENCE_WRAPPERS = ("", "[]", '""', "``")
+
+
+def effective_description(
+    description: str,
+    dataset_columns: Sequence[str],
+    entity_expression: Sequence[str],
+    column_descriptions: Mapping[str, str],
+) -> tuple[str, str] | None:
+    """Return `(text, source)` describing an entity definition, or None.
+
+    The definition's own description wins. Otherwise a definition realized through one
+    unmodified column takes that column's description. A column is unmodified when every
+    expression is the bare or bracket-, quote-, or backtick-wrapped column name.
+    """
+    if description.strip():
+        return description, "entity"
+    if len(dataset_columns) != 1:
+        return None
+    column = dataset_columns[0]
+    references = {f"{pair[:1]}{column}{pair[1:]}" for pair in RAW_REFERENCE_WRAPPERS}
+    if any(expression.strip() not in references for expression in entity_expression):
+        return None
+    text = column_descriptions.get(column, "")
+    return (text, "column") if text.strip() else None
 
 
 class DatasetNode(ClaimModel):

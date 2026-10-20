@@ -399,6 +399,35 @@
           "title": "Dataset Columns",
           "type": "array"
         },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Effective description: the definition's own, or its single raw column's.",
+          "title": "Description"
+        },
+        "description_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "entity",
+                "column"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description Source"
+        },
         "entity_universe": {
           "$ref": "#/$defs/EntityUniverse"
         },

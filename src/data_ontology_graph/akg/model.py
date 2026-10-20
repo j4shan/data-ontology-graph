@@ -43,6 +43,11 @@ class EntityDefinitionFacts(OpenModel):
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
     entity_universe: EntityUniverse
+    description: str | None = Field(
+        default=None,
+        description="Effective description: the definition's own, or its single raw column's.",
+    )
+    description_source: Literal["entity", "column"] | None = None
 
 
 class ColumnUsage(OpenModel):

@@ -10,6 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from data_ontology_graph.model.dataset import effective_description
+
 
 DETAIL_LEVELS = ("essential", "standard", "full")
 UNKNOWN = "unknown"
@@ -54,12 +56,9 @@ def project_dataset(
     if selected:
         dataset["columns"] = {name: _column(inventory[name], full) for name in selected}
     if detail != "essential":
+        descriptions = {name: column.get("description", "") for name, column in inventory.items()}
         dataset["entity_definitions"] = [
-            {
-                "identity_id": definition["identity_id"],
-                "dataset_columns": definition["dataset_columns"],
-                "entity_universe": definition["entity_universe"],
-            }
+            _definition(definition, descriptions)
             for definition in node.get("entity_definitions", [])
         ]
     if full:
@@ -86,6 +85,23 @@ def project_relationship(relationship: Mapping[str, Any]) -> dict[str, Any]:
         direction: {key: relationship[direction][key] for key in ("multiplicity", "match_existence")}
         for direction in ("a_to_b", "b_to_a")
     }
+
+
+def _definition(definition: Mapping[str, Any], descriptions: Mapping[str, str]) -> dict[str, Any]:
+    projected = {
+        "identity_id": definition["identity_id"],
+        "dataset_columns": definition["dataset_columns"],
+        "entity_universe": definition["entity_universe"],
+    }
+    effective = effective_description(
+        definition.get("description", ""),
+        definition["dataset_columns"],
+        definition.get("entity_expression", []),
+        descriptions,
+    )
+    if effective:
+        projected["description"], projected["description_source"] = effective
+    return projected
 
 
 def _grain(grain: Any) -> list[str] | str:

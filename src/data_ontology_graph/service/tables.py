@@ -86,6 +86,7 @@ DATASET_DETAIL_HEADER = [*DATASET_HEADER, "grain", "unknown_fields"]
 SUBGRAPH_DATASET_HEADER = ["node_id", "distance", *DATASET_DETAIL_HEADER[1:]]
 DEFINITION_HEADER = [
     "node_id", "identity_id", "dataset_columns", "entity_universe",
-    "entity_expression", "entity_metadata", "unknown_fields",
+    "entity_expression", "entity_metadata", "description", "effective_description",
+    "description_source", "unknown_fields",
 ]
 COLUMN_HEADER = ["node_id", "name", "description", "value_description", "synonyms"]

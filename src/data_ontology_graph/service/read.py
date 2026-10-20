@@ -138,7 +138,7 @@ class GraphReadService:
             description=identity.description,
             synonyms=identity.synonyms,
             entity_definitions=collection(
-                [{"node_id": node_id, **_claim_payload(definition)}
+                [{"node_id": node_id, **_definition_payload(self._node(node_id), definition)}
                  for node_id, definition in selected],
                 DEFINITION_HEADER, request.response_format,
             ),
@@ -394,7 +394,7 @@ class GraphReadService:
             accessor=node.accessor.model_dump(mode="json", by_alias=True),
             grain=node.model_dump(mode="json", include={"grain"})["grain"],
             columns=[item.model_dump(mode="json") for item in node.columns],
-            entity_definitions=[_claim_payload(item) for item in node.entity_definitions],
+            entity_definitions=[_definition_payload(node, item) for item in node.entity_definitions],
             unknown_fields=node.unknown_fields(),
         )
 
@@ -481,7 +481,12 @@ class _GraphObjects:
     def entity_definitions(self) -> Any:
         """The endpoint entity definitions, in node_id, identity, then column order."""
         records = [
-            {"node_id": node_id, **_claim_payload(self.service.index.definitions[key])}
+            {
+                "node_id": node_id,
+                **_definition_payload(
+                    self.service._node(node_id), self.service.index.definitions[key]
+                ),
+            }
             for node_id in sorted(self._definitions)
             for key in sorted(self._definitions[node_id])
         ]
@@ -504,3 +509,13 @@ def _step(edge: JoinRelationship, source: str) -> dict[str, Any]:
 def _claim_payload(subject: ClaimModel) -> dict[str, Any]:
     """Serialize an object with its unknown claims resolved for the caller."""
     return {**subject.model_dump(mode="json"), "unknown_fields": subject.unknown_fields()}
+
+
+def _definition_payload(node: DatasetNode, definition: EntityDefinition) -> dict[str, Any]:
+    """An entity definition with its effective description and where that text comes from."""
+    effective = definition.effective_description(node.columns)
+    return {
+        **_claim_payload(definition),
+        "effective_description": effective[0] if effective else None,
+        "description_source": effective[1] if effective else None,
+    }

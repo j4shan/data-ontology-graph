@@ -171,7 +171,7 @@ Performance work and AKG benchmarking are excluded.
 | W0.17 | `accessor.sqlite.v1` records `host`, absolute `database_path`, `schema`, and `object`; the intermediary schema defines node-ID composition, and [preparation capabilities](../product/functional.md) define full column inventory and decision-log placement. |
 | W0.18 | Test data sources, the reviewed reference catalog, and legacy overlays moved to Critic. Graph tests use `tests/fixtures/lending/`; collector tests use `tests/fixtures/minibank/`. Published artifacts live outside the repository. |
 | W0.20 | `JoinAnnotation` no longer carries `weight` or `notes`. Paths rank by hop count, then canonical edge IDs. |
-| W0.21 | `product/functional.md#3.2.4` matches the code: exactly one `grain`, either a grain object or explicit `unknown`, with omission invalid and `unknown` persisted. |
+| W0.21 | `product/graph-model.md#2.4` matches the code: exactly one `grain`, either a grain object or explicit `unknown`, with omission invalid and `unknown` persisted. |
 | W0.22 | Directory input requires a sibling `directory-manifest.yaml` that owns the collection-file inventory: one identities file, one or more node files, and one edges file, each holding only its collection. The manifest has a checked-in JSON Schema, and tests cover path, ownership, inventory, and schema-version rejections. |
 | W0.23 | [preparation capabilities](../product/functional.md) define Goal D's goals, packaging, evidence classes, field-preparation matrix, survey and decision-log lifecycle, bundled tools, workflow, and acceptance criteria. |
 | W0.24 | The DDL collector and SQLite skill implement staged extraction, user review, builder validation, and guarded publication to Critic `generated_catalogs/`. |
