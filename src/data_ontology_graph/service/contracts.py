@@ -1,9 +1,10 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
 from data_ontology_graph.service.tables import ResponseFormat, Table
+from data_ontology_graph.service.views import Detail, FieldObject
 
 
 class ContractModel(BaseModel):
@@ -79,43 +80,56 @@ class DatasetRequest(ContractModel):
 class RelationshipRequest(ContractModel):
     edge_id: str = Field(min_length=1)
     from_node_id: str | None = Field(default=None, min_length=1)
-    response_format: ResponseFormat = "table"
-
-
-class HopsRequest(ContractModel):
-    node_id: str = Field(min_length=1)
-    limit: int = Field(default=100, ge=1, le=1000)
-    response_format: ResponseFormat = "table"
-
-
-class SubgraphRequest(ContractModel):
-    seed_node_ids: list[str] = Field(min_length=1)
-    max_depth: int = Field(default=1, ge=0, le=10)
-    max_nodes: int = Field(default=1000, ge=1, le=10_000)
-    max_edges: int = Field(default=1000, ge=1, le=10_000)
+    from_dataset_columns: list[str] | None = Field(default=None, min_length=1)
     response_format: ResponseFormat = "table"
 
     @model_validator(mode="after")
-    def seeds_must_fit_node_limit(self) -> "SubgraphRequest":
-        if len(set(self.seed_node_ids)) > self.max_nodes:
-            raise ValueError("max_nodes must be at least the number of unique seed nodes")
+    def columns_need_a_dataset(self) -> "RelationshipRequest":
+        if self.from_dataset_columns is not None and self.from_node_id is None:
+            raise ValueError("from_dataset_columns requires from_node_id")
         return self
 
 
-class PathsRequest(ContractModel):
+class NavigationRequest(ContractModel):
+    response_format: ResponseFormat = "table"
+    detail: Detail = "standard"
+    fields: dict[FieldObject, list[str]] = Field(default_factory=dict)
+
+
+class EdgesRequest(NavigationRequest):
+    node_id: str = Field(min_length=1)
+    limit: int = Field(default=200, ge=1, le=1000)
+    """Directed edges listed per entity definition."""
+    identity_id: str | None = Field(default=None, min_length=1)
+    from_dataset_columns: list[str] | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def columns_need_a_logical_entity(self) -> "EdgesRequest":
+        if self.from_dataset_columns is not None and self.identity_id is None:
+            raise ValueError("from_dataset_columns requires identity_id")
+        return self
+
+
+class SubgraphRequest(NavigationRequest):
+    seed_node_ids: list[str] = Field(min_length=1)
+    max_depth: int = Field(default=1, ge=0, le=10)
+    max_nodes: int = Field(default=1000, ge=1, le=10_000)
+    limit: int = Field(default=200, ge=1, le=1000)
+    """Directed edges listed per entity definition."""
+
+
+class PathsRequest(NavigationRequest):
     from_node_id: str = Field(min_length=1)
     to_node_id: str = Field(min_length=1)
-    max_hops: int = Field(default=4, ge=1, le=10)
-    limit: int = Field(default=50, ge=1, le=1000)
-    response_format: ResponseFormat = "table"
+    max_edges: int = Field(default=4, ge=1, le=10)
+    limit: int = Field(default=6, ge=1, le=100)
     allowed_multiplicities: list[Multiplicity] | None = Field(
         default=None, min_length=1, max_length=5,
     )
 
 
-class ConnectingSubgraphRequest(ContractModel):
+class ConnectingSubgraphRequest(NavigationRequest):
     node_ids: list[str] = Field(min_length=2)
-    response_format: ResponseFormat = "table"
 
     @model_validator(mode="after")
     def distinct_endpoints(self) -> "ConnectingSubgraphRequest":
@@ -156,52 +170,64 @@ class RelationshipDetail(ContractModel):
     unknown_fields: list[str]
     annotation: dict[str, Any] | None
     from_node_id: str | None = None
-    direction: dict[str, Any] | None = None
-    reverse_direction: dict[str, Any] | None = None
+    from_dataset_columns: list[str] | None = None
+    edge_fields: list[str] | None = None
+    edge: list[Any] | None = None
     datasets: Collection
     entity_definitions: Collection
 
 
-class HopsResponse(ContractModel):
-    node_id: str
-    hops: Collection
-    relationships: Collection
+class NavigationResponse(ContractModel):
+    """Datasets with their edge groups nested in records, or split out keyed by ``node_id``.
+
+    An edge group holds one logical entity's directed edges leaving a dataset, by entity
+    definition. Each directed edge is an array whose positions ``edge_fields`` names, the same in
+    both formats. In records format, edge groups, columns, and entity definitions are nested in
+    their datasets and the table-only collections are omitted.
+    """
+
+    detail: Detail
+    fields: dict[str, list[str]]
+    edge_fields: list[str]
     datasets: Collection
-    entity_definitions: Collection
+    edge_groups: list[dict[str, Any]] | None = None
+    columns: Table | None = None
+    entity_definitions: Table | None = None
     truncated: bool
 
+    @model_serializer(mode="wrap")
+    def omit_absent_tables(self, handler):
+        data = handler(self)
+        for key in ("edge_groups", "columns", "entity_definitions"):
+            if key in data and data[key] is None:
+                del data[key]
+        return data
 
-class SubgraphResponse(ContractModel):
+
+class EdgesResponse(NavigationResponse):
+    node_id: str
+    limit: int
+
+
+class SubgraphResponse(NavigationResponse):
     snapshot: SnapshotInfo
     seed_node_ids: list[str]
     max_depth: int
     max_nodes: int
-    max_edges: int
-    datasets: Collection
-    columns: Collection
-    entity_definitions: Collection
-    relationships: Collection
-    truncated: bool
+    limit: int
 
 
-class PathsResponse(ContractModel):
+class PathsResponse(NavigationResponse):
     snapshot: SnapshotInfo
     from_node_id: str
     to_node_id: str
     path_count: int
-    hops: Collection
-    relationships: Collection
-    datasets: Collection
-    entity_definitions: Collection
-    truncated: bool
+    routes: list[list[list[Any]]]
+    """Routes in rank order, each its directed edges in travel order."""
 
 
-class ConnectingSubgraphResponse(ContractModel):
+class ConnectingSubgraphResponse(NavigationResponse):
     snapshot: SnapshotInfo
     node_ids: list[str]
     status: Literal["completed", "disconnected"]
-    datasets: Collection
-    columns: Collection
-    entity_definitions: Collection
-    relationships: Collection
     algorithm: Literal["mehlhorn_unweighted"] = "mehlhorn_unweighted"

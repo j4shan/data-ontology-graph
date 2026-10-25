@@ -23,7 +23,7 @@
 | region.region_id | the id of the region | — |
 | region.region_name | the region name | group |
 
-## Relationships
+## Directed edges
 
 ### loan.account_id → account.account_id
 

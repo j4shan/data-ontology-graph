@@ -108,13 +108,6 @@ class JoinAnnotation(StrictModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class TraversalHop(StrictModel):
-    relationship: JoinRelationship
-    from_node_id: str
-    to_node_id: str
-    cardinality: Cardinality
-
-
 def canonical_endpoints(
     endpoint_a: JoinEndpoint, endpoint_b: JoinEndpoint
 ) -> tuple[JoinEndpoint, JoinEndpoint]:

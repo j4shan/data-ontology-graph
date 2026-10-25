@@ -11,7 +11,7 @@ from data_ontology_graph.model.relationship import (
 )
 
 
-SNAPSHOT_VERSION = "5.1"
+SNAPSHOT_VERSION = "6.0"
 
 
 def schema_fingerprint() -> str:
@@ -48,7 +48,7 @@ class GraphSnapshot(BaseModel):
         nodes = {node.node_id: node for node in self.nodes}
         identity_ids = [identity.identity_id for identity in self.logical_identities]
         if len(identity_ids) != len(set(identity_ids)):
-            raise ValueError("logical identity_id values must be unique")
+            raise ValueError("logical entity ID (identity_id) values must be unique")
         definitions = {
             key
             for node in self.nodes
@@ -59,7 +59,7 @@ class GraphSnapshot(BaseModel):
             for definition in node.entity_definitions:
                 if definition.identity_id not in known_identities:
                     raise ValueError(
-                        f"node {node.node_id} references unknown logical identity "
+                        f"node {node.node_id} references unknown logical entity "
                         f"{definition.identity_id}"
                     )
         for edge in self.edges:
@@ -79,7 +79,7 @@ class GraphSnapshot(BaseModel):
                     )
                 if edge.endpoint_a.identity_id != edge.endpoint_b.identity_id:
                     raise ValueError(
-                        f"edge {edge.edge_id} endpoints use different logical identities"
+                        f"edge {edge.edge_id} endpoints use different logical entities"
                     )
         known_edges = set(edge_ids)
         for annotation in self.annotations:

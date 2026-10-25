@@ -20,10 +20,17 @@ def test_export_matches_golden(name: str) -> None:
     assert export_markdown(_payload(name)) == (LENDING / f"{name}.md").read_text(encoding="utf-8")
 
 
-def test_export_orients_relationships_by_usage_from() -> None:
+def test_export_orients_each_directed_edge_from_the_dataset_that_holds_it() -> None:
     payload = _payload("akg-single")
-    edge = next(iter(payload["relationships"].values()))
-    edge["usage"]["from"] = "sqlite:lending.account"
+    loan, account = (payload["datasets"][f"sqlite:lending.{name}"] for name in ("loan", "account"))
+    edge = loan.pop("edges")[0]
+    account["edges"].insert(0, edge | {
+        "to_node_id": "sqlite:lending.loan",
+        "multiplicity": edge["reverse_multiplicity"],
+        "match_existence": edge["reverse_match_existence"],
+        "reverse_multiplicity": edge["multiplicity"],
+        "reverse_match_existence": edge["match_existence"],
+    })
     text = export_markdown(payload)
     assert "### account.account_id → loan.account_id" in text
     assert "- Each account row matches any number of loan rows; some match none." in text

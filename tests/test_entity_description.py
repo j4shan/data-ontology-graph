@@ -7,6 +7,7 @@ from data_ontology_graph.akg.projection import project_dataset
 from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.model.dataset import effective_description
 from data_ontology_graph.service.read import GraphReadService
+from graph_records import dataset_edges
 
 
 LENDING = Path(__file__).resolve().parent / "fixtures" / "lending" / "catalog.yaml"
@@ -55,6 +56,19 @@ def _service(tmp_path: Path, description: str | None = None) -> GraphReadService
     return GraphReadService(snapshot)
 
 
+def _full_definitions(response) -> list[dict]:
+    """Entity definitions nested in a records-format navigation response, with their node_id."""
+    return [
+        {"node_id": dataset["node_id"], **definition}
+        for dataset in response.datasets for definition in dataset["entity_definitions"]
+    ]
+
+
+def _region_edge(response) -> dict:
+    [region] = [d for d in response.datasets if d["node_id"] == "sqlite:lending.region"]
+    return next(edge for edge in dataset_edges(region, response.edge_fields) if edge["to_node_id"] == "sqlite:lending.account")
+
+
 def _region_definition(records: list[dict]) -> dict:
     return next(
         record for record in records
@@ -65,11 +79,12 @@ def _region_definition(records: list[dict]) -> dict:
 
 def test_service_records_carry_the_column_description_by_default(tmp_path: Path) -> None:
     service = _service(tmp_path)
-    hops = service.get_hops("sqlite:lending.region", response_format="records")
-    definition = _region_definition(hops.entity_definitions)
+    edges = service.get_edges("sqlite:lending.region", response_format="records", detail="full")
+    definition = _region_definition(_full_definitions(edges))
     assert definition["description"] == ""
     assert definition["effective_description"] == "region of the opening branch"
     assert definition["description_source"] == "column"
+    assert _region_edge(edges)["to_description"] == "region of the opening branch"
 
 
 def test_an_authored_description_wins_everywhere(tmp_path: Path) -> None:
@@ -78,9 +93,10 @@ def test_an_authored_description_wins_everywhere(tmp_path: Path) -> None:
         {"node_id": "sqlite:lending.account", **record}
         for record in service.get_dataset("sqlite:lending.account").entity_definitions
     ]
-    hops = service.get_hops("sqlite:lending.region", response_format="records")
+    edges = service.get_edges("sqlite:lending.region", response_format="records", detail="full")
     identity = service.get_identity("region_identity", response_format="records")
-    for records in (detail, hops.entity_definitions, identity.entity_definitions):
+    assert _region_edge(edges)["to_description"].startswith("the region of the branch")
+    for records in (detail, _full_definitions(edges), identity.entity_definitions):
         definition = _region_definition(records)
         assert definition["effective_description"].startswith("the region of the branch")
         assert definition["description_source"] == "entity"
@@ -93,7 +109,7 @@ def test_akg_projection_copies_the_effective_description(tmp_path: Path) -> None
     assert {
         "identity_id": "region_identity",
         "dataset_columns": ["region_id"],
-        "entity_universe": "unknown",
+        "entity_universe": "partial",
         "description": "region of the opening branch",
         "description_source": "column",
     } in definitions

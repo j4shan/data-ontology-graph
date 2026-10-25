@@ -15,13 +15,14 @@ MANY = ("1:many", "many:many")
 
 def export_markdown(payload: dict[str, Any]) -> str:
     datasets: dict[str, Any] = payload["datasets"]
-    relationships: dict[str, Any] = payload["relationships"]
-    alias = _aliases(datasets, relationships)
+    edges = [(node_id, edge) for node_id, dataset in datasets.items()
+             for edge in dataset.get("edges") or []]
+    alias = _aliases(datasets, edges)
     lines = [f"# {payload['question']}", ""]
     if payload.get("objective"):
         lines += [f"**Objective:** {payload['objective']}", ""]
     status = f"**Status:** {payload['status']}"
-    status += f" · **Components:** {_component_count(datasets, relationships)}"
+    status += f" · **Components:** {_component_count(datasets, edges)}"
     snapshot = (payload.get("graph") or {}).get("snapshot")
     if snapshot:
         status += f" · **Snapshot:** {snapshot['version']} / {snapshot['schema_fingerprint']}"
@@ -76,10 +77,10 @@ def export_markdown(payload: dict[str, Any]) -> str:
     if stats:
         lines += ["### Statistics", "", *stats, ""]
 
-    if relationships:
-        lines += ["## Relationships", ""]
-        for relationship in relationships.values():
-            lines += _relationship(relationship, alias) + [""]
+    if edges:
+        lines += ["## Directed edges", ""]
+        for node_id, edge in edges:
+            lines += _edge(node_id, edge, alias) + [""]
 
     comparisons = payload.get("comparisons") or {}
     if comparisons:
@@ -104,35 +105,30 @@ def export_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _relationship(relationship: dict[str, Any], alias: dict[str, str]) -> list[str]:
-    usage = relationship.get("usage") or {}
-    endpoint_a, endpoint_b = relationship["endpoint_a"], relationship["endpoint_b"]
-    if usage.get("from") == endpoint_b["node_id"] and endpoint_a["node_id"] != endpoint_b["node_id"]:
-        origin, target, forward, reverse = endpoint_b, endpoint_a, "b_to_a", "a_to_b"
-    else:
-        origin, target, forward, reverse = endpoint_a, endpoint_b, "a_to_b", "b_to_a"
-    left, right = alias[origin["node_id"]], alias[target["node_id"]]
+def _edge(node_id: str, edge: dict[str, Any], alias: dict[str, str]) -> list[str]:
+    usage = edge.get("usage") or {}
+    left, right = alias[node_id], alias[edge["to_node_id"]]
     lines = [
-        f"### {_columns(left, origin)} → {_columns(right, target)}",
+        f"### {_columns(left, edge['from_dataset_columns'])} → "
+        f"{_columns(right, edge['to_dataset_columns'])}",
         "",
-        f"- {_claim(left, right, relationship[forward])}",
-        f"- {_claim(right, left, relationship[reverse])}",
+        f"- {_claim(left, right, edge['multiplicity'], edge['match_existence'])}",
+        f"- {_claim(right, left, edge['reverse_multiplicity'], edge['reverse_match_existence'])}",
     ]
     if usage.get("keep"):
-        kept = ", ".join(alias.get(node_id, node_id) for node_id in usage["keep"])
+        kept = ", ".join(alias.get(kept, kept) for kept in usage["keep"])
         lines.append(f"- Keep unmatched rows of: {kept}")
     if usage.get("aggregate_before_join"):
         lines.append(f"- Aggregate {right} to the grain of {left} before combining.")
     if usage.get("note"):
         lines.append(f"- Note: {usage['note']}")
-    if relationship.get("stats"):
-        stats = ", ".join(f"{key} = {value}" for key, value in relationship["stats"].items())
+    if edge.get("stats"):
+        stats = ", ".join(f"{key} = {value}" for key, value in edge["stats"].items())
         lines.append(f"- Statistics: {stats}")
     return lines
 
 
-def _claim(origin: str, target: str, claim: dict[str, str]) -> str:
-    multiplicity, existence = claim["multiplicity"], claim["match_existence"]
+def _claim(origin: str, target: str, multiplicity: str, existence: str) -> str:
     if multiplicity in ONE:
         count = ("exactly one" if existence == "always" else "at most one") + f" {target} row"
     elif multiplicity in MANY:
@@ -146,16 +142,15 @@ def _claim(origin: str, target: str, claim: dict[str, str]) -> str:
     return f"Each {origin} row matches {count}; whether every {origin} row matches is unknown."
 
 
-def _columns(alias: str, endpoint: dict[str, Any]) -> str:
-    return " + ".join(f"{alias}.{column}" for column in endpoint["dataset_columns"])
+def _columns(alias: str, columns: list[str]) -> str:
+    return " + ".join(f"{alias}.{column}" for column in columns)
 
 
-def _aliases(datasets: dict[str, Any], relationships: dict[str, Any]) -> dict[str, str]:
+def _aliases(datasets: dict[str, Any], edges: list[tuple[str, dict[str, Any]]]) -> dict[str, str]:
     node_ids = list(datasets)
-    for relationship in relationships.values():
-        for side in ("endpoint_a", "endpoint_b"):
-            if relationship[side]["node_id"] not in node_ids:
-                node_ids.append(relationship[side]["node_id"])
+    for _, edge in edges:
+        if edge["to_node_id"] not in node_ids:
+            node_ids.append(edge["to_node_id"])
     names = {
         node_id: datasets[node_id]["name"] if node_id in datasets else node_id
         for node_id in node_ids
@@ -170,7 +165,7 @@ def _aliases(datasets: dict[str, Any], relationships: dict[str, Any]) -> dict[st
     }
 
 
-def _component_count(datasets: dict[str, Any], relationships: dict[str, Any]) -> int:
+def _component_count(datasets: dict[str, Any], edges: list[tuple[str, dict[str, Any]]]) -> int:
     parent = {node_id: node_id for node_id in datasets}
 
     def root(node_id: str) -> str:
@@ -179,8 +174,8 @@ def _component_count(datasets: dict[str, Any], relationships: dict[str, Any]) ->
             node_id = parent[node_id]
         return node_id
 
-    for relationship in relationships.values():
-        a, b = relationship["endpoint_a"]["node_id"], relationship["endpoint_b"]["node_id"]
-        if a in parent and b in parent:
+    for a, edge in edges:
+        b = edge["to_node_id"]
+        if b in parent:
             parent[root(a)] = root(b)
     return len({root(node_id) for node_id in parent})

@@ -50,7 +50,7 @@ def test_source_controlled_schema_matches_model() -> None:
 def test_schema_is_self_contained() -> None:
     text = json.dumps(akg_json_schema())
     assert "intermediary.schema.json" not in text
-    assert set(akg_json_schema()["required"]) == {"status", "question", "datasets", "relationships"}
+    assert set(akg_json_schema()["required"]) == {"format_version", "status", "question", "datasets"}
 
 
 @pytest.mark.parametrize("name", VALID)
@@ -87,8 +87,27 @@ def test_yaml_documents_load_like_json(tmp_path: Path) -> None:
 
 def test_disconnected_components_need_no_gap() -> None:
     disjoint = _payload("akg-disjoint.json")
-    assert "gaps" not in disjoint and len(disjoint["relationships"]) == 2
+    edges = [edge for dataset in disjoint["datasets"].values() for edge in dataset.get("edges", [])]
+    assert "gaps" not in disjoint and len(edges) == 2
     assert check_document(disjoint, final=True) == []
+
+
+def test_a_dataset_holds_each_directed_edge_once() -> None:
+    payload = _payload("akg-single.json")
+    edges = payload["datasets"]["sqlite:lending.loan"]["edges"]
+    edges.append(copy.deepcopy(edges[0]))
+    assert [(finding.location, finding.rule) for finding in check_document(payload)] == [
+        ("$.datasets['sqlite:lending.loan'].edges[1]", "duplicate_edge"),
+    ]
+
+
+def test_an_unconverted_document_is_one_error() -> None:
+    payload = _payload("akg-single.json")
+    del payload["format_version"]
+    payload["relationships"] = {}
+    assert [(finding.rule, finding.severity) for finding in check_document(payload)] == [
+        ("unconverted_relationships", "error"),
+    ]
 
 
 def _service() -> ServiceSource:
@@ -112,9 +131,23 @@ def test_changed_claim_is_one_mismatch_at_its_field(graph) -> None:
     findings = resolve_document(_payload("akg-changed-claim.json"), graph)
     edge = "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
     assert [(finding.location, finding.rule) for finding in findings] == [
-        (f"$.relationships[{edge!r}].b_to_a.match_existence", "graph_mismatch")
+        ("$.datasets['sqlite:lending.loan'].edges[0].match_existence", "graph_mismatch")
     ]
+    assert payload_edge(edge)["edge_id"] == edge
     assert "document has 'optional', graph has 'always'" in findings[0].message
+
+
+def payload_edge(edge_id: str) -> dict:
+    loan = _payload("akg-changed-claim.json")["datasets"]["sqlite:lending.loan"]
+    return next(item for item in loan["edges"] if item["edge_id"] == edge_id)
+
+
+def test_an_edge_from_a_non_endpoint_is_unknown() -> None:
+    payload = _payload("akg-single.json")
+    payload["datasets"]["sqlite:lending.loan"]["edges"][0]["from_dataset_columns"] = ["loan_id"]
+    assert [(finding.location, finding.rule) for finding in resolve_document(payload, _service())] == [
+        ("$.datasets['sqlite:lending.loan'].edges[0]", "unknown_element"),
+    ]
 
 
 def test_unknown_dataset_column_and_changed_field_are_reported() -> None:

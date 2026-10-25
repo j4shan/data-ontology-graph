@@ -1,7 +1,8 @@
 """Project graph objects into the trimmed fields an AKG element carries.
 
 Inputs are JSON objects in the graph's own node and relationship shape, as the service serves
-them or as the YAML intermediary dumps them. The skill's `scripts/akg.py` repeats these rules in
+them or as the YAML intermediary dumps them. A relationship is projected as the directed edge
+leaving one of its endpoints. The skill's `scripts/akg.py` repeats these rules in
 the standard library; a test keeps the two in agreement.
 """
 
@@ -68,22 +69,54 @@ def project_dataset(
     return dataset
 
 
-def project_relationship(relationship: Mapping[str, Any]) -> dict[str, Any]:
-    """Return the relationship fields: both endpoints and both direction claims.
+def project_edge(
+    relationship: Mapping[str, Any],
+    from_node_id: str,
+    from_dataset_columns: list[str],
+    descriptions: Mapping[tuple[str, tuple[str, ...]], str] | None = None,
+) -> dict[str, Any]:
+    """Return the directed edge of a relationship leaving one endpoint, with both claims.
 
     Served relationship records carry `identity_id` once beside the endpoints; YAML
-    relationships carry it on each endpoint. Endpoint order is kept as given.
+    relationships carry it on each endpoint. `descriptions` maps an endpoint's
+    (`node_id`, `dataset_columns`) to its effective description.
     """
+    sides = [(relationship[side], forward, reverse) for side, forward, reverse in (
+        ("endpoint_a", "a_to_b", "b_to_a"), ("endpoint_b", "b_to_a", "a_to_b"),
+    )]
+    for start, forward, reverse in sides:
+        if start["node_id"] == from_node_id and start["dataset_columns"] == from_dataset_columns:
+            end = relationship["endpoint_b" if forward == "a_to_b" else "endpoint_a"]
+            break
+    else:
+        raise ValueError(
+            f"{from_node_id}{from_dataset_columns} is not an endpoint of {relationship['edge_id']}"
+        )
+    edge = {
+        "edge_id": relationship["edge_id"],
+        "identity_id": start.get("identity_id", relationship.get("identity_id")),
+        "from_dataset_columns": start["dataset_columns"],
+        "to_node_id": end["node_id"],
+        "to_dataset_columns": end["dataset_columns"],
+        "multiplicity": relationship[forward]["multiplicity"],
+        "match_existence": relationship[forward]["match_existence"],
+        "reverse_multiplicity": relationship[reverse]["multiplicity"],
+        "reverse_match_existence": relationship[reverse]["match_existence"],
+    }
+    for field, endpoint in (("from_description", start), ("to_description", end)):
+        text = (descriptions or {}).get((endpoint["node_id"], tuple(endpoint["dataset_columns"])))
+        if text:
+            edge[field] = text
+    return edge
+
+
+def endpoint_descriptions(record: Mapping[str, Any]) -> dict[tuple[str, tuple[str, ...]], str]:
+    """Effective descriptions of a `graph.get_relationship` record's entity definitions."""
     return {
-        side: {
-            "node_id": relationship[side]["node_id"],
-            "identity_id": relationship[side].get("identity_id", relationship.get("identity_id")),
-            "dataset_columns": relationship[side]["dataset_columns"],
-        }
-        for side in ("endpoint_a", "endpoint_b")
-    } | {
-        direction: {key: relationship[direction][key] for key in ("multiplicity", "match_existence")}
-        for direction in ("a_to_b", "b_to_a")
+        (definition["node_id"], tuple(definition["dataset_columns"])):
+            definition["effective_description"]
+        for definition in record.get("entity_definitions", [])
+        if definition.get("effective_description")
     }
 
 

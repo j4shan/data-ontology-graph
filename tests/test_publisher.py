@@ -20,11 +20,10 @@ def _yaml_directory(tmp_path: Path) -> Path:
     payload = yaml.safe_load(VALID_EXAMPLE.read_text(encoding="utf-8"))
     collections = {
         "identities.yaml": {
-            "schema_version": "3",
+            "schema_version": "4",
             "logical_identities": payload["logical_identities"],
         },
-        "nodes.yaml": {"schema_version": "3", "nodes": payload["nodes"]},
-        "edges.yaml": {"schema_version": "3", "edges": payload["edges"]},
+        "nodes.yaml": {"schema_version": "4", "nodes": payload["nodes"]},
     }
     for name, collection in collections.items():
         (directory / name).write_text(
@@ -34,10 +33,9 @@ def _yaml_directory(tmp_path: Path) -> Path:
     (tmp_path / "directory-manifest.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": "3",
+                "schema_version": "4",
                 "logical_identities": "identities.yaml",
                 "nodes": ["nodes.yaml"],
-                "edges": "edges.yaml",
             },
             sort_keys=False,
         ),

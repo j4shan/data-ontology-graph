@@ -133,11 +133,18 @@ class DatasetGrain(StrictModel):
 
 
 class EntityDefinition(ClaimModel):
-    claim_fields: ClassVar[tuple[str, ...]] = ("entity_universe",)
+    claim_fields: ClassVar[tuple[str, ...]] = ("conforms", "entity_universe", "total", "unique")
 
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
     entity_universe: EntityUniverse
+    unique: bool | Unknown = Field(
+        description="Whether an instance of the logical entity appears in at most one record."
+    )
+    total: bool | Unknown = Field(description="Whether every record has a non-null key.")
+    conforms: bool | Unknown = Field(
+        description="Whether every non-null key value belongs to the logical entity's population."
+    )
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
     description: str = Field(
@@ -173,8 +180,20 @@ class EntityDefinition(ClaimModel):
             raise ValueError("entity_expression labels must not be empty")
         return value
 
+    @model_validator(mode="after")
+    def complete_must_conform(self) -> "EntityDefinition":
+        if self.entity_universe == EntityUniverse.COMPLETE and self.conforms is False:
+            raise ValueError("a complete entity definition conforms by definition")
+        return self
+
     def key(self, node_id: str) -> tuple[str, str, tuple[str, ...]]:
         return (node_id, self.identity_id, tuple(self.dataset_columns))
+
+    def conforming(self) -> bool | None:
+        """Whether every non-null key value belongs to the population; None when unknown."""
+        if self.entity_universe == EntityUniverse.COMPLETE or self.conforms is True:
+            return True
+        return False if self.conforms is False else None
 
     def effective_description(self, columns: list[ColumnMetadata]) -> tuple[str, str] | None:
         return effective_description(

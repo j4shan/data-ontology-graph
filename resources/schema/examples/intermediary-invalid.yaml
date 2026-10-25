@@ -1,4 +1,4 @@
-schema_version: "3"
+schema_version: "4"
 logical_identities:
   customer_identity:
     name: Customer identity
@@ -23,4 +23,6 @@ nodes:
         # Invalid: dataset columns must use ascending exact-name order.
         dataset_columns: [c2, c1]
         entity_universe: unknown
-edges: []
+        unique: unknown
+        total: unknown
+        conforms: unknown

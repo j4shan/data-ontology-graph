@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from data_ontology_graph.akg import check_document, project_dataset, project_relationship
+from data_ontology_graph.akg import check_document, project_dataset, project_edge
 from data_ontology_graph.akg.resolve import ServiceSource, resolve_document, socket_call
 from data_ontology_graph.builder.intermediary import load_intermediary_yaml
+from data_ontology_graph.model.derivation import derive_relationships
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -84,9 +85,14 @@ def test_projection_agrees_with_the_graph_core(detail: str) -> None:
         dump = node.model_dump(mode="json")
         columns = [column.name for column in node.columns][:2]
         assert tool.project_dataset(dump, detail, columns) == project_dataset(dump, detail, columns)
-    for edge in definition.edges:
+    descriptions = {("sqlite:lending.loan", ("account_id",)): "the account that repays the loan"}
+    for edge in derive_relationships(node.to_runtime() for node in definition.nodes):
         dump = edge.model_dump(mode="json")
-        assert tool.project_relationship(dump) == project_relationship(dump)
+        for side in ("endpoint_a", "endpoint_b"):
+            start = (dump[side]["node_id"], dump[side]["dataset_columns"])
+            assert tool.project_edge(dump, *start, descriptions) == project_edge(
+                dump, *start, descriptions
+            )
 
 
 def test_init_refuses_an_existing_file(akg: Path, run) -> None:
@@ -111,18 +117,41 @@ def test_adding_is_idempotent_and_only_fills_missing_fields(akg: Path, run) -> N
     assert list(loan)[:3] == ["name", "source", "grain"]
 
 
-def test_adding_a_relationship_adds_its_endpoints(akg: Path, run) -> None:
-    code, output = run("add-relationship", str(akg), LOAN_ACCOUNT)
+def _edges(document: dict) -> list[tuple[str, str]]:
+    return [(node_id, edge["edge_id"]) for node_id, dataset in document["datasets"].items()
+            for edge in dataset.get("edges", [])]
+
+
+def test_adding_an_edge_stores_it_in_its_start_dataset_with_its_ends(akg: Path, run) -> None:
+    code, output = run("add-edge", str(akg), LOAN, LOAN_ACCOUNT)
     assert code == 0
     assert output["added"] == [LOAN_ACCOUNT]
-    assert sorted(output["datasets_added"]) == [ACCOUNT, LOAN]
+    assert output["datasets_added"] == [LOAN, ACCOUNT]
     document = _read(akg)
     assert set(document["datasets"][LOAN]["columns"]) == {"account_id"}
-    assert run("add-relationship", str(akg), LOAN_ACCOUNT)[1]["unchanged"] == [LOAN_ACCOUNT]
+    assert document["datasets"][LOAN]["edges"] == [{
+        "edge_id": LOAN_ACCOUNT, "identity_id": "account_identity",
+        "from_dataset_columns": ["account_id"], "to_node_id": ACCOUNT,
+        "to_dataset_columns": ["account_id"], "multiplicity": "many:1",
+        "match_existence": "always", "reverse_multiplicity": "1:many",
+        "reverse_match_existence": "optional",
+        "from_description": "the account that repays the loan",
+        "to_description": "the id of the account",
+    }]
+    assert "edges" not in document["datasets"][ACCOUNT]
+    assert run("add-edge", str(akg), LOAN, LOAN_ACCOUNT)[1]["unchanged"] == [LOAN_ACCOUNT]
+    # The same relationship read from its other end is a second directed edge.
+    assert run("add-edge", str(akg), ACCOUNT, LOAN_ACCOUNT)[1]["added"] == [LOAN_ACCOUNT]
+    assert _edges(_read(akg)) == [(LOAN, LOAN_ACCOUNT), (ACCOUNT, LOAN_ACCOUNT)]
+    code, output = run("add-edge", str(akg), REGION, LOAN_ACCOUNT)
+    assert code == 1 and "is not an endpoint" in output["error"]
 
 
-def test_relationship_without_endpoints_leaves_a_draft_warning(akg: Path, run) -> None:
-    run("add-relationship", str(akg), ACCOUNT_REGION, "--no-endpoints")
+def test_edge_without_endpoints_needs_its_start_dataset(akg: Path, run) -> None:
+    code, output = run("add-edge", str(akg), ACCOUNT, ACCOUNT_REGION, "--no-endpoints")
+    assert code == 1 and "add it first" in output["error"]
+    run("add-dataset", str(akg), ACCOUNT)
+    run("add-edge", str(akg), ACCOUNT, ACCOUNT_REGION, "--no-endpoints")
     findings = check_document(_read(akg))
     assert {(finding.rule, finding.severity) for finding in findings} == {
         ("dangling_reference", "warning")
@@ -130,31 +159,73 @@ def test_relationship_without_endpoints_leaves_a_draft_warning(akg: Path, run) -
 
 
 def test_remove_refuses_referenced_elements_unless_cascaded(akg: Path, run) -> None:
-    run("add-relationship", str(akg), LOAN_ACCOUNT, ACCOUNT_REGION)
+    run("add-edge", str(akg), LOAN, LOAN_ACCOUNT)
+    run("add-edge", str(akg), ACCOUNT, ACCOUNT_REGION)
     run("gap", str(akg), "region-match", json.dumps({"description": "x", "datasets": [REGION]}))
     code, output = run("remove", str(akg), REGION)
-    assert code == 1 and "relationships[" in output["error"] and "gaps[region-match]" in output["error"]
+    assert code == 1 and "edges[" in output["error"] and "gaps[region-match]" in output["error"]
     assert REGION in _read(akg)["datasets"]
 
     code, output = run("remove", str(akg), REGION, "--cascade")
     assert code == 0 and output["removed"] == [ACCOUNT_REGION, REGION]
     document = _read(akg)
     assert document["gaps"]["region-match"]["datasets"] == []
-    assert list(document["relationships"]) == [LOAN_ACCOUNT]
-    assert run("exists", str(akg), REGION, LOAN)[1] == {REGION: "absent", LOAN: "present"}
+    assert _edges(document) == [(LOAN, LOAN_ACCOUNT)]
+    assert run("exists", str(akg), REGION, LOAN, LOAN_ACCOUNT)[1] == {
+        REGION: "absent", LOAN: "present", LOAN_ACCOUNT: "present",
+    }
+    assert run("remove", str(akg), LOAN_ACCOUNT)[1] == {"removed": [LOAN_ACCOUNT]}
+    assert _edges(_read(akg)) == []
 
 
 def test_annotate_writes_usage_only(akg: Path, run) -> None:
-    run("add-relationship", str(akg), LOAN_ACCOUNT)
+    run("add-edge", str(akg), LOAN, LOAN_ACCOUNT)
     run("annotate", str(akg), LOAN, json.dumps({"role": "anchor", "columns": {"account_id": {"as": "join_only"}}}))
-    run("annotate", str(akg), LOAN_ACCOUNT, json.dumps({"from": LOAN, "keep": [ACCOUNT]}))
-    run("annotate", str(akg), LOAN, json.dumps({"columns": None, "a_to_b": "x"}))
+    run("annotate", str(akg), LOAN_ACCOUNT, json.dumps({"keep": [ACCOUNT]}))
+    run("annotate", str(akg), LOAN, json.dumps({"columns": None, "multiplicity": "x"}))
     document = _read(akg)
-    assert document["datasets"][LOAN]["usage"] == {"role": "anchor", "a_to_b": "x"}
-    assert document["relationships"][LOAN_ACCOUNT]["a_to_b"]["match_existence"] == "optional"
-    assert document["relationships"][LOAN_ACCOUNT]["usage"] == {"from": LOAN, "keep": [ACCOUNT]}
+    assert document["datasets"][LOAN]["usage"] == {"role": "anchor", "multiplicity": "x"}
+    [edge] = document["datasets"][LOAN]["edges"]
+    assert edge["multiplicity"] == "many:1" and edge["usage"] == {"keep": [ACCOUNT]}
     code, output = run("annotate", str(akg), REGION, json.dumps({"role": "grouping"}))
     assert code == 1 and "add it first" in output["error"]
+
+    run("add-edge", str(akg), ACCOUNT, LOAN_ACCOUNT)
+    code, output = run("annotate", str(akg), LOAN_ACCOUNT, json.dumps({"note": "n"}))
+    assert code == 1 and "--from" in output["error"]
+    run("annotate", str(akg), LOAN_ACCOUNT, json.dumps({"note": "n"}), "--from", ACCOUNT)
+    assert _read(akg)["datasets"][ACCOUNT]["edges"][0]["usage"] == {"note": "n"}
+
+
+def test_migrate_moves_relationships_into_their_start_datasets(akg: Path, run) -> None:
+    run("add-dataset", str(akg), LOAN, ACCOUNT, "--columns", "account_id")
+    earlier = _read(akg)
+    del earlier["format_version"]
+    earlier["relationships"] = {LOAN_ACCOUNT: {
+        "endpoint_a": {"node_id": ACCOUNT, "identity_id": "account_identity",
+                       "dataset_columns": ["account_id"]},
+        "endpoint_b": {"node_id": LOAN, "identity_id": "account_identity",
+                       "dataset_columns": ["account_id"]},
+        "a_to_b": {"multiplicity": "1:many", "match_existence": "always"},
+        "b_to_a": {"multiplicity": "many:1", "match_existence": "always"},
+        "usage": {"from": LOAN, "keep": [ACCOUNT]},
+    }}
+    earlier["gaps"] = {"g": {"description": "x", "relationships": [LOAN_ACCOUNT]}}
+    akg.write_text(json.dumps(earlier), encoding="utf-8")
+    code, output = run("add-dataset", str(akg), REGION)
+    assert code == 1 and "migrate" in output["error"]
+
+    assert run("migrate", str(akg)) == (0, {"migrated": [{"edge_id": LOAN_ACCOUNT, "node_id": LOAN}]})
+    document = _read(akg)
+    assert list(document)[0] == "format_version" and "relationships" not in document
+    [edge] = document["datasets"][LOAN]["edges"]
+    # The claims are kept as written; descriptions the earlier format lacked are fetched.
+    assert (edge["multiplicity"], edge["match_existence"]) == ("many:1", "always")
+    assert edge["reverse_match_existence"] == "always"
+    assert edge["from_description"] == "the account that repays the loan"
+    assert edge["usage"] == {"keep": [ACCOUNT]}
+    assert document["gaps"]["g"]["edges"] == [{"node_id": LOAN, "edge_id": LOAN_ACCOUNT}]
+    assert check_document(document) == []
 
 
 def test_gap_and_comparison_entries_merge_and_delete(akg: Path, run) -> None:
@@ -181,12 +252,11 @@ def test_service_error_leaves_the_file_unchanged(akg: Path, run) -> None:
     assert akg.read_text(encoding="utf-8") == before
 
 
-def test_show_lists_elements_oriented_by_usage(akg: Path, run) -> None:
-    run("add-relationship", str(akg), LOAN_ACCOUNT)
-    run("annotate", str(akg), LOAN_ACCOUNT, json.dumps({"from": LOAN}))
+def test_show_lists_each_directed_edge_under_its_start_dataset(akg: Path, run) -> None:
+    run("add-edge", str(akg), LOAN, LOAN_ACCOUNT)
     code, output = run("show", str(akg))
     assert code == 0
-    assert output.splitlines()[0] == "status draft | 2 datasets | 1 relationships | 1 component(s)"
+    assert output.splitlines()[0] == "status draft | 2 datasets | 1 edges | 1 component(s)"
     assert f"  {LOAN}[account_id] -> {ACCOUNT}[account_id] many:1/always | reverse 1:many/optional" in output
 
 
@@ -194,7 +264,8 @@ def test_a_tool_built_file_resolves_and_matches_the_fixture(
     akg: Path, run, lending_socket: Path
 ) -> None:
     run("add-dataset", str(akg), LOAN, "--columns", "loan_id")
-    run("add-relationship", str(akg), LOAN_ACCOUNT, ACCOUNT_REGION)
+    run("add-edge", str(akg), LOAN, LOAN_ACCOUNT)
+    run("add-edge", str(akg), ACCOUNT, ACCOUNT_REGION)
     run("add-dataset", str(akg), REGION, "--columns", "region_name")
     document = _read(akg)
     assert [finding for finding in check_document(document, final=True)] == []
@@ -202,20 +273,22 @@ def test_a_tool_built_file_resolves_and_matches_the_fixture(
     fixture = json.loads((LENDING / "akg-single.json").read_text(encoding="utf-8"))
     for node_id, dataset in fixture["datasets"].items():
         expected = {key: value for key, value in dataset.items() if key != "usage"}
+        if "edges" in expected:
+            expected["edges"] = [
+                {key: value for key, value in edge.items() if key != "usage"}
+                for edge in expected["edges"]
+            ]
         assert document["datasets"][node_id] == expected
-    for edge_id, relationship in fixture["relationships"].items():
-        expected = {key: value for key, value in relationship.items() if key != "usage"}
-        assert document["relationships"][edge_id] == expected
 
 
 def test_patch_can_come_from_a_file_or_standard_input(
     akg: Path, run, tmp_path: Path, monkeypatch
 ) -> None:
     patch = tmp_path / "gap.json"
-    patch.write_text(json.dumps({"description": "from a file", "relationships": [LOAN_ACCOUNT]}))
+    patch.write_text(json.dumps({"description": "from a file", "datasets": [LOAN]}))
     assert run("gap", str(akg), "g1", f"@{patch}")[0] == 0
     monkeypatch.setattr(sys, "stdin", io.StringIO('{"description": "from stdin"}'))
     assert run("gap", str(akg), "g2", "-")[0] == 0
     gaps = _read(akg)["gaps"]
-    assert gaps["g1"]["relationships"] == [LOAN_ACCOUNT]
+    assert gaps["g1"]["datasets"] == [LOAN]
     assert gaps["g2"] == {"description": "from stdin"}

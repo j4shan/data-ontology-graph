@@ -1,7 +1,7 @@
 """Header-and-row tables for graph-object collections, and their lossless record form.
 
-A table column name is a dotted path into the record: ``direction.multiplicity`` is the
-``multiplicity`` field of the record's ``direction`` object. A cell holds the value at that
+A table column name is a dotted path into the record: ``to.node_id`` is the ``node_id`` field of
+the record's ``to`` object. A cell holds the value at that
 path, which may itself be a list or an object with provider-specific keys.
 """
 from __future__ import annotations
@@ -61,13 +61,6 @@ def _get(record: dict[str, Any], column: str) -> Any:
     return value
 
 
-STEP_HEADER = [
-    "edge_id", "from_node_id", "to_node_id",
-    "direction.multiplicity", "direction.match_existence",
-    "reverse_direction.multiplicity", "reverse_direction.match_existence",
-    "unknown_fields",
-]
-PATH_STEP_HEADER = ["path", *STEP_HEADER]
 RELATIONSHIP_HEADER = [
     "edge_id", "identity_id",
     "endpoint_a.node_id", "endpoint_a.dataset_columns",
@@ -78,15 +71,12 @@ RELATIONSHIP_HEADER = [
 ]
 DATASET_HEADER = [
     "node_id",
-    "descriptor.qualified_name", "descriptor.display_name", "descriptor.description",
+    "descriptor.qualified_name", "descriptor.description",
     "descriptor.synonyms", "descriptor.tags",
     "accessor.schema_id", "accessor.properties",
 ]
-DATASET_DETAIL_HEADER = [*DATASET_HEADER, "grain", "unknown_fields"]
-SUBGRAPH_DATASET_HEADER = ["node_id", "distance", *DATASET_DETAIL_HEADER[1:]]
 DEFINITION_HEADER = [
-    "node_id", "identity_id", "dataset_columns", "entity_universe",
-    "entity_expression", "entity_metadata", "description", "effective_description",
+    "node_id", "identity_id", "dataset_columns", "entity_universe", "unique", "total",
+    "conforms", "entity_expression", "entity_metadata", "description", "effective_description",
     "description_source", "unknown_fields",
 ]
-COLUMN_HEADER = ["node_id", "name", "description", "value_description", "synonyms"]

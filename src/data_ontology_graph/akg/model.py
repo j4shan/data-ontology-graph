@@ -1,8 +1,9 @@
 """AKG document model.
 
-An AKG holds the graph datasets and relationships that serve one objective, keyed by their
-canonical graph identifiers, with trimmed graph fields and the agent's reasoning beside them.
-Every model accepts unknown keys; `check` reports them without rejecting the document.
+An AKG holds the graph datasets that serve one objective, keyed by `node_id`, with trimmed graph
+fields and the agent's reasoning beside them. A selected join is a directed edge stored in the
+dataset traversal starts from, as navigation responses list it. Every model accepts unknown keys;
+`check` reports them without rejecting the document.
 """
 
 from typing import Literal
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
 
 
+FORMAT_VERSION = 2
 Status = Literal["draft", "final"]
 Role = Literal["anchor", "grouping", "filter", "bridge"]
 ColumnUse = Literal["measure", "count", "group", "filter", "time", "absence", "join_only", "output"]
@@ -64,6 +66,42 @@ class DatasetUsage(OpenModel):
     note: str | None = None
 
 
+class EdgeUsage(OpenModel):
+    """Agent reasoning about one directed edge."""
+
+    keep: list[str] | None = Field(
+        default=None, description="Start or end node_id values whose unmatched rows must survive."
+    )
+    aggregate_before_join: bool | None = Field(
+        default=None, description="Aggregate the end to the start's grain before combining."
+    )
+    note: str | None = None
+
+
+class DirectedEdge(OpenModel):
+    """One relationship read from the dataset that holds it, where traversal starts.
+
+    A directed edge is identified by `edge_id` and `from_dataset_columns`: a relationship with
+    both endpoints on one dataset gives that dataset two directed edges.
+    """
+
+    edge_id: str = Field(min_length=1)
+    identity_id: str = Field(min_length=1)
+    from_dataset_columns: list[str] = Field(min_length=1)
+    to_node_id: str = Field(min_length=1)
+    to_dataset_columns: list[str] = Field(min_length=1)
+    multiplicity: Multiplicity
+    match_existence: MatchExistence
+    reverse_multiplicity: Multiplicity
+    reverse_match_existence: MatchExistence
+    from_description: str | None = None
+    to_description: str | None = None
+    stats: dict[str, JsonValue] | None = Field(
+        default=None, description="Reserved for statistics once the graph serves them."
+    )
+    usage: EdgeUsage | None = None
+
+
 class Dataset(OpenModel):
     """One graph dataset, keyed by `node_id` in the document."""
 
@@ -79,43 +117,14 @@ class Dataset(OpenModel):
         default=None, description="Reserved for statistics once the graph serves them."
     )
     usage: DatasetUsage | None = None
-
-
-class Endpoint(OpenModel):
-    node_id: str = Field(min_length=1)
-    identity_id: str = Field(min_length=1)
-    dataset_columns: list[str] = Field(min_length=1)
-
-
-class Direction(OpenModel):
-    multiplicity: Multiplicity
-    match_existence: MatchExistence
-
-
-class RelationshipUsage(OpenModel):
-    """Agent reasoning about one relationship."""
-
-    from_: str | None = Field(
-        default=None, alias="from", description="The endpoint node_id traversal starts from."
+    edges: list[DirectedEdge] | None = Field(
+        default=None, description="Selected directed edges leaving this dataset."
     )
-    keep: list[str] | None = Field(
-        default=None, description="Endpoint node_id values whose unmatched rows must survive."
-    )
-    aggregate_before_join: bool | None = None
-    note: str | None = None
 
 
-class Relationship(OpenModel):
-    """One graph relationship, keyed by its canonical edge ID in the document."""
-
-    endpoint_a: Endpoint
-    endpoint_b: Endpoint
-    a_to_b: Direction
-    b_to_a: Direction
-    stats: dict[str, JsonValue] | None = Field(
-        default=None, description="Reserved for statistics once the graph serves them."
-    )
-    usage: RelationshipUsage | None = None
+class EdgeReference(OpenModel):
+    node_id: str = Field(min_length=1, description="The dataset that holds the directed edge.")
+    edge_id: str = Field(min_length=1)
 
 
 class ColumnReference(OpenModel):
@@ -136,17 +145,17 @@ class Gap(OpenModel):
 
     description: str = Field(min_length=1)
     datasets: list[str] | None = None
-    relationships: list[str] | None = None
+    edges: list[EdgeReference] | None = None
 
 
 class AkgDocument(OpenModel):
-    """The graph datasets and relationships that serve one objective."""
+    """The graph datasets and directed edges that serve one objective."""
 
+    format_version: Literal[2] = Field(description="AKG file format version.")
     status: Status
     question: str = Field(min_length=1)
     objective: str | None = None
     graph: GraphInfo | None = None
     datasets: dict[str, Dataset]
-    relationships: dict[str, Relationship]
     comparisons: dict[str, Comparison] | None = None
     gaps: dict[str, Gap] | None = None

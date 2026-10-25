@@ -8,7 +8,7 @@
 | 1.2 | Search performs exact and prefix lookup over the static trie, intersects per-word lookups for a multi-word query, then filters, deduplicates, orders stably, and limits per kind, with no dedicated relevance-ranking structure. Serves `product/non_functional.md#5.1`. |
 | 1.3 | Graph computation runs outside the request event loop, with bounded concurrent computations and cancellation support. Serves `product/non_functional.md#1.1`. |
 | 1.4 | Connecting-subgraph search runs in time linear in the graph size and stops once the tree is settled, so nearby endpoints touch only their neighbourhood. Serves `product/non_functional.md#1.1`. |
-| 1.5 | A ranked-path multiplicity filter prunes disallowed hops before expansion, without worsening asymptotic traversal time or space. Serves `product/non_functional.md#1.1`. |
+| 1.5 | A ranked-path multiplicity filter prunes disallowed directed edges before expansion, without worsening asymptotic traversal time or space. Serves `product/non_functional.md#1.1`. |
 
 ## Resilience
 

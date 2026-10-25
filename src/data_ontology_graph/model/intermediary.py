@@ -11,13 +11,7 @@ from data_ontology_graph.model.dataset import (
     DatasetNode,
     EntityDefinition,
 )
-from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity, Unknown
-from data_ontology_graph.model.relationship import (
-    RELATIONSHIP_CLAIM_FIELDS,
-    JoinEndpoint,
-    RelationshipDirection,
-    edge_id_for,
-)
+from data_ontology_graph.model.enums import EntityUniverse, Unknown
 
 
 class LogicalIdentity(BaseModel):
@@ -42,24 +36,21 @@ class IntermediaryDirectoryManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["3"] = Field(
+    schema_version: Literal["4"] = Field(
         description="Schema version shared by the manifest and every collection file."
     )
     logical_identities: str = Field(
+        title="Logical Entities",
         min_length=1,
-        description="Relative path of the only logical-identities collection file.",
+        description="Relative path of the only logical-entities collection file (`logical_identities`).",
     )
     nodes: list[Annotated[str, Field(min_length=1)]] = Field(
         min_length=1,
         description="Relative paths of the files that partition the nodes collection.",
         json_schema_extra={"uniqueItems": True},
     )
-    edges: str = Field(
-        min_length=1,
-        description="Relative path of the only edges collection file.",
-    )
 
-    @field_validator("logical_identities", "edges")
+    @field_validator("logical_identities")
     @classmethod
     def scalar_paths_must_be_nonblank(cls, value: str) -> str:
         if not value.strip():
@@ -77,7 +68,7 @@ class IntermediaryDirectoryManifest(BaseModel):
 
     @model_validator(mode="after")
     def collection_paths_must_be_unique(self) -> "IntermediaryDirectoryManifest":
-        paths = [self.logical_identities, *self.nodes, self.edges]
+        paths = [self.logical_identities, *self.nodes]
         if len(paths) != len(set(paths)):
             raise ValueError("each collection path must appear exactly once")
         return self
@@ -89,6 +80,19 @@ class IntermediaryEntityDefinition(ClaimModel):
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
     entity_universe: EntityUniverse
+    unique: bool | Unknown = Field(
+        description=(
+            "Whether an instance of the logical entity appears in at most one record of the dataset. "
+            "Records with a null key hold no instance."
+        )
+    )
+    total: bool | Unknown = Field(description="Whether every record has a non-null key.")
+    conforms: bool | Unknown = Field(
+        description=(
+            "Whether every non-null key value belongs to the logical entity's population, with no "
+            "orphan values. A complete definition conforms by definition."
+        )
+    )
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
     description: str = Field(
@@ -114,6 +118,11 @@ class IntermediaryEntityDefinition(ClaimModel):
     @classmethod
     def expressions_must_be_nonempty(cls, value: list[str]) -> list[str]:
         return EntityDefinition.expressions_must_be_nonempty(value)
+
+    @model_validator(mode="after")
+    def complete_must_conform(self) -> "IntermediaryEntityDefinition":
+        EntityDefinition.complete_must_conform(self)
+        return self
 
     def key(self, node_id: str) -> tuple[str, str, tuple[str, ...]]:
         return (node_id, self.identity_id, tuple(self.dataset_columns))
@@ -187,108 +196,30 @@ class IntermediaryNode(ClaimModel):
         )
 
 
-class EntityDefinitionReference(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str = Field(min_length=1)
-    identity_id: str = Field(min_length=1)
-    dataset_columns: list[str] = Field(min_length=1)
-
-    @field_validator("dataset_columns")
-    @classmethod
-    def dataset_columns_must_be_canonical(cls, value: list[str]) -> list[str]:
-        if not value or any(not column for column in value):
-            raise ValueError("dataset_columns must contain at least one column")
-        if len(value) != len(set(value)):
-            raise ValueError("dataset_columns must not contain duplicate columns")
-        if value != sorted(value):
-            raise ValueError("dataset_columns must use ascending exact-name order")
-        return value
-
-    def key(self) -> tuple[str, str, tuple[str, ...]]:
-        return (self.node_id, self.identity_id, tuple(self.dataset_columns))
-
-    def to_endpoint(self) -> JoinEndpoint:
-        return JoinEndpoint(
-            node_id=self.node_id,
-            identity_id=self.identity_id,
-            dataset_columns=self.dataset_columns,
-        )
-
-
-class IntermediaryRelationshipDirection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    multiplicity: Multiplicity
-    match_existence: MatchExistence
-
-    def to_runtime(self) -> RelationshipDirection:
-        return RelationshipDirection(
-            multiplicity=self.multiplicity,
-            match_existence=self.match_existence,
-        )
-
-
-class RelationshipDefinition(ClaimModel):
-    claim_fields: ClassVar[tuple[str, ...]] = RELATIONSHIP_CLAIM_FIELDS
-
-    endpoint_a: EntityDefinitionReference
-    endpoint_b: EntityDefinitionReference
-    a_to_b: IntermediaryRelationshipDirection
-    b_to_a: IntermediaryRelationshipDirection
-
-    @model_validator(mode="after")
-    def validate_relationship(self) -> "RelationshipDefinition":
-        if self.endpoint_a.key() == self.endpoint_b.key():
-            raise ValueError("relationship endpoints must be different entity definitions")
-        if self.endpoint_a.identity_id != self.endpoint_b.identity_id:
-            raise ValueError("relationship endpoints must use the same identity_id")
-        return self
-
-    def canonical_edge_id(self) -> str:
-        return edge_id_for(self.endpoint_a.to_endpoint(), self.endpoint_b.to_endpoint())
-
-
 class IntermediaryDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["3"]
-    logical_identities: dict[str, LogicalIdentityDefinition] = Field(min_length=1)
+    schema_version: Literal["4"]
+    logical_identities: dict[str, LogicalIdentityDefinition] = Field(min_length=1, title="Logical Entities")
     nodes: list[IntermediaryNode] = Field(min_length=1)
-    edges: list[RelationshipDefinition]
 
     @model_validator(mode="after")
     def validate_registry_and_references(self) -> "IntermediaryDefinition":
         empty_identity_ids = [key for key in self.logical_identities if not key.strip()]
         if empty_identity_ids:
-            raise ValueError("logical identity registry keys must not be blank")
+            raise ValueError("logical entity registry keys must not be blank")
         node_ids = [node.node_id for node in self.nodes]
         if len(node_ids) != len(set(node_ids)):
             raise ValueError("node_id values must be unique")
 
-        registered: set[tuple[str, str, tuple[str, ...]]] = set()
         known_identities = set(self.logical_identities)
         for node in self.nodes:
             for definition in node.entity_definitions:
                 if definition.identity_id not in known_identities:
                     raise ValueError(
-                        f"node {node.node_id!r} references unknown logical identity "
+                        f"node {node.node_id!r} references unknown logical entity "
                         f"{definition.identity_id!r}"
                     )
-                registered.add(definition.key(node.node_id))
-
-        edge_ids: set[str] = set()
-        for edge in self.edges:
-            for endpoint in (edge.endpoint_a, edge.endpoint_b):
-                if endpoint.key() not in registered:
-                    raise ValueError(
-                        "edge endpoint does not resolve to a registered entity definition: "
-                        f"{endpoint.key()!r}"
-                    )
-            edge_id = edge.canonical_edge_id()
-            if edge_id in edge_ids:
-                raise ValueError(f"duplicate relationship for canonical edge {edge_id!r}")
-            edge_ids.add(edge_id)
         return self
 
     def runtime_identities(self) -> list[LogicalIdentity]:

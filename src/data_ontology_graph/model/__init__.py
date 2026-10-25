@@ -17,20 +17,17 @@ from data_ontology_graph.model.enums import (
     Unknown,
 )
 from data_ontology_graph.model.intermediary import (
-    EntityDefinitionReference,
     IntermediaryDefinition,
     IntermediaryEntityDefinition,
     IntermediaryNode,
     LogicalIdentity,
     LogicalIdentityDefinition,
-    RelationshipDefinition,
 )
 from data_ontology_graph.model.relationship import (
     JoinAnnotation,
     JoinEndpoint,
     JoinRelationship,
     RelationshipDirection,
-    TraversalHop,
     canonical_endpoints,
     derived_cardinality,
     edge_id_for,
@@ -47,7 +44,6 @@ __all__ = [
     "DatasetGrain",
     "DatasetNode",
     "EntityDefinition",
-    "EntityDefinitionReference",
     "EntityUniverse",
     "GrainComponent",
     "GraphSnapshot",
@@ -61,9 +57,7 @@ __all__ = [
     "LogicalIdentityDefinition",
     "MatchExistence",
     "Multiplicity",
-    "RelationshipDefinition",
     "RelationshipDirection",
-    "TraversalHop",
     "Unknown",
     "canonical_endpoints",
     "derived_cardinality",

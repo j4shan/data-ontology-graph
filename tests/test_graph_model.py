@@ -52,6 +52,9 @@ def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> Da
                 identity_id="customer",
                 dataset_columns=["id"],
                 entity_universe=universe,
+                unique=True,
+                total=True,
+                conforms=True,
             )
         ],
     )
@@ -182,8 +185,11 @@ def test_unknown_fields_cover_typed_claims_only() -> None:
         identity_id="customer",
         dataset_columns=["id"],
         entity_universe=EntityUniverse.UNKNOWN,
+        unique="unknown",
+        total=False,
+        conforms="unknown",
     )
-    assert definition.unknown_fields() == ["entity_universe"]
+    assert definition.unknown_fields() == ["conforms", "entity_universe", "unique"]
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ColumnMetadata.model_validate({"name": "code", "notes": "unresolved"})
 

@@ -177,6 +177,22 @@
           "default": null,
           "title": "Description"
         },
+        "edges": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DirectedEdge"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Selected directed edges leaving this dataset.",
+          "title": "Edges"
+        },
         "entity_definitions": {
           "anyOf": [
             {
@@ -341,40 +357,129 @@
       "title": "DatasetUsage",
       "type": "object"
     },
-    "Direction": {
+    "DirectedEdge": {
       "additionalProperties": true,
+      "description": "One relationship read from the dataset that holds it, where traversal starts.\n\nA directed edge is identified by `edge_id` and `from_dataset_columns`: a relationship with\nboth endpoints on one dataset gives that dataset two directed edges.",
       "properties": {
-        "match_existence": {
-          "$ref": "#/$defs/MatchExistence"
+        "edge_id": {
+          "minLength": 1,
+          "title": "Edge Id",
+          "type": "string"
         },
-        "multiplicity": {
-          "$ref": "#/$defs/Multiplicity"
-        }
-      },
-      "required": [
-        "multiplicity",
-        "match_existence"
-      ],
-      "title": "Direction",
-      "type": "object"
-    },
-    "Endpoint": {
-      "additionalProperties": true,
-      "properties": {
-        "dataset_columns": {
+        "from_dataset_columns": {
           "items": {
             "type": "string"
           },
           "minItems": 1,
-          "title": "Dataset Columns",
+          "title": "From Dataset Columns",
           "type": "array"
+        },
+        "from_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From Description"
         },
         "identity_id": {
           "minLength": 1,
           "title": "Identity Id",
           "type": "string"
         },
+        "match_existence": {
+          "$ref": "#/$defs/MatchExistence"
+        },
+        "multiplicity": {
+          "$ref": "#/$defs/Multiplicity"
+        },
+        "reverse_match_existence": {
+          "$ref": "#/$defs/MatchExistence"
+        },
+        "reverse_multiplicity": {
+          "$ref": "#/$defs/Multiplicity"
+        },
+        "stats": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reserved for statistics once the graph serves them.",
+          "title": "Stats"
+        },
+        "to_dataset_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "To Dataset Columns",
+          "type": "array"
+        },
+        "to_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "To Description"
+        },
+        "to_node_id": {
+          "minLength": 1,
+          "title": "To Node Id",
+          "type": "string"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EdgeUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "edge_id",
+        "identity_id",
+        "from_dataset_columns",
+        "to_node_id",
+        "to_dataset_columns",
+        "multiplicity",
+        "match_existence",
+        "reverse_multiplicity",
+        "reverse_match_existence"
+      ],
+      "title": "DirectedEdge",
+      "type": "object"
+    },
+    "EdgeReference": {
+      "additionalProperties": true,
+      "properties": {
+        "edge_id": {
+          "minLength": 1,
+          "title": "Edge Id",
+          "type": "string"
+        },
         "node_id": {
+          "description": "The dataset that holds the directed edge.",
           "minLength": 1,
           "title": "Node Id",
           "type": "string"
@@ -382,10 +487,58 @@
       },
       "required": [
         "node_id",
-        "identity_id",
-        "dataset_columns"
+        "edge_id"
       ],
-      "title": "Endpoint",
+      "title": "EdgeReference",
+      "type": "object"
+    },
+    "EdgeUsage": {
+      "additionalProperties": true,
+      "description": "Agent reasoning about one directed edge.",
+      "properties": {
+        "aggregate_before_join": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Aggregate the end to the start's grain before combining.",
+          "title": "Aggregate Before Join"
+        },
+        "keep": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start or end node_id values whose unmatched rows must survive.",
+          "title": "Keep"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        }
+      },
+      "title": "EdgeUsage",
       "type": "object"
     },
     "EntityDefinitionFacts": {
@@ -478,11 +631,11 @@
           "title": "Description",
           "type": "string"
         },
-        "relationships": {
+        "edges": {
           "anyOf": [
             {
               "items": {
-                "type": "string"
+                "$ref": "#/$defs/EdgeReference"
               },
               "type": "array"
             },
@@ -491,7 +644,7 @@
             }
           ],
           "default": null,
-          "title": "Relationships"
+          "title": "Edges"
         }
       },
       "required": [
@@ -540,120 +693,6 @@
       "title": "Multiplicity",
       "type": "string"
     },
-    "Relationship": {
-      "additionalProperties": true,
-      "description": "One graph relationship, keyed by its canonical edge ID in the document.",
-      "properties": {
-        "a_to_b": {
-          "$ref": "#/$defs/Direction"
-        },
-        "b_to_a": {
-          "$ref": "#/$defs/Direction"
-        },
-        "endpoint_a": {
-          "$ref": "#/$defs/Endpoint"
-        },
-        "endpoint_b": {
-          "$ref": "#/$defs/Endpoint"
-        },
-        "stats": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Reserved for statistics once the graph serves them.",
-          "title": "Stats"
-        },
-        "usage": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RelationshipUsage"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "endpoint_a",
-        "endpoint_b",
-        "a_to_b",
-        "b_to_a"
-      ],
-      "title": "Relationship",
-      "type": "object"
-    },
-    "RelationshipUsage": {
-      "additionalProperties": true,
-      "description": "Agent reasoning about one relationship.",
-      "properties": {
-        "aggregate_before_join": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Aggregate Before Join"
-        },
-        "from": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "The endpoint node_id traversal starts from.",
-          "title": "From"
-        },
-        "keep": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Endpoint node_id values whose unmatched rows must survive.",
-          "title": "Keep"
-        },
-        "note": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Note"
-        }
-      },
-      "title": "RelationshipUsage",
-      "type": "object"
-    },
     "Snapshot": {
       "additionalProperties": true,
       "properties": {
@@ -677,7 +716,7 @@
     }
   },
   "additionalProperties": true,
-  "description": "The graph datasets and relationships that serve one objective.",
+  "description": "The graph datasets and directed edges that serve one objective.",
   "properties": {
     "comparisons": {
       "anyOf": [
@@ -700,6 +739,12 @@
       },
       "title": "Datasets",
       "type": "object"
+    },
+    "format_version": {
+      "const": 2,
+      "description": "AKG file format version.",
+      "title": "Format Version",
+      "type": "integer"
     },
     "gaps": {
       "anyOf": [
@@ -744,13 +789,6 @@
       "title": "Question",
       "type": "string"
     },
-    "relationships": {
-      "additionalProperties": {
-        "$ref": "#/$defs/Relationship"
-      },
-      "title": "Relationships",
-      "type": "object"
-    },
     "status": {
       "enum": [
         "draft",
@@ -761,10 +799,10 @@
     }
   },
   "required": [
+    "format_version",
     "status",
     "question",
-    "datasets",
-    "relationships"
+    "datasets"
   ],
   "title": "AkgDocument",
   "type": "object"

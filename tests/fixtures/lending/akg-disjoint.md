@@ -22,7 +22,7 @@
 | customer.customer_id | the id of the customer | output |
 | region.region_name | the region name | output |
 
-## Relationships
+## Directed edges
 
 ### loan.account_id → account.account_id
 

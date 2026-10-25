@@ -24,7 +24,7 @@ SEARCH_KINDS: tuple[SearchKind, ...] = (
 MATCH_ROW_HEADER = ["key", "match_type", "match_field", "matched_term", "matched_value"]
 SUBJECT_ROW_HEADERS: dict[SearchKind, list[str]] = {
     "column": ["key", "node_id", "column_name"],
-    "dataset": ["key", "display_name", "unknown_fields"],
+    "dataset": ["key", "qualified_name", "unknown_fields"],
     "entity_definition": [
         "key",
         "entity_expression",
@@ -220,7 +220,7 @@ class LexicalSearchIndex:
                 "dataset",
                 node.node_id,
                 node.descriptor.display_name,
-                [node.node_id, node.descriptor.display_name, node.unknown_fields()],
+                [node.node_id, node.descriptor.qualified_name, node.unknown_fields()],
                 [
                     (SearchField.STABLE_ID, node.node_id),
                     (SearchField.CANONICAL_NAME, node.descriptor.display_name),

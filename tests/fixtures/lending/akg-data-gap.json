@@ -1,4 +1,5 @@
 {
+  "format_version": 2,
   "status": "draft",
   "question": "What is the total loan amount per region where the loan was disbursed?",
   "objective": "Sum loan amounts grouped by disbursement region.",
@@ -44,7 +45,6 @@
       }
     }
   },
-  "relationships": {},
   "gaps": {
     "disbursement-region": {
       "description": "No relationship records the region where a loan was disbursed. The path loan -> account -> region carries the account's opening-branch region, a different role, so loan and region stay disconnected.",

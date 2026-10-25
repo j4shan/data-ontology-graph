@@ -1,12 +1,13 @@
 ---
 name: query-graph-api
-description: Build an abstract knowledge graph (AKG) for one analytical objective by querying the Data Ontology Graph service and recording the selected datasets, relationships, and reasoning in a local AKG file through bundled tools, then finalize it against the graph. Use when a question must be answered with the datasets and relationships of a published graph snapshot, including questions about disjoint facts or questions the data model cannot fully connect.
+description: Build an abstract knowledge graph (AKG) for one analytical objective by querying the Data Ontology Graph service and recording the selected datasets, directed edges, and reasoning in a local AKG file through bundled tools, then finalize it against the graph. Use when a question must be answered with the datasets and relationships of a published graph snapshot, including questions about disjoint facts or questions the data model cannot fully connect.
 ---
 
 # Query the graph API
 
-Build one AKG file for one objective. An AKG is the subset of graph datasets and relationships
-the objective needs, keyed by their graph IDs, with your reasoning recorded beside them.
+Build one AKG file for one objective. An AKG is the subset of graph datasets the objective
+needs, keyed by `node_id`, each holding the directed edges you traverse from it, with your
+reasoning recorded beside them.
 Disconnected components are a valid answer: the objective may need disjoint facts, or the graph
 may lack a needed connection, which you record as a data gap. You never type graph facts into
 the file: `scripts/akg.py` copies them from the service. Field definitions are in
@@ -34,18 +35,25 @@ only when the caller gives a different socket. `python3 scripts/service.py stop`
 service when the caller asks for it.
 
 Discovery command form: `python3 scripts/graph_call.py <method> '<params JSON>'`. Output is a
-compact projection; add `--full` only when a field you need is missing.
+compact projection; add `--full` only when a field you need is missing. In `--full` output, each
+directed edge is an array whose positions the response's `edge_fields` names, starting with
+`"start[columns] -> end[columns]"` and ending with `edge_id`.
 
 | Method | Params | Use |
 | --- | --- | --- |
 | `snapshot_info` | none | The served snapshot; a connection check. |
-| `search` | `{"query": str, "kind"?: [str], "limit"?: int}` | Candidate datasets, columns, identities, entity definitions. |
+| `search` | `{"query": str, "kind"?: [str], "limit"?: int}` | Candidate datasets, columns, logical entities, entity definitions. |
 | `get_dataset` | `{"node_id": str}` | Grain, columns with descriptions, entity definitions. |
-| `get_identity` | `{"identity_id": str, "entity_universe"?: [str], "limit"?: int}` | Every dataset that realizes one logical identity. |
-| `get_hops` | `{"node_id": str, "limit"?: int}` | Relationships touching one dataset: one `{edge_id, step}` entry per hop, where `step` reads `from[columns] "description" (source) -> to[columns] "description" (source) identity direction | reverse direction`. Each endpoint's description says what its columns identify, which tells apart relationships that join the same datasets in different roles. |
-| `find_paths` | `{"from_node_id", "to_node_id", "max_hops", "limit"?}` | Ranked paths, one line each, fan-out-free first. `fan_out` counts steps that multiply rows (`1:many`, `many:many`); `unknown` counts steps with an unknown claim. Default `limit` is 10. Add `--detail` for each path's `{edge_id, step}` hops. |
-| `get_relationship` | `{"edge_id": str, "from_node_id"?: str}` | One relationship; with `from_node_id`, `direction` moves away from that dataset. |
-| `expand_subgraph` | `{"seed_node_ids": [..], "max_depth": 1}` | Neighbourhood listing. Use depth 1 only. |
+| `get_identity` | `{"identity_id": str, "entity_universe"?: [str], "limit"?: int}` | Every dataset that realizes one logical entity. |
+| `get_edges` | `{"node_id": str, "limit"?: int, "identity_id"?: str, "from_dataset_columns"?: [str]}` | One dataset's edges. `groups` has one line per entity definition on the dataset, `node[columns] logical-entity-ID listed/total`, marked `truncated` when its list was cut; `limit` (default 200, at most 1000) caps each entity definition's list, so every join column stays visible. `identity_id`, optionally with `from_dataset_columns`, lists only those entity definitions. `edges` has one `{edge_id, step}` entry per listed directed edge leaving it, where `step` reads `from[columns] "description" -> to[columns] "description" logical-entity-ID claims | reverse claims`. Claims always move away from the `from` dataset. Each endpoint's description says what its columns identify, which tells apart relationships that join the same datasets in different roles. A dataset with two columns of one logical entity, such as a link table, lists one directed edge from each column. |
+| `find_paths` | `{"from_node_id", "to_node_id", "max_edges"?, "limit"?}` | The `limit` shortest routes (default 6, `max_edges` default 4), one line each, fan-out-free first. A route may pass through a dataset twice on different columns, such as an employee's manager's department. `fan_out` counts directed edges that multiply rows (`1:many`, `many:many`); `unknown` counts directed edges with an unknown claim. Add `--detail` for each route's `{edge_id, step}` directed edges. |
+| `get_relationship` | `{"edge_id": str, "from_node_id"?: str, "from_dataset_columns"?: [str]}` | One relationship; with `from_node_id`, `edge` is the directed edge leaving that dataset. Name `from_dataset_columns` when both endpoints lie on that dataset. |
+| `expand_subgraph` | `{"seed_node_ids": [..], "max_depth": 1}` | Neighbourhood listing: each dataset with its edge count, and the seeds' `groups` and directed edges, as in `get_edges`. Use depth 1 only. |
+
+Navigation methods (`get_edges`, `find_paths`, `expand_subgraph`) also take `detail`:
+`essential` for wide, light exploration; `standard`, the default, adds descriptions and reverse
+claims; `full` adds columns and entity definitions for validation. `fields` adds named fields to a
+level, such as `{"edge": ["annotation"]}`. Detail levels never change limits.
 
 Send `node_id` and `edge_id` values exactly as responses print them, such as
 `sqlite:shop.fact_sale`. Never construct an ID from a name.
@@ -58,11 +66,12 @@ it from standard input, or `@path` to read it from a file, which avoids shell qu
 | --- | --- |
 | `init FILE --question Q [--objective O]` | Create the draft. Once per objective. |
 | `add-dataset FILE NODE_ID... [--detail essential\|standard\|full] [--columns c1,c2]` | Copy datasets from the service. Repeat with more columns or detail to fill in missing fields; present fields never change. |
-| `add-relationship FILE EDGE_ID... [--no-endpoints]` | Copy relationships, adding their endpoint datasets and join columns. |
-| `remove FILE KEY... [--cascade]` | Drop a dataset or relationship. Refuses while something refers to it unless `--cascade`. |
-| `exists FILE KEY...` | Check whether elements are in the file. |
-| `show FILE [--full]` | Read the current file: one line per element. |
-| `annotate FILE KEY PATCH` | Merge-patch a dataset's or relationship's `usage`. `null` deletes a field. |
+| `add-edge FILE NODE_ID EDGE_ID... [--from-columns c1,c2] [--no-endpoints]` | Copy directed edges leaving `NODE_ID` into that dataset, adding both end datasets and their join columns. Name `--from-columns` when both ends lie on `NODE_ID`. |
+| `remove FILE KEY... [--cascade]` | Drop a dataset (`node_id`) or every directed edge of a relationship (`edge_id`). Refuses while something refers to it unless `--cascade`. |
+| `exists FILE KEY...` | Check whether datasets or edges are in the file. |
+| `show FILE [--full]` | Read the current file: one line per dataset, then its directed edges. |
+| `annotate FILE KEY PATCH [--from NODE_ID] [--from-columns c1,c2]` | Merge-patch a dataset's or directed edge's `usage`. `null` deletes a field. For an `edge_id` held by more than one directed edge, name the one with `--from`. |
+| `migrate FILE` | Convert a file written with the earlier `relationships` map. Other commands refuse such a file. |
 | `gap FILE ID PATCH`, `comparison FILE ID PATCH` | Merge-patch a data gap or comparison; `null` as the patch deletes it. |
 
 ## 1. Decompose the question
@@ -93,11 +102,11 @@ Before any call, write these lists in your scratch notes:
    tell a name or synonym match from a description match. A match on a dataset's `node_id` or
    `qualified_name` is strong evidence. Hit order is by match type, not relevance.
 3. Multi-word queries match words in any order (`all_words`) or in sequence (`phrase`) only inside
-   dataset names and identity names. Other fields, including columns, match a multi-word query
+   dataset names and logical-entity names. Other fields, including columns, match a multi-word query
    only when they start with the phrase, so search columns by one word.
 4. `entity_definition` and `identity` hits mean the concept is a key: call `get_identity` and take
    the dataset whose universe is `complete` as the population dataset. When none is `complete`,
-   take the dataset whose grain is that identity and record a data gap: the population may be
+   take the dataset whose grain is that logical entity and record a data gap: the population may be
    incomplete.
 5. When a group reports `truncated: true`, repeat with a larger `limit` (up to 200) or with `kind`
    set to that group before concluding a dataset is absent.
@@ -116,8 +125,8 @@ Never cite a column that is not in that dataset's `columns`.
 
 1. **Anchor** = the dataset whose grain carries a measure. Measures from different events give one
    anchor per event.
-2. Call `get_hops` once per anchor. Prefer a direct hop to a grouping dataset over a path.
-3. Otherwise call `find_paths` with `max_hops` 4. Never use `max_hops` above 5.
+2. Call `get_edges` once per anchor. Prefer a single directed edge to a grouping dataset over a path.
+3. Otherwise call `find_paths` with `max_edges` 4. Never use `max_edges` above 5.
 4. Choose a path with these rules, in order:
    1. A `1:many` or `many:many` step away from the anchor multiplies anchor rows (fan-out). Reject
       it for a grouping dataset. Accept it only when the question counts or sums that child
@@ -128,12 +137,12 @@ Never cite a column that is not in that dataset's `columns`.
       cashier. Prefer the anchor's own business process over chains through an actor attribute
       (employee, shift, user) unless the question groups by that actor.
    3. Reject role-playing columns whose description names a different role.
-   4. Prefer fewer hops only after rules 1–3.
+   4. Prefer fewer directed edges only after rules 1–3.
 5. **Two or more anchors** (drill-across): connect each anchor separately to the shared grouping
    datasets. Do not chain anchor → dimension → anchor as one path. Record a comparison in step 6
    with the anchors, the shared grouping columns, and the comparison type (`coverage`,
    `difference`, or `co_occurrence`).
-6. When `find_paths` is `truncated` with no acceptable path, call `get_hops` on the anchor and the
+6. When `find_paths` is `truncated` with no acceptable path, call `get_edges` on the anchor and the
    grouping dataset and look for a common neighbour before raising `limit`.
 
 ## 5. Record the selection
@@ -144,19 +153,21 @@ on it rather than at the end:
 ```bash
 python3 scripts/akg.py init "$AKG_FILE" --question "<question verbatim>" --objective "<reading you adopted>"
 python3 scripts/akg.py add-dataset "$AKG_FILE" <anchor node_id> --columns <measure>,<filter>
-python3 scripts/akg.py add-relationship "$AKG_FILE" <edge_id> <edge_id>
+python3 scripts/akg.py add-edge "$AKG_FILE" <anchor node_id> <edge_id>
+python3 scripts/akg.py add-edge "$AKG_FILE" <next node_id> <edge_id>
 python3 scripts/akg.py add-dataset "$AKG_FILE" <grouping node_id> --columns <grouping column>
 ```
 
-- Take `edge_id` values from `get_hops` entries or `find_paths --detail` hops. Add only the
-  relationships on the chosen paths and direct hops. Two datasets in the file do not bring along
-  other relationships between them.
+- Take `edge_id` values from `get_edges` entries or `find_paths --detail` directed edges, and
+  add each from the dataset the step leaves, starting on the anchor side. The directed edge's
+  claims then read in traversal order. Add only the directed edges on the chosen paths and
+  single directed edges. Two datasets in the file do not bring along other edges between them.
 - Add every column you will name in step 6 with `--columns`. `essential` detail is the default;
   use `standard` only when a reviewer needs the full column list or entity definitions.
 - Unrelated facts from step 1 stay in the same file as separate components.
 - When the objective needs a connection the graph lacks, or one that exists only through columns
   with a different meaning (step 4 rules 2–3), leave the datasets unconnected and record a gap in
-  step 6. Never add a relationship only to connect components.
+  step 6. Never add an edge only to connect components.
 - When you change your mind, `remove` the element; it refuses while reasoning still refers to it.
 - Use `show` to re-read the file instead of keeping it in your context.
 
@@ -177,18 +188,20 @@ Reasoning goes only into `usage`, gaps, and comparisons, never into graph fields
   or `output`. Join keys need no entry unless the answer also uses them otherwise. Group by the
   column that defines the grouping, and list a separate label column as `output`. Put a stated
   filter value or threshold in `"value"`.
-- **Direction**: `annotate` each relationship with `{"from": "<node_id>"}`, the endpoint on the
-  anchor side. Never edit the claims; `from` alone orients them.
-- **Unmatched populations**: for each population that must stay visible, set
-  `{"keep": ["<node_id>"]}` on every relationship along its path that could drop its rows, not
-  only the first, and say which join that implies in `"note"`, as in "account LEFT JOIN loan
-  keeps accounts with no loan". `from` stays the anchor side even when the kept dataset is the
-  other endpoint.
+- **Direction**: the dataset that holds a directed edge is where traversal starts, so step 5
+  already oriented it. Never edit the claims; to traverse the other way, `remove` the edge and
+  `add-edge` it from the other end.
+- **Unmatched populations**: for each population that must stay visible, `annotate` every
+  directed edge along its path that could drop its rows, not only the first, with
+  `{"keep": ["<node_id>"]}`, and say which join that implies in `"note"`, as in "account LEFT
+  JOIN loan keeps accounts with no loan". The edge stays in the anchor-side dataset even when the
+  kept dataset is its end.
 - **Fan-out**: set `{"aggregate_before_join": true}` where step 4 rule 1 requires it.
 - `unknown` match existence never proves that a join keeps or drops records. Choose the
   preserved side the objective needs, say so in the note, and record a gap.
 - **Drill-across**: `comparison FILE <id> '{"anchors": [...], "shared_columns": [{"node_id": ..., "column": ...}], "comparison": "coverage|difference|co_occurrence"}'`.
-- **Gaps**: `gap FILE <id> '{"description": ..., "datasets": [...]}'` for each missing
+- **Gaps**: `gap FILE <id> '{"description": ..., "datasets": [...]}'`, naming directed edges as
+  `"edges": [{"node_id": ..., "edge_id": ...}]`, for each missing
   connection or concept, unresolved threshold ("high", "few"), missing time scope, implicit
   population (such as active employees), and `unknown` claim the answer depends on.
 
@@ -215,5 +228,5 @@ Then check what the checker cannot:
 ## Call budget
 
 Aim for at most 30 `graph_call.py` calls per objective, not counting `akg.py` commands. Do not call
-`expand_subgraph` with `max_depth` above 1. Do not call `get_hops` on a hub dimension (calendar day, location,
-product) unless it is the anchor; its hop list is large and mostly unrelated facts.
+`expand_subgraph` with `max_depth` above 1. Do not call `get_edges` on a hub dimension (calendar day, location,
+product) unless it is the anchor; its list of directed edges is large and mostly unrelated facts.

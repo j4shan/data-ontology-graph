@@ -13,15 +13,17 @@ By default a result is printed as a compact projection:
 
 - search: per kind, one line per subject with each matching field value.
 - get_dataset: names first, then grain, columns, and entity definitions; no accessor.
-- get_identity: the datasets that realize the identity, with their entity universe.
-- get_hops: one {edge_id, step} entry per hop; the step shows both directions, and each endpoint's
-  effective description with its source (`entity`, or `column` for a single raw column).
-- get_relationship: canonical claims, plus `direction` and `reverse_direction` when the params
-  name `from_node_id`.
-- find_paths: one line per path (default limit 10), fan-out-free paths first; --detail adds each
-  path's {edge_id, step} hops. `fan_out` counts steps that multiply rows (1:many, many:many) and
-  `unknown` counts steps with an unknown claim.
-- expand_subgraph: one line per node and per edge.
+- get_identity: the datasets that realize the logical entity, with their entity universe.
+- get_edges: one line per entity definition with its listed and total directed edges, then one
+  {edge_id, step} entry per listed directed edge leaving the dataset; the step names the columns
+  it leaves from and arrives at, each endpoint's effective description, the logical entity ID, and
+  the outgoing claims, then the reverse claims at `standard` detail and above.
+- get_relationship: canonical claims, plus the directed edge leaving the endpoint the params name
+  with `from_node_id` (and `from_dataset_columns` when both endpoints lie on that dataset).
+- find_paths: one line per route, fan-out-free routes first; --detail adds each route's
+  {edge_id, step} directed edges. `fan_out` counts directed edges that multiply rows (1:many,
+  many:many) and `unknown` counts directed edges with an unknown claim.
+- expand_subgraph: one line per dataset with its edge count, and one step per listed directed edge.
 
 --full prints the raw result; --full --records converts each table to records. To build an AKG,
 use the sibling `akg.py`, which writes graph objects into the AKG file directly.
@@ -35,7 +37,6 @@ import socket
 import sys
 from pathlib import Path
 
-DEFAULT_PATH_LIMIT = 10
 DEFAULT_HOME = "~/.data-ontology-graph"
 FAN_OUT = ("1:many", "many:many")
 
@@ -116,25 +117,73 @@ def _claims(direction: dict | None) -> str:
     return f'{direction["multiplicity"]}/{direction["match_existence"]}'
 
 
-def _side(endpoint: dict) -> str:
-    return f'{endpoint["node_id"]}[{",".join(endpoint["dataset_columns"])}]'
+def _end(label: str, description: str | None) -> str:
+    """`node[cols]`, followed by the endpoint's effective description, if any."""
+    return f'{label} "{description}"' if description else label
 
 
-def _columns(relationship: dict, node_id: str) -> list[str]:
-    for side in ("endpoint_a", "endpoint_b"):
-        if relationship[side]["node_id"] == node_id:
-            return relationship[side]["dataset_columns"]
-    raise KeyError(node_id)
+def _ends(label: str) -> tuple[str, str]:
+    """Split `start[cols] -> end[cols]` at the arrow outside quoted column names."""
+    quoted = False
+    index = 0
+    while index < len(label):
+        char = label[index]
+        if quoted:
+            if char == "\\":
+                index += 1
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif label.startswith(" -> ", index):
+            return label[:index], label[index + 4:]
+        index += 1
+    raise ValueError(f"not a directed edge: {label!r}")
 
 
-def _described(definitions: dict, relationship: dict, node_id: str) -> str:
-    """`node[cols]`, followed by the endpoint's effective description and its source, if any."""
-    columns = _columns(relationship, node_id)
-    text = f'{node_id}[{",".join(columns)}]'
-    definition = definitions.get((node_id, relationship["identity_id"], tuple(columns)))
-    if definition and definition.get("effective_description"):
-        text += f' "{definition["effective_description"]}" ({definition["description_source"]})'
+def _step(edge: dict, identity_id: str | None = None) -> str:
+    """One directed edge as `from[cols] "desc" -> to[cols] "desc" logical-entity-ID claims | reverse claims`."""
+    start, end = _ends(edge["edge"])
+    text = f'{_end(start, edge.get("from_description"))} -> {_end(end, edge.get("to_description"))}'
+    if identity_id:
+        text += f" {identity_id}"
+    text += f' {edge["multiplicity"]}/{edge["match_existence"]}'
+    if "reverse_multiplicity" in edge:
+        text += f' | reverse {edge["reverse_multiplicity"]}/{edge["reverse_match_existence"]}'
     return text
+
+
+def _named(result: dict, edge: list) -> dict:
+    """A directed-edge array keyed by the response's `edge_fields`."""
+    return dict(zip(result["edge_fields"], edge))
+
+
+def _groups(result: dict) -> list[tuple[str, dict]]:
+    """Every edge group with the dataset it belongs to, from either response format."""
+    if "edge_groups" in result:
+        return [(group["node_id"], group) for group in result["edge_groups"]]
+    return [(d["node_id"], group) for d in result["datasets"] for group in d.get("edge_groups", ())]
+
+
+def _edges(result: dict) -> list[tuple[str, dict]]:
+    """Every listed directed edge with its group's logical entity ID."""
+    return [
+        (group["identity_id"], _named(result, edge))
+        for _, group in _groups(result)
+        for definition in group["entity_definitions"]
+        for edge in definition["edges"]
+    ]
+
+
+def _group_lines(result: dict) -> list[str]:
+    """One line per entity definition: `node[cols] logical-entity-ID listed/total`."""
+    return [
+        f'{node_id}[{",".join(definition["dataset_columns"])}] {group["identity_id"]} '
+        f'{len(definition["edges"])}/{definition["edge_count"]}'
+        + (" truncated" if definition["truncated"] else "")
+        for node_id, group in _groups(result)
+        for definition in group["entity_definitions"]
+    ]
 
 
 def _definitions(result: dict) -> dict:
@@ -144,23 +193,19 @@ def _definitions(result: dict) -> dict:
     }
 
 
-def _step(relationships: dict, definitions: dict, step: dict) -> str:
-    """One hop as `from[cols] "desc" -> to[cols] "desc" identity direction | reverse`."""
-    relationship = relationships[step["edge_id"]]
-    origin = _described(definitions, relationship, step["from_node_id"])
-    target = _described(definitions, relationship, step["to_node_id"])
-    unknown = f' unknown={",".join(step["unknown_fields"])}' if step["unknown_fields"] else ""
-    return (
-        f'{origin} -> {target} {relationship["identity_id"]} '
-        f'{_claims(step["direction"])} | reverse {_claims(step["reverse_direction"])}{unknown}'
-    )
+def _endpoint(definitions: dict, identity_id: str, endpoint: dict) -> str:
+    definition = definitions.get(
+        (endpoint["node_id"], identity_id, tuple(endpoint["dataset_columns"]))
+    ) or {}
+    return _end(f'{endpoint["node_id"]}[{",".join(endpoint["dataset_columns"])}]',
+                definition.get("effective_description"))
 
 
 def _subject(kind: str, subject: dict) -> str:
     if kind == "column":
         label = f'{subject["node_id"]}.{subject["column_name"]}'
     elif kind == "dataset":
-        label = f'{subject["key"]} ({subject["display_name"]})'
+        label = f'{subject["key"]} ({subject["qualified_name"]})'
     elif kind == "entity_definition":
         label = (
             f'{subject["node_id"]}[{",".join(subject["dataset_columns"])}] '
@@ -192,8 +237,8 @@ def _search(result: dict) -> dict:
             "groups": groups}
 
 
-def _hop(relationships: dict, definitions: dict, step: dict) -> dict:
-    return {"edge_id": step["edge_id"], "step": _step(relationships, definitions, step)}
+def _edge(edge: dict, identity_id: str | None = None) -> dict:
+    return {"edge_id": edge["edge_id"], "step": _step(edge, identity_id)}
 
 
 def compact(method: str, result, *, detail: bool = False):
@@ -225,55 +270,47 @@ def compact(method: str, result, *, detail: bool = False):
             "unknown_fields": result["unknown_fields"],
         }
     result = expand_tables(result)
-    relationships = {r["edge_id"]: r for r in result.get("relationships", [])}
-    definitions = _definitions(result)
-    if method == "graph.get_hops":
+    if method == "graph.get_edges":
         return {
             "truncated": result["truncated"],
-            "hops": [_hop(relationships, definitions, step) for step in result["hops"]],
+            "groups": _group_lines(result),
+            "edges": [_edge(edge, identity_id) for identity_id, edge in _edges(result)],
         }
     if method == "graph.get_relationship":
+        definitions = _definitions(result)
         return {
             "edge_id": result["edge_id"],
             "identity_id": result["identity_id"],
-            "endpoint_a": _described(definitions, result, result["endpoint_a"]["node_id"])
-            if result["endpoint_a"]["node_id"] != result["endpoint_b"]["node_id"]
-            else _side(result["endpoint_a"]),
-            "endpoint_b": _described(definitions, result, result["endpoint_b"]["node_id"])
-            if result["endpoint_a"]["node_id"] != result["endpoint_b"]["node_id"]
-            else _side(result["endpoint_b"]),
+            "endpoint_a": _endpoint(definitions, result["identity_id"], result["endpoint_a"]),
+            "endpoint_b": _endpoint(definitions, result["identity_id"], result["endpoint_b"]),
             "a_to_b": _claims(result["a_to_b"]),
             "b_to_a": _claims(result["b_to_a"]),
-            "from_node_id": result["from_node_id"],
-            "direction": _claims(result["direction"]),
-            "reverse_direction": _claims(result["reverse_direction"]),
+            "edge": (_step(_named(result, result["edge"]), result["identity_id"])
+                     if result["edge"] else None),
             "unknown_fields": result["unknown_fields"],
         }
     if method == "graph.find_paths":
-        grouped: list[list[dict]] = []
-        for step in result["hops"]:
-            if step["path"] == len(grouped):
-                grouped.append([])
-            grouped[step["path"]].append(step)
         paths = []
-        for rank, steps in enumerate(grouped):
-            shape = " > ".join(step["direction"]["multiplicity"] for step in steps)
-            fan_out = sum(step["direction"]["multiplicity"] in FAN_OUT for step in steps)
-            unknown = sum(bool(step["unknown_fields"]) for step in steps)
-            route = " -> ".join(
-                [steps[0]["from_node_id"]] + [step["to_node_id"] for step in steps]
+        for rank, route in enumerate(result["routes"]):
+            steps = [_named(result, edge) for edge in route]
+            shape = " > ".join(edge["multiplicity"] for edge in steps)
+            fan_out = sum(edge["multiplicity"] in FAN_OUT for edge in steps)
+            unknown = sum(
+                "unknown" in (edge["multiplicity"], edge["match_existence"]) for edge in steps
             )
+            ends = [_ends(edge["edge"]) for edge in steps]
+            line = " -> ".join([start for start, _ in ends] + [ends[-1][1]])
             paths.append({
                 "rank": rank,
                 "fan_out": fan_out,
                 "unknown": unknown,
-                "line": f"#{rank} [{shape}] fan_out={fan_out} unknown={unknown}: {route}",
-                "hops": [_hop(relationships, definitions, step) for step in steps],
+                "line": f"#{rank} [{shape}] fan_out={fan_out} unknown={unknown}: {line}",
+                "edges": [_edge(edge) for edge in steps],
             })
-        # Fan-out-free chains first, then fewer unknown hops; service rank breaks ties.
+        # Fan-out-free chains first, then fewer unknown edges; service rank breaks ties.
         paths.sort(key=lambda path: (path["fan_out"], path["unknown"], path["rank"]))
         if detail:
-            listed = [{"line": path["line"], "hops": path["hops"]} for path in paths]
+            listed = [{"line": path["line"], "edges": path["edges"]} for path in paths]
         else:
             listed = [path["line"] for path in paths]
         return {"truncated": result["truncated"], "path_count": len(paths), "paths": listed}
@@ -281,14 +318,11 @@ def compact(method: str, result, *, detail: bool = False):
         return {
             "truncated": result["truncated"],
             "nodes": [
-                f'{d["distance"]} {d["node_id"]} ({d["descriptor"]["qualified_name"]})'
+                f'{d["distance"]} {d["node_id"]} ({d["qualified_name"]}) edges={d["edge_count"]}'
                 for d in result["datasets"]
             ],
-            "edges": [
-                f'{edge_id}: {_side(e["endpoint_a"])} <-> {_side(e["endpoint_b"])} '
-                f'{e["identity_id"]} a_to_b {_claims(e["a_to_b"])} | b_to_a {_claims(e["b_to_a"])}'
-                for edge_id, e in relationships.items()
-            ],
+            "groups": _group_lines(result),
+            "edges": [_step(edge, identity_id) for identity_id, edge in _edges(result)],
         }
     if method == "graph.get_identity":
         names = {d["node_id"]: d["descriptor"]["qualified_name"] for d in result["datasets"]}
@@ -312,14 +346,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--records", action="store_true",
                         help="with --full, convert each table to a list of records")
     parser.add_argument("--detail", action="store_true",
-                        help="with find_paths, list each path's hops")
+                        help="with find_paths, list each path's edges")
     args = parser.parse_args(argv)
     socket_path = (Path(args.socket).expanduser() if args.socket else default_socket()).resolve()
     params = json.loads(args.params)
     try:
         method = args.method if args.method.startswith("graph.") else f"graph.{args.method}"
-        if method == "graph.find_paths":
-            params.setdefault("limit", DEFAULT_PATH_LIMIT)
         result = result_of(socket_path, method, params)
         if args.full:
             output = expand_tables(result) if args.records else result

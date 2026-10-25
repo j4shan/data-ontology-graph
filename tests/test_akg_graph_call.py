@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "skills" / "query-graph-api" / "scripts" / "graph_call.py"
 LOAN = "sqlite:lending.loan"
 ACCOUNT = "sqlite:lending.account"
+HOLDER = "sqlite:lending.account_holder"
 LOAN_ACCOUNT = (
     "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
 )
@@ -52,7 +53,7 @@ def test_get_dataset_puts_names_first_and_drops_accessor(lending_socket: Path, c
 def test_find_paths_lists_one_line_per_path_fan_out_free_first(
     lending_socket: Path, capsys
 ) -> None:
-    params = json.dumps({"from_node_id": LOAN, "to_node_id": "sqlite:lending.region", "max_hops": 4})
+    params = json.dumps({"from_node_id": LOAN, "to_node_id": "sqlite:lending.region", "max_edges": 4})
     code, output = _run(lending_socket, capsys, "find_paths", params)
     assert code == 0
     assert all(isinstance(line, str) for line in output["paths"])
@@ -60,10 +61,10 @@ def test_find_paths_lists_one_line_per_path_fan_out_free_first(
 
     code, detailed = _run(lending_socket, capsys, "find_paths", params, "--detail")
     assert code == 0
-    first_hop = detailed["paths"][0]["hops"][0]
-    assert first_hop["edge_id"] == LOAN_ACCOUNT
-    assert first_hop["step"].startswith(
-        f'{LOAN}[account_id] "the account that repays the loan" (column) -> {ACCOUNT}[account_id]'
+    first_edge = detailed["paths"][0]["edges"][0]
+    assert first_edge["edge_id"] == LOAN_ACCOUNT
+    assert first_edge["step"].startswith(
+        f'{LOAN}[account_id] "the account that repays the loan" -> {ACCOUNT}[account_id]'
     )
 
 
@@ -73,21 +74,27 @@ def test_relationship_is_oriented_from_the_requested_endpoint(
     params = json.dumps({"edge_id": LOAN_ACCOUNT, "from_node_id": LOAN})
     code, output = _run(lending_socket, capsys, "get_relationship", params)
     assert code == 0
-    assert output["direction"] == "many:1/always"
-    assert output["reverse_direction"] == "1:many/optional"
+    assert output["edge"].endswith("account_identity many:1/always | reverse 1:many/optional")
+    assert output["edge"].startswith(f"{LOAN}[account_id]")
     assert output["a_to_b"] == "1:many/optional"
 
 
-def test_hops_carry_both_directions(lending_socket: Path, capsys) -> None:
-    code, output = _run(lending_socket, capsys, "get_hops", json.dumps({"node_id": LOAN}))
+def test_directed_edges_carry_both_directions(lending_socket: Path, capsys) -> None:
+    code, output = _run(lending_socket, capsys, "get_edges", json.dumps({"node_id": LOAN}))
     assert code == 0
-    assert output["hops"] == [
+    assert output["edges"] == [
         {
             "edge_id": LOAN_ACCOUNT,
-            "step": f'{LOAN}[account_id] "the account that repays the loan" (column) -> '
-            f'{ACCOUNT}[account_id] "the id of the account" (column) account_identity '
+            "step": f'{LOAN}[account_id] "the account that repays the loan" -> '
+            f'{ACCOUNT}[account_id] "the id of the account" account_identity '
             "many:1/always | reverse 1:many/optional",
-        }
+        },
+        {
+            "edge_id": f"{HOLDER}:account_identity:account_id__{LOAN}:account_identity:account_id",
+            "step": f'{LOAN}[account_id] "the account that repays the loan" -> '
+            f'{HOLDER}[account_id] "the account being held" account_identity '
+            "many:many/always | reverse many:many/optional",
+        },
     ]
 
 
@@ -108,12 +115,19 @@ def test_service_error_exits_non_zero(lending_socket: Path, capsys) -> None:
     assert error["message"] == "unknown dataset nope"
 
 
-def test_hops_tell_relationship_roles_apart_by_endpoint_description(
+def test_directed_edges_tell_relationship_roles_apart_by_endpoint_description(
     lending_socket: Path, capsys
 ) -> None:
     params = json.dumps({"node_id": "sqlite:lending.region"})
-    code, output = _run(lending_socket, capsys, "get_hops", params)
+    code, output = _run(lending_socket, capsys, "get_edges", params)
     assert code == 0
-    steps = [hop["step"] for hop in output["hops"]]
-    assert any('"region of the opening branch" (column)' in step for step in steps)
-    assert any('"home region of the customer" (column)' in step for step in steps)
+    steps = [edge["step"] for edge in output["edges"]]
+    assert any('"region of the opening branch"' in step for step in steps)
+    assert any('"home region of the customer"' in step for step in steps)
+
+
+def test_client_splits_a_directed_edge_outside_quoted_column_names() -> None:
+    from data_ontology_graph.service.views import definition_label
+
+    ends = (definition_label("s.t", ["a -> b", 'q"']), definition_label("s.u", ["k"]))
+    assert _client()._ends(" -> ".join(ends)) == ends

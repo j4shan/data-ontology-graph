@@ -31,13 +31,14 @@ The skill does not translate an AKG into a query language.
 
 | ID | Clause |
 | --- | --- |
-| 3.1 | The skill instructs the agent to include all data that serves one objective; that objective is the AKG's relevance boundary. An AKG consists of subgraphs of graph nodes and edges that may be disconnected or contain cycles. |
+| 3.1 | The skill instructs the agent to include all data that serves one objective; that objective is the AKG's relevance boundary. An AKG is a free-form subgraph the agent constructs incrementally from graph nodes and edges; it may be disconnected or contain cycles, and no single navigation response is one. |
 | 3.2 | The skill instructs the agent to build an AKG incrementally through graph APIs that add and remove AKG elements and check whether an element is present in the AKG. The agent preserves graph-supplied facts while changing AKG membership. |
 | 3.3 | The skill instructs the agent to keep the AKG structurally sound and consistently parseable by a large language model (LLM) with tools. Minor deviations do not cause total failure. The agent may add custom fields and choose which optional node and edge properties to include for the objective. |
 | 3.4 | The skill instructs the agent to retain canonical node and edge identifiers and data-source information so that the agent can check provenance and identify the relevant data system. |
 | 3.5 | The skill focuses the agent on datasets, relationships, and statistics. The agent omits internal system attributes while retaining the object references needed to fetch more properties and navigate related objects. |
 | 3.6 | The skill's immediate goal is stable AKG editing and parsing correctness. A finalized AKG can be converted into other representations, such as input for Structured Query Language (SQL) generation. |
 | 3.7 | No person is involved while the agent builds an AKG. People may validate a finalized AKG. |
+| 3.8 | An AKG records adjacency the way navigation responses present it: each dataset carries the directed edges it uses, and connected components derive from those directed edges. |
 
 Note: the graph model has no fields that capture statistics yet, so the statistics pillar in 3.5 is a
 future enhancement and AKGs carry none for now ([functional.md#4.2.1](functional.md)).

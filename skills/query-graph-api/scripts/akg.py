@@ -3,20 +3,25 @@
 
 Standard library only; imports no graph-core code. Graph objects go from the service into the
 file without being retyped: `add-*` fetches them and writes their trimmed fields, and never
-changes a graph field already present. Agent reasoning changes only through `annotate`, `gap`,
-and `comparison`, which apply RFC 7396 merge-patches given as JSON text, `-` (standard
-input), or `@path`. Every write is atomic and resets `status`
-to `draft`; `data-ontology-graph-akg finalize` sets `final`.
+changes a graph field already present. A selected join is a directed edge stored in the dataset
+traversal starts from. Agent reasoning changes only through `annotate`, `gap`, and
+`comparison`, which apply RFC 7396 merge-patches given as JSON text, `-` (standard input), or
+`@path`. Every write is atomic and resets `status` to `draft`; `data-ontology-graph-akg
+finalize` sets `final`.
 
     akg.py init FILE --question Q [--objective O]
     akg.py add-dataset FILE NODE_ID... [--detail essential|standard|full] [--columns c1,c2]
-    akg.py add-relationship FILE EDGE_ID... [--no-endpoints]
+    akg.py add-edge FILE NODE_ID EDGE_ID... [--from-columns c1,c2] [--no-endpoints]
     akg.py remove FILE KEY... [--cascade]
     akg.py exists FILE KEY...
     akg.py show FILE [--full]
-    akg.py annotate FILE KEY PATCH_JSON
+    akg.py annotate FILE KEY PATCH_JSON [--from NODE_ID] [--from-columns c1,c2]
     akg.py gap FILE ID PATCH_JSON
     akg.py comparison FILE ID PATCH_JSON
+    akg.py migrate FILE
+
+A KEY is a dataset `node_id` or an `edge_id`. `migrate` converts a file written with the earlier
+`relationships` map.
 
 The socket comes from --socket, then $DOG_SOCKET, then the service home's socket. Each command
 prints one JSON line.
@@ -33,11 +38,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from graph_call import ServiceError, default_socket, result_of  # noqa: E402
 
+FORMAT_VERSION = 2
 DETAIL_LEVELS = ("essential", "standard", "full")
 UNKNOWN = "unknown"
 DATASET_ORDER = (
     "name", "source", "grain", "description", "columns", "entity_definitions", "synonyms", "tags",
-    "stats", "usage",
+    "stats", "usage", "edges",
 )
 
 
@@ -91,17 +97,43 @@ def project_dataset(node: dict, detail: str = "essential", columns=None) -> dict
     return dataset
 
 
-def project_relationship(relationship: dict) -> dict:
+def project_edge(relationship: dict, from_node_id: str, from_dataset_columns: list,
+                 descriptions: dict | None = None) -> dict:
+    sides = [(relationship[side], forward, reverse) for side, forward, reverse in (
+        ("endpoint_a", "a_to_b", "b_to_a"), ("endpoint_b", "b_to_a", "a_to_b"),
+    )]
+    for start, forward, reverse in sides:
+        if start["node_id"] == from_node_id and start["dataset_columns"] == from_dataset_columns:
+            end = relationship["endpoint_b" if forward == "a_to_b" else "endpoint_a"]
+            break
+    else:
+        raise ValueError(
+            f"{from_node_id}{from_dataset_columns} is not an endpoint of {relationship['edge_id']}"
+        )
+    edge = {
+        "edge_id": relationship["edge_id"],
+        "identity_id": start.get("identity_id", relationship.get("identity_id")),
+        "from_dataset_columns": start["dataset_columns"],
+        "to_node_id": end["node_id"],
+        "to_dataset_columns": end["dataset_columns"],
+        "multiplicity": relationship[forward]["multiplicity"],
+        "match_existence": relationship[forward]["match_existence"],
+        "reverse_multiplicity": relationship[reverse]["multiplicity"],
+        "reverse_match_existence": relationship[reverse]["match_existence"],
+    }
+    for field, endpoint in (("from_description", start), ("to_description", end)):
+        text = (descriptions or {}).get((endpoint["node_id"], tuple(endpoint["dataset_columns"])))
+        if text:
+            edge[field] = text
+    return edge
+
+
+def endpoint_descriptions(record: dict) -> dict:
     return {
-        side: {
-            "node_id": relationship[side]["node_id"],
-            "identity_id": relationship[side].get("identity_id", relationship.get("identity_id")),
-            "dataset_columns": relationship[side]["dataset_columns"],
-        }
-        for side in ("endpoint_a", "endpoint_b")
-    } | {
-        direction: {key: relationship[direction][key] for key in ("multiplicity", "match_existence")}
-        for direction in ("a_to_b", "b_to_a")
+        (definition["node_id"], tuple(definition["dataset_columns"])):
+            definition["effective_description"]
+        for definition in record.get("entity_definitions", [])
+        if definition.get("effective_description")
     }
 
 
@@ -150,7 +182,8 @@ def _grain(grain) -> list | str:
 
 # File access.
 
-def load(path: Path) -> dict:
+def load(path: Path, converted: bool = True) -> dict:
+    """Read the file; with `converted`, refuse one that still holds a `relationships` map."""
     if not path.exists():
         raise AkgError(f"{path} does not exist; run `akg.py init` first")
     try:
@@ -159,8 +192,9 @@ def load(path: Path) -> dict:
         raise AkgError(f"{path} is not valid JSON: {error}") from error
     if not isinstance(document, dict):
         raise AkgError(f"{path} does not hold a JSON object")
+    if converted and "relationships" in document:
+        raise AkgError(f"{path} uses the earlier relationships map; run `akg.py migrate` first")
     document.setdefault("datasets", {})
-    document.setdefault("relationships", {})
     return document
 
 
@@ -200,7 +234,7 @@ def init(path: Path, socket_path: Path | None, question: str, objective: str | N
             document["graph"] = {"snapshot": snapshot}
         except (OSError, ServiceError):
             snapshot = None
-    document |= {"datasets": {}, "relationships": {}}
+    document = {"format_version": FORMAT_VERSION, **document, "datasets": {}}
     path.parent.mkdir(parents=True, exist_ok=True)
     save(path, document)
     return {"created": str(path), "snapshot": snapshot}
@@ -217,36 +251,45 @@ def add_datasets(
     return report
 
 
-def add_relationships(
-    document: dict, socket_path: Path, edge_ids: list[str], endpoints: bool
+def add_edges(
+    document: dict, socket_path: Path, node_id: str, edge_ids: list[str],
+    from_columns: list[str], endpoints: bool,
 ) -> dict:
     report: dict[str, list[str]] = {"added": [], "unchanged": [], "datasets_added": [],
                                     "datasets_extended": []}
     for edge_id in edge_ids:
-        record = result_of(
-            socket_path, "graph.get_relationship", {"edge_id": edge_id, "response_format": "records"}
+        params = {"edge_id": edge_id, "from_node_id": node_id, "response_format": "records"}
+        if from_columns:
+            params["from_dataset_columns"] = from_columns
+        record = result_of(socket_path, "graph.get_relationship", params)
+        edge = project_edge(
+            record, node_id, record["from_dataset_columns"], endpoint_descriptions(record)
         )
-        relationships = document["relationships"]
-        if edge_id in relationships:
+        if endpoints:
+            for end, columns in ((node_id, edge["from_dataset_columns"]),
+                                 (edge["to_node_id"], edge["to_dataset_columns"])):
+                node = result_of(socket_path, "graph.get_dataset", {"node_id": end})
+                outcome = _merge_dataset(document, end, project_dataset(node, "essential", columns))
+                if outcome != "unchanged":
+                    report[f"datasets_{outcome}"].append(end)
+        if node_id not in document["datasets"]:
+            raise AkgError(f"{node_id} is not in the document; add it first or drop --no-endpoints")
+        held = document["datasets"][node_id].setdefault("edges", [])
+        if _find(held, edge_id, edge["from_dataset_columns"]):
             report["unchanged"].append(edge_id)
         else:
-            relationships[edge_id] = project_relationship(record)
+            held.append(edge)
             report["added"].append(edge_id)
-        if not endpoints:
-            continue
-        for side in ("endpoint_a", "endpoint_b"):
-            endpoint = relationships[edge_id][side]
-            node = result_of(socket_path, "graph.get_dataset", {"node_id": endpoint["node_id"]})
-            projected = project_dataset(node, "essential", endpoint["dataset_columns"])
-            outcome = _merge_dataset(document, endpoint["node_id"], projected)
-            if outcome != "unchanged":
-                report[f"datasets_{outcome}"].append(endpoint["node_id"])
+        _order(document, node_id)
+    report["datasets_added"] = list(dict.fromkeys(report["datasets_added"]))
+    report["datasets_extended"] = list(dict.fromkeys(report["datasets_extended"]))
     return report
 
 
 def remove(document: dict, keys: list[str], cascade: bool) -> dict:
-    unknown = [key for key in keys if key not in document["datasets"]
-               and key not in document["relationships"]]
+    datasets = document["datasets"]
+    edge_ids = {edge["edge_id"] for _, edge in _edges(document)}
+    unknown = [key for key in keys if key not in datasets and key not in edge_ids]
     if unknown:
         raise AkgError(f"not in the document: {unknown}")
     removing = set(keys)
@@ -258,32 +301,43 @@ def remove(document: dict, keys: list[str], cascade: bool) -> dict:
         )
     removed: list[str] = []
     for key in keys:
-        if key in document["datasets"]:
-            for edge_id, relationship in list(document["relationships"].items()):
-                if key in (relationship["endpoint_a"]["node_id"], relationship["endpoint_b"]["node_id"]):
-                    del document["relationships"][edge_id]
-                    removed.append(edge_id)
-                    _drop_references(document, edge_id)
-            del document["datasets"][key]
+        if key in datasets:
+            for node_id, dataset in datasets.items():
+                if node_id == key:
+                    continue
+                for edge in [edge for edge in dataset.get("edges") or [] if edge["to_node_id"] == key]:
+                    removed += _remove_edge(document, edge["edge_id"])
+            del datasets[key]
         else:
-            document["relationships"].pop(key, None)
+            _remove_edge(document, key)
         _drop_references(document, key)
         removed.append(key)
     return {"removed": list(dict.fromkeys(removed))}
 
 
 def exists(document: dict, keys: list[str]) -> dict:
-    return {key: "present" if key in document["datasets"] or key in document["relationships"]
+    edge_ids = {edge["edge_id"] for _, edge in _edges(document)}
+    return {key: "present" if key in document["datasets"] or key in edge_ids
             else "absent" for key in keys}
 
 
-def annotate(document: dict, key: str, patch) -> dict:
-    if key in document["datasets"]:
+def annotate(document: dict, key: str, patch, from_node_id: str | None = None,
+             from_columns: list[str] | None = None) -> dict:
+    if key in document["datasets"] and from_node_id is None:
         element = document["datasets"][key]
-    elif key in document["relationships"]:
-        element = document["relationships"][key]
     else:
-        raise AkgError(f"{key} is not in the document; add it first")
+        matches = [
+            edge for node_id, edge in _edges(document)
+            if edge["edge_id"] == key and from_node_id in (None, node_id)
+            and (not from_columns or edge["from_dataset_columns"] == from_columns)
+        ]
+        if not matches:
+            raise AkgError(f"{key} is not in the document; add it first")
+        if len(matches) > 1:
+            raise AkgError(
+                f"{key} is held by more than one directed edge; name --from and --from-columns"
+            )
+        element = matches[0]
     if not isinstance(patch, dict):
         raise AkgError("an annotation patch must be a JSON object applied to `usage`")
     usage = merge_patch(element.get("usage"), patch)
@@ -292,6 +346,54 @@ def annotate(document: dict, key: str, patch) -> dict:
     else:
         element.pop("usage", None)
     return {"annotated": key, "usage": element.get("usage")}
+
+
+def migrate(document: dict, socket_path: Path) -> dict:
+    """Convert a `relationships` map into directed edges, each in the dataset traversal leaves.
+
+    The start is `usage.from`, else `endpoint_a`. Claims are kept as written; fields the earlier
+    format lacked, such as the effective descriptions, are fetched from the service.
+    """
+    relationships = document.pop("relationships", None)
+    if relationships is None:
+        raise AkgError("the document has no relationships map to migrate")
+    converted = []
+    for edge_id, relationship in relationships.items():
+        usage = dict(relationship.get("usage") or {})
+        start = relationship["endpoint_a"]
+        if usage.get("from") == relationship["endpoint_b"]["node_id"]:
+            start = relationship["endpoint_b"]
+        usage.pop("from", None)
+        node_id, columns = start["node_id"], start["dataset_columns"]
+        if node_id not in document["datasets"]:
+            raise AkgError(f"{edge_id} starts at {node_id}, which is not in the document")
+        edge = project_edge(dict(relationship, edge_id=edge_id), node_id, columns)
+        record = result_of(socket_path, "graph.get_relationship", {
+            "edge_id": edge_id, "from_node_id": node_id, "from_dataset_columns": columns,
+            "response_format": "records",
+        })
+        for field, value in project_edge(
+            record, node_id, columns, endpoint_descriptions(record)
+        ).items():
+            edge.setdefault(field, value)
+        for field in ("stats",):
+            if relationship.get(field):
+                edge[field] = relationship[field]
+        if usage:
+            edge["usage"] = usage
+        document["datasets"][node_id].setdefault("edges", []).append(edge)
+        _order(document, node_id)
+        converted.append({"edge_id": edge_id, "node_id": node_id})
+    starts = {item["edge_id"]: item["node_id"] for item in converted}
+    for gap in (document.get("gaps") or {}).values():
+        if "relationships" in gap:
+            gap["edges"] = [{"node_id": starts[edge_id], "edge_id": edge_id}
+                            for edge_id in gap.pop("relationships") if edge_id in starts]
+    ordered = {"format_version": FORMAT_VERSION}
+    ordered.update((key, value) for key, value in document.items() if key != "format_version")
+    document.clear()
+    document.update(ordered)
+    return {"migrated": converted}
 
 
 def patch_entry(document: dict, collection: str, entry_id: str, patch) -> dict:
@@ -314,10 +416,10 @@ def patch_entry(document: dict, collection: str, entry_id: str, patch) -> dict:
 def show(document: dict, full: bool) -> str:
     if full:
         return json.dumps(document, indent=2, ensure_ascii=False)
-    datasets, relationships = document["datasets"], document["relationships"]
+    datasets = document["datasets"]
     lines = [
         f"status {document.get('status')} | {len(datasets)} datasets | "
-        f"{len(relationships)} relationships | {_components(document)} component(s)"
+        f"{len(_edges(document))} edges | {_components(document)} component(s)"
     ]
     for node_id, dataset in datasets.items():
         usage = dataset.get("usage") or {}
@@ -328,17 +430,18 @@ def show(document: dict, full: bool) -> str:
         )
         role = f" role={usage['role']}" if usage.get("role") else ""
         lines.append(f"dataset {node_id} ({dataset.get('name')}){role} columns={columns or '-'}")
-    for edge_id, relationship in relationships.items():
-        usage = relationship.get("usage") or {}
-        a, b = relationship["endpoint_a"], relationship["endpoint_b"]
-        forward, reverse = "a_to_b", "b_to_a"
-        if usage.get("from") == b["node_id"]:
-            a, b, forward, reverse = b, a, reverse, forward
-        claims = f"{_claims(relationship[forward])} | reverse {_claims(relationship[reverse])}"
-        keep = f" keep={','.join(usage['keep'])}" if usage.get("keep") else ""
-        oriented = "" if usage.get("from") else " (canonical order; no usage.from)"
-        lines.append(f"relationship {edge_id}")
-        lines.append(f"  {_end(a)} -> {_end(b)} {claims}{keep}{oriented}")
+        for edge in dataset.get("edges") or []:
+            keep = (edge.get("usage") or {}).get("keep")
+            claims = (
+                f"{edge['multiplicity']}/{edge['match_existence']} | reverse "
+                f"{edge['reverse_multiplicity']}/{edge['reverse_match_existence']}"
+            )
+            lines.append(f"  edge {edge['edge_id']}")
+            lines.append(
+                f"  {_end(node_id, edge['from_dataset_columns'])} -> "
+                f"{_end(edge['to_node_id'], edge['to_dataset_columns'])} {claims}"
+                + (f" keep={','.join(keep)}" if keep else "")
+            )
     for key in ("comparisons", "gaps"):
         for entry_id, entry in (document.get(key) or {}).items():
             lines.append(f"{key[:-1]} {entry_id}: {json.dumps(entry, ensure_ascii=False)}")
@@ -368,25 +471,53 @@ def _merge_dataset(document: dict, node_id: str, projected: dict) -> str:
                     if key not in current[field][name]:
                         current[field][name][key] = fact
                         changed = True
-    order = {field: index for index, field in enumerate(DATASET_ORDER)}
-    datasets[node_id] = dict(sorted(current.items(), key=lambda item: order.get(item[0], len(order))))
+    _order(document, node_id)
     return "extended" if changed else "unchanged"
+
+
+def _edges(document: dict) -> list[tuple[str, dict]]:
+    return [(node_id, edge) for node_id, dataset in document["datasets"].items()
+            for edge in dataset.get("edges") or []]
+
+
+def _find(edges: list[dict], edge_id: str, columns: list[str]) -> dict | None:
+    return next((edge for edge in edges
+                 if edge["edge_id"] == edge_id and edge["from_dataset_columns"] == columns), None)
+
+
+def _order(document: dict, node_id: str) -> None:
+    order = {field: index for index, field in enumerate(DATASET_ORDER)}
+    dataset = document["datasets"][node_id]
+    document["datasets"][node_id] = dict(
+        sorted(dataset.items(), key=lambda item: order.get(item[0], len(order)))
+    )
+
+
+def _remove_edge(document: dict, edge_id: str) -> list[str]:
+    for dataset in document["datasets"].values():
+        if "edges" in dataset:
+            dataset["edges"] = [edge for edge in dataset["edges"] if edge["edge_id"] != edge_id]
+            if not dataset["edges"]:
+                del dataset["edges"]
+    _drop_references(document, edge_id)
+    return [edge_id]
 
 
 def _referrers(document: dict, key: str, removing: set[str]) -> list[str]:
     refs: list[str] = []
-    for edge_id, relationship in document["relationships"].items():
-        if edge_id in removing:
-            continue
-        if key in (relationship["endpoint_a"]["node_id"], relationship["endpoint_b"]["node_id"]):
-            refs.append(f"relationships[{edge_id}]")
+    for node_id, edge in _edges(document):
+        if node_id != key and edge["to_node_id"] == key and edge["edge_id"] not in removing:
+            refs.append(f"datasets[{node_id}].edges[{edge['edge_id']}]")
     for entry_id, comparison in (document.get("comparisons") or {}).items():
         named = list(comparison.get("anchors") or [])
         named += [column.get("node_id") for column in comparison.get("shared_columns") or []]
         if key in named:
             refs.append(f"comparisons[{entry_id}]")
     for entry_id, gap in (document.get("gaps") or {}).items():
-        if key in (gap.get("datasets") or []) + (gap.get("relationships") or []):
+        named = list(gap.get("datasets") or [])
+        named += [item for reference in gap.get("edges") or []
+                  for item in (reference.get("node_id"), reference.get("edge_id"))]
+        if key in named:
             refs.append(f"gaps[{entry_id}]")
     return refs
 
@@ -400,9 +531,11 @@ def _drop_references(document: dict, key: str) -> None:
                 column for column in comparison["shared_columns"] if column.get("node_id") != key
             ]
     for gap in (document.get("gaps") or {}).values():
-        for field in ("datasets", "relationships"):
-            if field in gap:
-                gap[field] = [item for item in gap[field] if item != key]
+        if "datasets" in gap:
+            gap["datasets"] = [item for item in gap["datasets"] if item != key]
+        if "edges" in gap:
+            gap["edges"] = [reference for reference in gap["edges"]
+                            if key not in (reference.get("node_id"), reference.get("edge_id"))]
 
 
 def _components(document: dict) -> int:
@@ -413,19 +546,18 @@ def _components(document: dict) -> int:
             node_id = parent[node_id]
         return node_id
 
-    for relationship in document["relationships"].values():
-        a, b = relationship["endpoint_a"]["node_id"], relationship["endpoint_b"]["node_id"]
-        if a in parent and b in parent:
-            parent[root(a)] = root(b)
+    for a, edge in _edges(document):
+        if edge["to_node_id"] in parent:
+            parent[root(a)] = root(edge["to_node_id"])
     return len({root(node_id) for node_id in parent})
 
 
-def _claims(direction: dict) -> str:
-    return f"{direction['multiplicity']}/{direction['match_existence']}"
+def _end(node_id: str, columns: list[str]) -> str:
+    return f"{node_id}[{','.join(columns)}]"
 
 
-def _end(endpoint: dict) -> str:
-    return f"{endpoint['node_id']}[{','.join(endpoint['dataset_columns'])}]"
+def _names(text: str) -> list[str]:
+    return [name for name in text.split(",") if name]
 
 
 def _json(text: str):
@@ -457,11 +589,14 @@ def main(argv: list[str] | None = None) -> int:
     command.add_argument("--detail", choices=DETAIL_LEVELS, default="essential")
     command.add_argument("--columns", default="", help="comma-separated column names")
 
-    command = commands.add_parser("add-relationship", parents=[common])
+    command = commands.add_parser("add-edge", parents=[common])
     command.add_argument("file", type=Path)
+    command.add_argument("node_id", help="the dataset traversal starts from")
     command.add_argument("edge_ids", nargs="+")
+    command.add_argument("--from-columns", default="",
+                         help="comma-separated start columns; needed when both ends lie on NODE_ID")
     command.add_argument("--no-endpoints", action="store_true",
-                         help="do not add missing endpoint datasets or join columns")
+                         help="do not add missing end datasets or join columns")
 
     command = commands.add_parser("remove", parents=[common])
     command.add_argument("file", type=Path)
@@ -481,6 +616,14 @@ def main(argv: list[str] | None = None) -> int:
         command.add_argument("file", type=Path)
         command.add_argument("key")
         command.add_argument("patch")
+        if name == "annotate":
+            command.add_argument("--from", dest="from_node_id",
+                                 help="with an edge_id KEY: the dataset that holds the edge")
+            command.add_argument("--from-columns", default="",
+                                 help="with an edge_id KEY: the edge's start columns")
+
+    command = commands.add_parser("migrate", parents=[common])
+    command.add_argument("file", type=Path)
 
     args = parser.parse_args(argv)
     socket_path = (Path(args.socket).expanduser() if args.socket else default_socket()).resolve()
@@ -489,24 +632,29 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "init":
             output = init(path, socket_path, args.question, args.objective)
         elif args.command in ("exists", "show"):
-            document = load(path)
+            document = load(path, converted=True)
             if args.command == "show":
                 print(show(document, args.full))
                 return 0
             output = exists(document, args.keys)
         else:
-            document = load(path)
+            document = load(path, converted=args.command != "migrate")
             if args.command == "add-dataset":
-                columns = [name for name in args.columns.split(",") if name]
-                output = add_datasets(document, socket_path, args.node_ids, args.detail, columns)
-            elif args.command == "add-relationship":
-                output = add_relationships(
-                    document, socket_path, args.edge_ids, not args.no_endpoints
+                output = add_datasets(
+                    document, socket_path, args.node_ids, args.detail, _names(args.columns)
+                )
+            elif args.command == "add-edge":
+                output = add_edges(
+                    document, socket_path, args.node_id, args.edge_ids,
+                    _names(args.from_columns), not args.no_endpoints,
                 )
             elif args.command == "remove":
                 output = remove(document, args.keys, args.cascade)
             elif args.command == "annotate":
-                output = annotate(document, args.key, _json(args.patch))
+                output = annotate(document, args.key, _json(args.patch), args.from_node_id,
+                                  _names(args.from_columns))
+            elif args.command == "migrate":
+                output = migrate(document, socket_path)
             else:
                 output = patch_entry(document, f"{args.command}s", args.key, _json(args.patch))
             save(path, document)

@@ -1,6 +1,6 @@
 # Synthetic `lending` catalog for graph unit tests. Every identifier here belongs to
 # this catalog only; it describes no real data source.
-schema_version: '3'
+schema_version: '4'
 logical_identities:
   account_identity:
     name: Account identity
@@ -64,7 +64,10 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: complete
+    unique: true
+    total: true
+    conforms: true
   - identity_id: region_identity
     dataset_columns:
     - region_id
@@ -72,7 +75,10 @@ nodes:
     - '[region_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: unknown
 - node_id: sqlite:lending.account_holder
   descriptor:
     qualified_name: lending.main.account_holder
@@ -112,6 +118,9 @@ nodes:
     entity_metadata:
       expression_context: SQLite column reference
     entity_universe: unknown
+    unique: true
+    total: true
+    conforms: unknown
   - identity_id: customer_identity
     dataset_columns:
     - customer_id
@@ -119,7 +128,10 @@ nodes:
     - '[customer_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: complete
+    unique: false
+    total: true
+    conforms: true
   - identity_id: account_identity
     dataset_columns:
     - account_id
@@ -127,7 +139,10 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: complete
+    unique: false
+    total: true
+    conforms: true
 - node_id: sqlite:lending.customer
   descriptor:
     qualified_name: lending.main.customer
@@ -167,7 +182,10 @@ nodes:
     - '[customer_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: complete
+    unique: true
+    total: true
+    conforms: true
   - identity_id: region_identity
     dataset_columns:
     - region_id
@@ -175,7 +193,10 @@ nodes:
     - '[region_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: true
 - node_id: sqlite:lending.loan
   descriptor:
     qualified_name: lending.main.loan
@@ -215,6 +236,9 @@ nodes:
     entity_metadata:
       expression_context: SQLite column reference
     entity_universe: unknown
+    unique: true
+    total: true
+    conforms: unknown
   - identity_id: account_identity
     dataset_columns:
     - account_id
@@ -222,7 +246,10 @@ nodes:
     - '[account_id]'
     entity_metadata:
       expression_context: SQLite column reference
-    entity_universe: unknown
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: true
 - node_id: sqlite:lending.region
   descriptor:
     qualified_name: lending.main.region
@@ -257,84 +284,6 @@ nodes:
     entity_metadata:
       expression_context: SQLite column reference
     entity_universe: complete
-edges:
-- endpoint_a:
-    node_id: sqlite:lending.account
-    identity_id: region_identity
-    dataset_columns:
-    - region_id
-  endpoint_b:
-    node_id: sqlite:lending.region
-    identity_id: region_identity
-    dataset_columns:
-    - region_id
-  a_to_b:
-    multiplicity: many:1
-    match_existence: unknown
-  b_to_a:
-    multiplicity: 1:many
-    match_existence: optional
-- endpoint_a:
-    node_id: sqlite:lending.account_holder
-    identity_id: account_identity
-    dataset_columns:
-    - account_id
-  endpoint_b:
-    node_id: sqlite:lending.account
-    identity_id: account_identity
-    dataset_columns:
-    - account_id
-  a_to_b:
-    multiplicity: many:1
-    match_existence: always
-  b_to_a:
-    multiplicity: 1:many
-    match_existence: always
-- endpoint_a:
-    node_id: sqlite:lending.account_holder
-    identity_id: customer_identity
-    dataset_columns:
-    - customer_id
-  endpoint_b:
-    node_id: sqlite:lending.customer
-    identity_id: customer_identity
-    dataset_columns:
-    - customer_id
-  a_to_b:
-    multiplicity: many:1
-    match_existence: always
-  b_to_a:
-    multiplicity: 1:many
-    match_existence: always
-- endpoint_a:
-    node_id: sqlite:lending.customer
-    identity_id: region_identity
-    dataset_columns:
-    - region_id
-  endpoint_b:
-    node_id: sqlite:lending.region
-    identity_id: region_identity
-    dataset_columns:
-    - region_id
-  a_to_b:
-    multiplicity: many:1
-    match_existence: always
-  b_to_a:
-    multiplicity: 1:many
-    match_existence: optional
-- endpoint_a:
-    node_id: sqlite:lending.loan
-    identity_id: account_identity
-    dataset_columns:
-    - account_id
-  endpoint_b:
-    node_id: sqlite:lending.account
-    identity_id: account_identity
-    dataset_columns:
-    - account_id
-  a_to_b:
-    multiplicity: many:1
-    match_existence: always
-  b_to_a:
-    multiplicity: 1:many
-    match_existence: optional
+    unique: true
+    total: true
+    conforms: true

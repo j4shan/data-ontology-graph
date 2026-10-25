@@ -5,7 +5,7 @@
 | ID | Clause |
 | --- | --- |
 | 1.1 | A long-running graph-navigation request must not block unrelated clients' requests while the service handles concurrent callers. |
-| 1.2 | For direct lookups whose work is proportional to their result, such as directed hops and identity detail, the result-item limit bounds response size, not compute time. For ranked paths, the result-item limit also bounds the search. |
+| 1.2 | For direct lookups whose work is proportional to their result, such as a dataset's edges and logical entity detail, the result-item limit bounds response size, not compute time. For ranked paths, the result-item limit also bounds the search. |
 
 ## Reliability
 

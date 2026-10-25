@@ -15,7 +15,7 @@ from data_ontology_graph.model.intermediary import (
 
 
 _YAML_SUFFIXES = {".yaml", ".yml"}
-_COLLECTION_KEYS = {"logical_identities", "nodes", "edges"}
+_COLLECTION_KEYS = {"logical_identities", "nodes"}
 _MANIFEST_FILENAME = "directory-manifest.yaml"
 
 
@@ -113,7 +113,6 @@ def load_intermediary_directory(path: Path | str) -> IntermediaryDefinition:
         update={
             "logical_identities": dict(sorted(definition.logical_identities.items())),
             "nodes": sorted(definition.nodes, key=lambda node: node.node_id),
-            "edges": sorted(definition.edges, key=lambda edge: edge.canonical_edge_id()),
         }
     )
 
@@ -162,7 +161,6 @@ def _assemble_intermediary_directory(
     entries: list[tuple[str, str, str]] = [
         ("logical_identities", manifest.logical_identities, "$.logical_identities"),
         *(("nodes", path, f"$.nodes[{index}]") for index, path in enumerate(manifest.nodes)),
-        ("edges", manifest.edges, "$.edges"),
     ]
     source_resolved = source.resolve()
     listed: dict[str, str] = {}
@@ -259,7 +257,6 @@ def _assemble_intermediary_directory(
     identity_sources: dict[str, str] = {}
     nodes: list[Any] = []
     node_sources: dict[str, str] = {}
-    edges: list[Any] = []
 
     for collection, raw_path, _ in entries:
         path = source / raw_path
@@ -341,7 +338,7 @@ def _assemble_intermediary_directory(
                             location=f"{relative}:$.logical_identities.{identity_id}",
                             rule="duplicate_definition",
                             message=(
-                                "logical identity is already defined in "
+                                "logical entity is already defined in "
                                 f"{identity_sources[identity_id]}"
                             ),
                         )
@@ -374,18 +371,6 @@ def _assemble_intermediary_directory(
                     if isinstance(node_id, str):
                         node_sources[node_id] = relative
                     nodes.append(node)
-        else:
-            file_edges = document.get(collection)
-            if not isinstance(file_edges, list):
-                findings.append(
-                    ValidationFinding(
-                        location=f"{relative}:$.edges",
-                        rule="list_type",
-                        message="edges must be a list",
-                    )
-                )
-                continue
-            edges.extend(file_edges)
 
     if findings:
         return None, findings
@@ -394,7 +379,6 @@ def _assemble_intermediary_directory(
         "schema_version": manifest.schema_version,
         "logical_identities": logical_identities,
         "nodes": nodes,
-        "edges": edges,
     }
     validation_findings = _validation_findings(payload)
     return (None, validation_findings) if validation_findings else (payload, [])

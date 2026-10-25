@@ -1,6 +1,6 @@
 # Data Ontology Graph
 
-A persistent knowledge graph of datasets, logical identities, entity
+A persistent knowledge graph of datasets, logical entities, entity
 definitions, and relationships. Source-controlled YAML builds one read-only
 current artifact. One local singleton service reads that artifact and exposes
 sessionless JSON-RPC tools over a Unix-domain socket.
@@ -44,11 +44,13 @@ lockfile. `--extra dev` also installs `pytest`; without it, tests will not run.
 ## YAML intermediary
 
 The initial target build path reads a finalized YAML directory through its sibling
-`directory-manifest.yaml`, assembles the three collection types deterministically, validates the
-result before ingestion, and materializes only the relationships defined there. The governed JSON
+`directory-manifest.yaml`, assembles the logical entity and node collections deterministically,
+validates the result before ingestion, and derives one relationship for every two entity
+definitions of the same logical entity. Multiplicity and match existence come from each
+definition's `unique`, `total`, `conforms`, and `entity_universe` properties. The governed JSON
 Schemas are under [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
 governs the manifest and `intermediary.schema.json` governs the assembled document. Graph tests
-use the synthetic, single-file schema version `"3"` [lending fixture](tests/fixtures/lending/catalog.yaml).
+use the synthetic, single-file schema version `"4"` [lending fixture](tests/fixtures/lending/catalog.yaml).
 It describes no real data source. DDL collector tests use a separate synthetic SQLite fixture
 under [`tests/fixtures/minibank/`](tests/fixtures/minibank/).
 Test data sources, reviewed reference catalogs, generated catalogs, published graph artifacts,
@@ -70,35 +72,36 @@ catalog/
 └── yaml/
     ├── identities.yaml
     ├── customers.yaml
-    ├── orders.yaml
-    └── relationships.yaml
+    └── orders.yaml
 ```
 
-The manifest uses schema version `"3"` and names every collection file relative to `yaml/`:
+The manifest uses schema version `"4"` and names every collection file relative to `yaml/`:
 
 ```yaml
-schema_version: "3"
+schema_version: "4"
 logical_identities: identities.yaml
 nodes:
   - customers.yaml
   - orders.yaml
-edges: relationships.yaml
 ```
 
-Each listed file also declares schema version `"3"` and contains exactly its named collection.
-The identity and edge collections each have one owner file. One or more node files partition the
+Each listed file also declares schema version `"4"` and contains exactly its named collection.
+The logical entity collection has one owner file. One or more node files partition the
 single assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
 YAML directory, mixed collection ownership, and conflicting schema versions block construction.
 A finalized YAML directory may contain only `.yaml` and `.yml` files.
 
 Single-file input remains available and is validated directly as an assembled intermediary.
 
-The builder does not read SQLite catalogs, infer relationships, decompose composite primary keys,
-or apply overlays. The DDL collector prepares YAML upstream; the builder validates its output
+The builder does not read SQLite catalogs, infer relationships from database keys or column
+names, decompose composite primary keys, or apply overlays. The DDL collector prepares YAML upstream; the builder validates its output
 through the same gate used for manually authored YAML. Dependencies flow from `ddl_collector` to
 `data_ontology_graph`, never back into the graph core.
 
 ## DDL collector
+
+The collector is deprecated. It still writes schema version `"3"` with authored
+relationships, which the graph builder no longer accepts.
 
 The first source family is SQLite. Its adapter opens the database read-only and gathers table
 columns, declared primary and unique keys, foreign keys, and BIRD description CSVs. Read-only
@@ -189,8 +192,8 @@ carries a request ID; fire-and-forget notifications are not supported:
 data-ontology-graph-client graph.search --params '{"query":"customer"}'
 ```
 
-The service supports snapshot information, lexical search, identity and dataset lookup,
-relationship detail, directed hops, breadth-first subgraph expansion, and path retrieval. It does
+The service supports snapshot information, lexical search, logical entity and dataset lookup,
+relationship detail, a dataset's directed edges, breadth-first subgraph expansion, and k-shortest route retrieval. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
 
@@ -198,9 +201,10 @@ the foreground with the same defaults.
 
 An abstract knowledge graph (AKG) is the subset of graph datasets and relationships that an agent
 selects for one objective. One JSON file holds the whole objective: datasets keyed by `node_id`,
-relationships keyed by canonical edge ID, trimmed graph fields such as name, source, grain, and
-the columns that matter, and the agent's reasoning under each element's `usage`, plus gaps and
-comparisons. Connected components are derived from the relationships; disconnected components are
+each holding the directed edges the agent traverses from it, trimmed graph fields such as name,
+source, grain, and the columns that matter, and the agent's reasoning under each dataset's and
+directed edge's `usage`, plus gaps and comparisons. Connected components are derived from the
+directed edges; disconnected components are
 a valid answer when the objective asks for unrelated facts or the graph lacks a connection, which
 the AKG records as a data gap.
 
@@ -214,12 +218,12 @@ for the agent. The scripts are standard-library only and find the service by the
 ```bash
 python3 skills/query-graph-api/scripts/service.py start
 python3 skills/query-graph-api/scripts/akg.py init akg.json --question "..."
-python3 skills/query-graph-api/scripts/akg.py add-relationship akg.json EDGE_ID
+python3 skills/query-graph-api/scripts/akg.py add-edge akg.json NODE_ID EDGE_ID
 data-ontology-graph-akg check akg.json                          # findings by severity
 data-ontology-graph-akg finalize akg.json                       # or --yaml PATH
 data-ontology-graph-akg export akg.json --format markdown       # read-only copy for review
 ```
 
 `check` never refuses to load a parseable file; `finalize` requires no error, resolves every
-dataset and relationship against the service or the YAML intermediary, and marks the file
+dataset and directed edge against the service or the YAML intermediary, and marks the file
 `final`.

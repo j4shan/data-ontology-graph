@@ -1,8 +1,9 @@
 """Resolve an AKG document against the graph it was built from.
 
 The graph is either the running service, reached through its public JSON-RPC methods, or the
-YAML intermediary the snapshot was built from. Both are compared through the same projection,
-so a document resolves the same way against either.
+YAML intermediary the snapshot was built from, with relationships derived as the build derives
+them. Both are compared through the same projection, each directed edge as its relationship
+read from the dataset that holds it, so a document resolves the same way against either.
 """
 
 from __future__ import annotations
@@ -11,8 +12,9 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from data_ontology_graph.akg.check import AkgFinding
-from data_ontology_graph.akg.projection import project_dataset, project_relationship
+from data_ontology_graph.akg.projection import endpoint_descriptions, project_dataset, project_edge
 from data_ontology_graph.builder.intermediary import load_intermediary_yaml
+from data_ontology_graph.model.derivation import derive_relationships
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.rpc import client
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
@@ -23,6 +25,10 @@ GraphCall = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 DATASET_FIELDS = ("name", "source", "grain", "description", "entity_definitions", "synonyms", "tags")
 COLUMN_FIELDS = ("description", "value_description", "synonyms")
+EDGE_FIELDS = (
+    "identity_id", "to_node_id", "to_dataset_columns", "multiplicity", "match_existence",
+    "reverse_multiplicity", "reverse_match_existence", "from_description", "to_description",
+)
 
 
 class GraphSource(Protocol):
@@ -62,7 +68,15 @@ class YamlSource:
 
     def __init__(self, definition: IntermediaryDefinition) -> None:
         self._nodes = {node.node_id: node.model_dump(mode="json") for node in definition.nodes}
-        self._edges = {edge.canonical_edge_id(): edge for edge in definition.edges}
+        runtime = {node.node_id: node.to_runtime() for node in definition.nodes}
+        relationships = derive_relationships(runtime.values())
+        self._edges = {relationship.edge_id: relationship for relationship in relationships}
+        self._descriptions = {
+            (node_id, tuple(item.dataset_columns)): effective[0]
+            for node_id, node in runtime.items()
+            for item in node.entity_definitions
+            if (effective := item.effective_description(node.columns))
+        }
 
     @classmethod
     def load(cls, path: Path | str) -> "YamlSource":
@@ -77,13 +91,12 @@ class YamlSource:
         if edge is None:
             return None, f"unknown relationship {edge_id}"
         record = edge.model_dump(mode="json")
-        if not edge_id.startswith(_side(record["endpoint_a"]) + "__"):
-            record = {
-                "endpoint_a": record["endpoint_b"],
-                "endpoint_b": record["endpoint_a"],
-                "a_to_b": record["b_to_a"],
-                "b_to_a": record["a_to_b"],
-            }
+        record["entity_definitions"] = [
+            {**endpoint.model_dump(mode="json"),
+             "effective_description": self._descriptions.get(
+                 (endpoint.node_id, tuple(endpoint.dataset_columns)))}
+            for endpoint in (edge.endpoint_a, edge.endpoint_b)
+        ]
         return record, ""
 
     def snapshot(self) -> dict[str, Any] | None:
@@ -127,20 +140,28 @@ def resolve_document(payload: dict[str, Any], source: GraphSource) -> list[AkgFi
             findings.append(_finding(location, "unknown_element", error))
             continue
         findings.extend(_compare_dataset(location, dataset, project_dataset(node, "full")))
-
-    for edge_id, relationship in payload["relationships"].items():
-        location = f"$.relationships[{edge_id!r}]"
-        record, error = source.relationship(edge_id)
-        if record is None:
-            findings.append(_finding(location, "unknown_element", error))
-            continue
-        expected = project_relationship(record)
-        for side, claims in expected.items():
-            for key, value in claims.items():
-                actual = relationship[side].get(key)
-                if actual != value:
-                    findings.append(_mismatch(f"{location}.{side}.{key}", actual, value))
+        for index, edge in enumerate(dataset.get("edges") or []):
+            findings.extend(_compare_edge(f"{location}.edges[{index}]", node_id, edge, source))
     return findings
+
+
+def _compare_edge(
+    location: str, node_id: str, edge: dict[str, Any], source: GraphSource
+) -> list[AkgFinding]:
+    record, error = source.relationship(edge["edge_id"])
+    if record is None:
+        return [_finding(location, "unknown_element", error)]
+    try:
+        expected = project_edge(
+            record, node_id, edge["from_dataset_columns"], endpoint_descriptions(record)
+        )
+    except ValueError as error:
+        return [_finding(location, "unknown_element", str(error))]
+    return [
+        _mismatch(f"{location}.{field}", edge[field], expected.get(field))
+        for field in EDGE_FIELDS
+        if field in edge and edge[field] != expected.get(field)
+    ]
 
 
 def _compare_dataset(
@@ -168,10 +189,6 @@ def _compare_dataset(
                     )
                 )
     return findings
-
-
-def _side(endpoint: dict[str, Any]) -> str:
-    return f"{endpoint['node_id']}:{endpoint['identity_id']}:{'+'.join(endpoint['dataset_columns'])}"
 
 
 def _mismatch(location: str, actual: Any, expected: Any) -> AkgFinding:

@@ -15,7 +15,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 from yaml import YAMLError
 
-from data_ontology_graph.akg.model import AkgDocument
+from data_ontology_graph.akg.model import AkgDocument, DirectedEdge
 from data_ontology_graph.builder.intermediary import _format_location
 from data_ontology_graph.model.relationship import JoinEndpoint, edge_id_for
 
@@ -69,6 +69,14 @@ def write_payload(path: Path | str, payload: Any) -> None:
 
 def check_document(payload: Any, *, final: bool = False) -> list[AkgFinding]:
     """Return every finding for one parsed document; `final` applies the finalize rules."""
+    if isinstance(payload, dict) and "relationships" in payload:
+        return [
+            _error(
+                "$.relationships",
+                "unconverted_relationships",
+                "the document uses the earlier relationships map; run `akg.py migrate FILE`",
+            )
+        ]
     try:
         document = AkgDocument.model_validate(payload)
     except ValidationError as error:
@@ -118,30 +126,28 @@ def _references(document: AkgDocument, dangling: Severity) -> list[AkgFinding]:
         for column in (usage.columns or {}) if usage else {}:
             require_column(node_id, column, f"$.datasets[{node_id!r}].usage.columns[{column!r}]")
 
-    for edge_id, relationship in document.relationships.items():
-        location = f"$.relationships[{edge_id!r}]"
-        canonical = _edge_id(relationship.endpoint_a, relationship.endpoint_b)
-        if canonical != edge_id:
-            findings.append(
-                _error(location, "relationship_key", f"canonical edge ID is {canonical!r}")
-            )
-        endpoints = {relationship.endpoint_a.node_id, relationship.endpoint_b.node_id}
-        for side in ("endpoint_a", "endpoint_b"):
-            require_dataset(getattr(relationship, side).node_id, f"{location}.{side}")
-        usage = relationship.usage
-        if usage is None:
-            continue
-        named = [("from", usage.from_)] if usage.from_ else []
-        named += [(f"keep[{index}]", node_id) for index, node_id in enumerate(usage.keep or [])]
-        for field, node_id in named:
-            if node_id not in endpoints:
+        seen: set[tuple[str, tuple[str, ...]]] = set()
+        for index, edge in enumerate(dataset.edges or []):
+            location = f"$.datasets[{node_id!r}].edges[{index}]"
+            canonical = _edge_id(node_id, edge)
+            if canonical != edge.edge_id:
+                findings.append(_error(location, "edge_key", f"canonical edge ID is {canonical!r}"))
+            key = (edge.edge_id, tuple(edge.from_dataset_columns))
+            if key in seen:
                 findings.append(
-                    _error(
-                        f"{location}.usage.{field}",
-                        "not_an_endpoint",
-                        f"{node_id!r} is not an endpoint of this relationship",
-                    )
+                    _error(location, "duplicate_edge", "the dataset already holds this directed edge")
                 )
+            seen.add(key)
+            require_dataset(edge.to_node_id, f"{location}.to_node_id")
+            for keep, kept in enumerate((edge.usage.keep or []) if edge.usage else []):
+                if kept not in (node_id, edge.to_node_id):
+                    findings.append(
+                        _error(
+                            f"{location}.usage.keep[{keep}]",
+                            "not_an_endpoint",
+                            f"{kept!r} is neither the start nor the end of this directed edge",
+                        )
+                    )
 
     for key, comparison in (document.comparisons or {}).items():
         location = f"$.comparisons[{key!r}]"
@@ -156,25 +162,30 @@ def _references(document: AkgDocument, dangling: Severity) -> list[AkgFinding]:
         location = f"$.gaps[{key!r}]"
         for index, node_id in enumerate(gap.datasets or []):
             require_dataset(node_id, f"{location}.datasets[{index}]")
-        for index, edge_id in enumerate(gap.relationships or []):
-            if edge_id not in document.relationships:
+        for index, reference in enumerate(gap.edges or []):
+            held = datasets.get(reference.node_id)
+            if held is None or all(edge.edge_id != reference.edge_id for edge in held.edges or []):
                 findings.append(
                     AkgFinding(
-                        location=f"{location}.relationships[{index}]",
+                        location=f"{location}.edges[{index}]",
                         rule="dangling_reference",
                         severity=dangling,
-                        message=f"names relationship {edge_id!r}, which is not in the document",
+                        message=(
+                            f"names directed edge {reference.edge_id!r} of dataset "
+                            f"{reference.node_id!r}, which is not in the document"
+                        ),
                     )
                 )
     return findings
 
 
-def _edge_id(endpoint_a: BaseModel, endpoint_b: BaseModel) -> str | None:
-    fields = {"node_id", "identity_id", "dataset_columns"}
+def _edge_id(node_id: str, edge: DirectedEdge) -> str | None:
     try:
         return edge_id_for(
-            JoinEndpoint.model_validate(endpoint_a.model_dump(include=fields)),
-            JoinEndpoint.model_validate(endpoint_b.model_dump(include=fields)),
+            JoinEndpoint(node_id=node_id, identity_id=edge.identity_id,
+                         dataset_columns=edge.from_dataset_columns),
+            JoinEndpoint(node_id=edge.to_node_id, identity_id=edge.identity_id,
+                         dataset_columns=edge.to_dataset_columns),
         )
     except ValidationError:
         return None
