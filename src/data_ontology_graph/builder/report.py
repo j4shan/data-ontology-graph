@@ -1,7 +1,10 @@
+from collections.abc import Iterable
+
 from pydantic import BaseModel, Field
 
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
+from data_ontology_graph.model.relationship import JoinRelationship
 
 
 class ExplicitBuildReport(BaseModel):
@@ -10,8 +13,10 @@ class ExplicitBuildReport(BaseModel):
     unknown_fields: list[str] = Field(default_factory=list)
 
 
-def unknown_field_locations(definition: IntermediaryDefinition) -> list[str]:
-    """Locate every explicitly unknown claim by stable IDs in authored orientation."""
+def unknown_field_locations(
+    definition: IntermediaryDefinition, relationships: Iterable[JoinRelationship] = ()
+) -> list[str]:
+    """Locate every unknown claim by stable IDs, relationships in canonical orientation."""
     locations: list[str] = []
     for node in sorted(definition.nodes, key=lambda item: item.node_id):
         node_location = f"nodes[{node.node_id}]"
@@ -19,8 +24,8 @@ def unknown_field_locations(definition: IntermediaryDefinition) -> list[str]:
         for entity in node.entity_definitions:
             key = f"{entity.identity_id}:{'+'.join(entity.dataset_columns)}"
             locations.extend(_locations(entity, f"{node_location}.entity_definitions[{key}]"))
-    for edge in sorted(definition.edges, key=lambda item: item.canonical_edge_id()):
-        locations.extend(_locations(edge, f"edges[{edge.canonical_edge_id()}]"))
+    for edge in sorted(relationships, key=lambda item: item.edge_id):
+        locations.extend(_locations(edge, f"edges[{edge.edge_id}]"))
     return locations
 
 

@@ -20,11 +20,10 @@ def _yaml_directory(tmp_path: Path) -> Path:
     payload = yaml.safe_load(VALID_EXAMPLE.read_text(encoding="utf-8"))
     collections = {
         "identities.yaml": {
-            "schema_version": "3",
+            "schema_version": "4",
             "logical_identities": payload["logical_identities"],
         },
-        "nodes.yaml": {"schema_version": "3", "nodes": payload["nodes"]},
-        "edges.yaml": {"schema_version": "3", "edges": payload["edges"]},
+        "nodes.yaml": {"schema_version": "4", "nodes": payload["nodes"]},
     }
     for name, collection in collections.items():
         (directory / name).write_text(
@@ -34,10 +33,9 @@ def _yaml_directory(tmp_path: Path) -> Path:
     (tmp_path / "directory-manifest.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": "3",
+                "schema_version": "4",
                 "logical_identities": "identities.yaml",
                 "nodes": ["nodes.yaml"],
-                "edges": "edges.yaml",
             },
             sort_keys=False,
         ),
@@ -123,8 +121,8 @@ def test_loader_rejects_mixed_build_envelopes(tmp_path: Path) -> None:
     publish_current_artifact(yaml_directory, artifact)
     edges_path = artifact / "edges.json"
     edges = json.loads(edges_path.read_text(encoding="utf-8"))
-    edges["built_at"] = "2000-01-01T00:00:00+00:00"
+    edges["version"] = "2000-01-01T00:00:00Z"
     edges_path.write_text(json.dumps(edges), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="edges.json built_at does not match nodes.json"):
+    with pytest.raises(ValueError, match="edges.json version does not match nodes.json"):
         SnapshotStore(tmp_path).load(artifact)

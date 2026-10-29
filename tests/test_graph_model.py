@@ -24,7 +24,7 @@ from data_ontology_graph.model.relationship import (
     derived_cardinality,
     edge_id_for,
 )
-from data_ontology_graph.model.snapshot import GraphSnapshot, now_utc
+from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
 
 
 def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> DatasetNode:
@@ -52,6 +52,9 @@ def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> Da
                 identity_id="customer",
                 dataset_columns=["id"],
                 entity_universe=universe,
+                unique=True,
+                total=True,
+                conforms=True,
             )
         ],
     )
@@ -151,7 +154,7 @@ def test_snapshot_requires_registered_endpoint_definitions() -> None:
 
     with pytest.raises(ValidationError, match="unknown dataset"):
         GraphSnapshot(
-            built_at=now_utc(),
+            version=snapshot_version(),
             logical_identities=[LogicalIdentity(identity_id="customer", name="Customer")],
             nodes=[left, right],
             edges=[relationship],
@@ -182,8 +185,11 @@ def test_unknown_fields_cover_typed_claims_only() -> None:
         identity_id="customer",
         dataset_columns=["id"],
         entity_universe=EntityUniverse.UNKNOWN,
+        unique="unknown",
+        total=False,
+        conforms="unknown",
     )
-    assert definition.unknown_fields() == ["entity_universe"]
+    assert definition.unknown_fields() == ["conforms", "entity_universe", "unique"]
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ColumnMetadata.model_validate({"name": "code", "notes": "unresolved"})
 

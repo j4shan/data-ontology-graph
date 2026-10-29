@@ -1,3 +1,4 @@
+from collections.abc import Mapping, Sequence
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, ClassVar
 
@@ -132,13 +133,27 @@ class DatasetGrain(StrictModel):
 
 
 class EntityDefinition(ClaimModel):
-    claim_fields: ClassVar[tuple[str, ...]] = ("entity_universe",)
+    claim_fields: ClassVar[tuple[str, ...]] = ("conforms", "entity_universe", "total", "unique")
 
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
     entity_universe: EntityUniverse
+    unique: bool | Unknown = Field(
+        description="Whether an instance of the logical entity appears in at most one record."
+    )
+    total: bool | Unknown = Field(description="Whether every record has a non-null key.")
+    conforms: bool | Unknown = Field(
+        description="Whether every non-null key value belongs to the logical entity's population."
+    )
     entity_expression: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
+    description: str = Field(
+        default="",
+        description=(
+            "What this realization identifies in its dataset, such as the role it plays. "
+            "Needed mainly for composite or transformed keys and generic column descriptions."
+        ),
+    )
 
     @field_validator("identity_id")
     @classmethod
@@ -165,8 +180,55 @@ class EntityDefinition(ClaimModel):
             raise ValueError("entity_expression labels must not be empty")
         return value
 
+    @model_validator(mode="after")
+    def complete_must_conform(self) -> "EntityDefinition":
+        if self.entity_universe == EntityUniverse.COMPLETE and self.conforms is False:
+            raise ValueError("a complete entity definition conforms by definition")
+        return self
+
     def key(self, node_id: str) -> tuple[str, str, tuple[str, ...]]:
         return (node_id, self.identity_id, tuple(self.dataset_columns))
+
+    def conforming(self) -> bool | None:
+        """Whether every non-null key value belongs to the population; None when unknown."""
+        if self.entity_universe == EntityUniverse.COMPLETE or self.conforms is True:
+            return True
+        return False if self.conforms is False else None
+
+    def effective_description(self, columns: list[ColumnMetadata]) -> tuple[str, str] | None:
+        return effective_description(
+            self.description,
+            self.dataset_columns,
+            self.entity_expression,
+            {column.name: column.description for column in columns},
+        )
+
+
+RAW_REFERENCE_WRAPPERS = ("", "[]", '""', "``")
+
+
+def effective_description(
+    description: str,
+    dataset_columns: Sequence[str],
+    entity_expression: Sequence[str],
+    column_descriptions: Mapping[str, str],
+) -> tuple[str, str] | None:
+    """Return `(text, source)` describing an entity definition, or None.
+
+    The definition's own description wins. Otherwise a definition realized through one
+    unmodified column takes that column's description. A column is unmodified when every
+    expression is the bare or bracket-, quote-, or backtick-wrapped column name.
+    """
+    if description.strip():
+        return description, "entity"
+    if len(dataset_columns) != 1:
+        return None
+    column = dataset_columns[0]
+    references = {f"{pair[:1]}{column}{pair[1:]}" for pair in RAW_REFERENCE_WRAPPERS}
+    if any(expression.strip() not in references for expression in entity_expression):
+        return None
+    text = column_descriptions.get(column, "")
+    return (text, "column") if text.strip() else None
 
 
 class DatasetNode(ClaimModel):

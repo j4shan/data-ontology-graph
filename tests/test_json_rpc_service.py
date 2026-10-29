@@ -88,9 +88,17 @@ def test_dispatcher_orients_relationship_detail_from_an_endpoint() -> None:
         }
     )
     assert response is not None
-    assert response["result"]["from_node_id"] == edge.endpoint_b.node_id
-    assert response["result"]["direction"] == edge.b_to_a.model_dump(mode="json")
-    assert response["result"]["reverse_direction"] == edge.a_to_b.model_dump(mode="json")
+    result = response["result"]
+    assert result["from_node_id"] == edge.endpoint_b.node_id
+    assert result["from_dataset_columns"] == edge.endpoint_b.dataset_columns
+    directed = dict(zip(result["edge_fields"], result["edge"]))
+    assert result["edge"][-1] == directed["edge_id"] == edge.edge_id
+    assert (directed["multiplicity"], directed["match_existence"]) == (
+        edge.b_to_a.multiplicity.value, edge.b_to_a.match_existence.value,
+    )
+    assert (directed["reverse_multiplicity"], directed["reverse_match_existence"]) == (
+        edge.a_to_b.multiplicity.value, edge.a_to_b.match_existence.value,
+    )
 
     invalid = dispatcher.dispatch(
         {
@@ -104,16 +112,25 @@ def test_dispatcher_orients_relationship_detail_from_an_endpoint() -> None:
     assert invalid["error"]["code"] == INVALID_PARAMS
 
 
-def test_dispatcher_bounds_hops_and_identity_definitions() -> None:
+def test_dispatcher_bounds_edges_and_identity_definitions() -> None:
     dispatcher = JsonRpcDispatcher(_service())
 
     def call(method, params):
         return dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
 
-    hops = call("graph.get_hops", {"node_id": "sqlite:lending.account", "limit": 1})["result"]
-    assert hops["node_id"] == "sqlite:lending.account"
-    assert len(hops["hops"]["rows"]) == 1
-    assert hops["truncated"] is True
+    edges = call("graph.get_edges", {"node_id": "sqlite:lending.account", "limit": 1})["result"]
+    assert edges["node_id"] == "sqlite:lending.account" and edges["limit"] == 1
+    definitions = [d for group in edges["edge_groups"] for d in group["entity_definitions"]]
+    assert len(definitions) > 1 and all(len(d["edges"]) == 1 for d in definitions)
+    assert edges["truncated"] is True
+    region = call("graph.get_edges", {
+        "node_id": "sqlite:lending.account", "identity_id": "region_identity",
+    })["result"]
+    assert [group["identity_id"] for group in region["edge_groups"]] == ["region_identity"]
+    # The method was renamed from graph.get_hops; the old name is gone.
+    assert call("graph.get_hops", {"node_id": "sqlite:lending.account"})["error"]["code"] == (
+        METHOD_NOT_FOUND
+    )
 
     identity = call("graph.get_identity", {
         "identity_id": "region_identity", "entity_universe": ["complete"], "limit": 1,
@@ -121,16 +138,23 @@ def test_dispatcher_bounds_hops_and_identity_definitions() -> None:
     assert [row[0] for row in identity["entity_definitions"]["rows"]] == ["sqlite:lending.region"]
     assert identity["truncated"] is False
 
-    verbose = call("graph.get_hops", {
+    verbose = call("graph.get_edges", {
         "node_id": "sqlite:lending.account", "limit": 1, "response_format": "records",
     })["result"]
-    assert verbose["hops"][0]["from_node_id"] == "sqlite:lending.account"
-    assert set(verbose["hops"][0]["direction"]) == {"multiplicity", "match_existence"}
-    unsupported = call("graph.get_hops", {"node_id": "sqlite:lending.account", "response_format": "xml"})
+    assert "edge_groups" not in verbose
+    [seed] = [d for d in verbose["datasets"] if d["node_id"] == "sqlite:lending.account"]
+    assert verbose["edge_fields"][:3] == ["edge", "multiplicity", "match_existence"]
+    edge = seed["edge_groups"][0]["entity_definitions"][0]["edges"][0]
+    assert len(edge) == len(verbose["edge_fields"]) and edge[0].startswith("sqlite:lending.account[")
+    unsupported = call("graph.get_edges", {"node_id": "sqlite:lending.account", "response_format": "xml"})
     assert unsupported["error"]["code"] == INVALID_PARAMS
-
-    invalid = call("graph.get_hops", {"node_id": "sqlite:lending.account", "limit": 1001})
-    assert invalid["error"]["code"] == INVALID_PARAMS
+    for params in (
+        {"limit": 1001}, {"detail": "verbose"}, {"fields": {"edge": ["nope"]}},
+        {"from_dataset_columns": ["account_id"]}, {"identity_id": "loan_identity"},
+        {"identity_id": "region_identity", "from_dataset_columns": ["account_id"]},
+    ):
+        invalid = call("graph.get_edges", {"node_id": "sqlite:lending.account", **params})
+        assert invalid["error"]["code"] == INVALID_PARAMS
 
 
 def test_dispatcher_requires_request_id_and_does_not_accept_notifications() -> None:

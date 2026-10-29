@@ -1,0 +1,97 @@
+# Lending AKG check cases: one rule per case.
+# Each case changes a valid fixture at a key path (a list of keys and list indexes): delete a
+# value, set a value, or rename a map key. `final: true` checks with the finalize rules.
+# In akg-single.json, datasets are loan (0), account (1), and region (2); loan's directed edge to
+# account is edge_groups[0].entity_definitions[0].edges[0], its positions named by edge_fields.
+cases:
+- case: missing question
+  base: akg-single.json
+  expected: missing
+  severity: error
+  delete: [question]
+- case: datasets written as a map
+  base: akg-single.json
+  expected: list_type
+  severity: error
+  set:
+    path: [datasets]
+    value: {}
+- case: edge_fields not ending with edge_id
+  base: akg-single.json
+  expected: edge_fields
+  severity: error
+  set:
+    path: [edge_fields, 7]
+    value: annotation
+- case: an edge array shorter than edge_fields
+  base: akg-single.json
+  expected: edge_length
+  severity: error
+  set:
+    path: [datasets, 0, edge_groups, 0, entity_definitions, 0, edges, 0]
+    value: ["sqlite:lending.loan[account_id] -> sqlite:lending.account[account_id]", "many:1"]
+- case: an edge that does not start at its entity definition
+  base: akg-single.json
+  expected: edge_start
+  severity: error
+  set:
+    path: [datasets, 0, edge_groups, 0, entity_definitions, 0, dataset_columns]
+    value: [loan_id]
+- case: edge ID is not the canonical ID of its entity definitions
+  base: akg-single.json
+  expected: edge_key
+  severity: error
+  set:
+    path: [datasets, 1, edge_groups, 0, entity_definitions, 0, edges, 0, 7]
+    value: "sqlite:lending.region:region_identity:region_id__sqlite:lending.account:region_identity:region_id"
+- case: usage keyed by an edge the entity definition does not hold
+  base: akg-single.json
+  expected: usage_key
+  severity: error
+  set:
+    path: [datasets, 0, edge_groups, 0, entity_definitions, 0, usage]
+    value: {"sqlite:lending.account:region_identity:region_id__sqlite:lending.region:region_identity:region_id": {"note": "x"}}
+- case: keep names neither end of the directed edge
+  base: akg-single.json
+  expected: not_an_endpoint
+  severity: error
+  set:
+    path: [datasets, 0, edge_groups, 0, entity_definitions, 0, usage, "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id", keep]
+    value: [sqlite:lending.region]
+- case: dangling end in a draft
+  base: akg-disjoint.json
+  expected: dangling_reference
+  severity: warning
+  delete: [datasets, 3]
+- case: dangling end at finalize
+  base: akg-disjoint.json
+  expected: dangling_reference
+  severity: error
+  final: true
+  delete: [datasets, 3]
+- case: usage column not listed
+  base: akg-single.json
+  expected: unlisted_column
+  severity: warning
+  delete: [datasets, 0, columns, 0]
+- case: gap names an absent dataset
+  base: akg-single.json
+  expected: dangling_reference
+  severity: warning
+  set:
+    path: [gaps, region-match, datasets]
+    value: [sqlite:lending.branch]
+- case: gap names an absent directed edge
+  base: akg-single.json
+  expected: dangling_reference
+  severity: warning
+  set:
+    path: [gaps, region-match, edges]
+    value: [{node_id: sqlite:lending.region, edge_id: "sqlite:lending.account:region_identity:region_id__sqlite:lending.region:region_identity:region_id"}]
+- case: unknown key
+  base: akg-single.json
+  expected: unknown_key
+  severity: info
+  set:
+    path: [datasets, 0, row_count]
+    value: 10

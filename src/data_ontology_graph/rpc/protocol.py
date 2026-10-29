@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 from data_ontology_graph.service.contracts import (
     ConnectingSubgraphRequest,
     DatasetRequest,
-    HopsRequest,
+    EdgesRequest,
     IdentityRequest,
     PathsRequest,
     RelationshipRequest,
@@ -35,7 +35,7 @@ class JsonRpcDispatcher:
             "graph.get_identity": self._get_identity,
             "graph.get_dataset": self._get_dataset,
             "graph.get_relationship": self._get_relationship,
-            "graph.get_hops": self._get_hops,
+            "graph.get_edges": self._get_edges,
             "graph.expand_subgraph": self._expand_subgraph,
             "graph.find_paths": self._find_paths,
             "graph.find_connecting_subgraph": self._find_connecting_subgraph,
@@ -106,26 +106,21 @@ class JsonRpcDispatcher:
         request = RelationshipRequest.model_validate(params)
         return self.service.get_relationship(
             request.edge_id, request.from_node_id, request.response_format,
+            request.from_dataset_columns,
         )
 
-    def _get_hops(self, params: dict[str, Any]) -> Any:
-        request = HopsRequest.model_validate(params)
-        return self.service.get_hops(request.node_id, request.limit, request.response_format)
+    def _get_edges(self, params: dict[str, Any]) -> Any:
+        request = EdgesRequest.model_validate(params)
+        return self.service.get_edges(
+            request.node_id, request.limit, request.response_format, request.detail,
+            request.fields, request.identity_id, request.from_dataset_columns,
+        )
 
     def _expand_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.expand_subgraph(SubgraphRequest.model_validate(params))
 
     def _find_paths(self, params: dict[str, Any], cancel_event: Event | None = None) -> Any:
-        request = PathsRequest.model_validate(params)
-        return self.service.find_paths(
-            request.from_node_id,
-            request.to_node_id,
-            max_hops=request.max_hops,
-            limit=request.limit,
-            allowed_multiplicities=request.allowed_multiplicities,
-            cancel_event=cancel_event,
-            response_format=request.response_format,
-        )
+        return self.service.find_paths(PathsRequest.model_validate(params), cancel_event)
 
     def _find_connecting_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.find_connecting_subgraph(

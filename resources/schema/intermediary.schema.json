@@ -118,36 +118,6 @@
       "title": "DatasetGrain",
       "type": "object"
     },
-    "EntityDefinitionReference": {
-      "additionalProperties": false,
-      "properties": {
-        "dataset_columns": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "Dataset Columns",
-          "type": "array"
-        },
-        "identity_id": {
-          "minLength": 1,
-          "title": "Identity Id",
-          "type": "string"
-        },
-        "node_id": {
-          "minLength": 1,
-          "title": "Node Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "node_id",
-        "identity_id",
-        "dataset_columns"
-      ],
-      "title": "EntityDefinitionReference",
-      "type": "object"
-    },
     "EntityUniverse": {
       "enum": [
         "complete",
@@ -195,6 +165,18 @@
     "IntermediaryEntityDefinition": {
       "additionalProperties": false,
       "properties": {
+        "conforms": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Unknown"
+            }
+          ],
+          "description": "Whether every non-null key value belongs to the logical entity's population, with no orphan values. A complete definition conforms by definition.",
+          "title": "Conforms"
+        },
         "dataset_columns": {
           "items": {
             "type": "string"
@@ -202,6 +184,12 @@
           "minItems": 1,
           "title": "Dataset Columns",
           "type": "array"
+        },
+        "description": {
+          "default": "",
+          "description": "What this realization identifies in its dataset, such as the role it plays. Write it when the key is composite or transformed, or when its column description does not say the role; a single unmodified column otherwise lends its column description.",
+          "title": "Description",
+          "type": "string"
         },
         "entity_expression": {
           "items": {
@@ -222,12 +210,39 @@
           "minLength": 1,
           "title": "Identity Id",
           "type": "string"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Unknown"
+            }
+          ],
+          "description": "Whether every record has a non-null key.",
+          "title": "Total"
+        },
+        "unique": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Unknown"
+            }
+          ],
+          "description": "Whether an instance of the logical entity appears in at most one record of the dataset. Records with a null key hold no instance.",
+          "title": "Unique"
         }
       },
       "required": [
         "identity_id",
         "dataset_columns",
-        "entity_universe"
+        "entity_universe",
+        "unique",
+        "total",
+        "conforms"
       ],
       "title": "IntermediaryEntityDefinition",
       "type": "object"
@@ -284,23 +299,6 @@
       "title": "IntermediaryNode",
       "type": "object"
     },
-    "IntermediaryRelationshipDirection": {
-      "additionalProperties": false,
-      "properties": {
-        "match_existence": {
-          "$ref": "#/$defs/MatchExistence"
-        },
-        "multiplicity": {
-          "$ref": "#/$defs/Multiplicity"
-        }
-      },
-      "required": [
-        "multiplicity",
-        "match_existence"
-      ],
-      "title": "IntermediaryRelationshipDirection",
-      "type": "object"
-    },
     "JsonValue": {},
     "LogicalIdentityDefinition": {
       "additionalProperties": false,
@@ -329,51 +327,6 @@
       "title": "LogicalIdentityDefinition",
       "type": "object"
     },
-    "MatchExistence": {
-      "enum": [
-        "always",
-        "optional",
-        "unknown"
-      ],
-      "title": "MatchExistence",
-      "type": "string"
-    },
-    "Multiplicity": {
-      "enum": [
-        "1:1",
-        "1:many",
-        "many:1",
-        "many:many",
-        "unknown"
-      ],
-      "title": "Multiplicity",
-      "type": "string"
-    },
-    "RelationshipDefinition": {
-      "additionalProperties": false,
-      "properties": {
-        "a_to_b": {
-          "$ref": "#/$defs/IntermediaryRelationshipDirection"
-        },
-        "b_to_a": {
-          "$ref": "#/$defs/IntermediaryRelationshipDirection"
-        },
-        "endpoint_a": {
-          "$ref": "#/$defs/EntityDefinitionReference"
-        },
-        "endpoint_b": {
-          "$ref": "#/$defs/EntityDefinitionReference"
-        }
-      },
-      "required": [
-        "endpoint_a",
-        "endpoint_b",
-        "a_to_b",
-        "b_to_a"
-      ],
-      "title": "RelationshipDefinition",
-      "type": "object"
-    },
     "Unknown": {
       "description": "Explicit unknown for a structured claim, such as a grain, that has no enum of its own.",
       "enum": [
@@ -385,19 +338,12 @@
   },
   "additionalProperties": false,
   "properties": {
-    "edges": {
-      "items": {
-        "$ref": "#/$defs/RelationshipDefinition"
-      },
-      "title": "Edges",
-      "type": "array"
-    },
     "logical_identities": {
       "additionalProperties": {
         "$ref": "#/$defs/LogicalIdentityDefinition"
       },
       "minProperties": 1,
-      "title": "Logical Identities",
+      "title": "Logical Entities",
       "type": "object"
     },
     "nodes": {
@@ -409,7 +355,7 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "3",
+      "const": "4",
       "title": "Schema Version",
       "type": "string"
     }
@@ -417,8 +363,7 @@
   "required": [
     "schema_version",
     "logical_identities",
-    "nodes",
-    "edges"
+    "nodes"
   ],
   "title": "IntermediaryDefinition",
   "type": "object"

@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from hashlib import sha256
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -11,27 +10,15 @@ from data_ontology_graph.model.relationship import (
 )
 
 
-SNAPSHOT_VERSION = "5.0"
-
-
-def schema_fingerprint() -> str:
-    payload = "".join(
-        [
-            DatasetNode.model_json_schema().__str__(),
-            LogicalIdentity.model_json_schema().__str__(),
-            JoinRelationship.model_json_schema().__str__(),
-            JoinAnnotation.model_json_schema().__str__(),
-        ]
-    )
-    return sha256(payload.encode()).hexdigest()[:16]
 
 
 class GraphSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: str = SNAPSHOT_VERSION
-    schema_fingerprint: str | None = None
-    built_at: datetime
+    version: str = Field(
+        pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
+        description="The UTC build time to the second; it identifies the published data.",
+    )
     logical_identities: list[LogicalIdentity] = Field(default_factory=list)
     nodes: list[DatasetNode]
     edges: list[JoinRelationship]
@@ -48,7 +35,7 @@ class GraphSnapshot(BaseModel):
         nodes = {node.node_id: node for node in self.nodes}
         identity_ids = [identity.identity_id for identity in self.logical_identities]
         if len(identity_ids) != len(set(identity_ids)):
-            raise ValueError("logical identity_id values must be unique")
+            raise ValueError("logical entity ID (identity_id) values must be unique")
         definitions = {
             key
             for node in self.nodes
@@ -59,7 +46,7 @@ class GraphSnapshot(BaseModel):
             for definition in node.entity_definitions:
                 if definition.identity_id not in known_identities:
                     raise ValueError(
-                        f"node {node.node_id} references unknown logical identity "
+                        f"node {node.node_id} references unknown logical entity "
                         f"{definition.identity_id}"
                     )
         for edge in self.edges:
@@ -79,7 +66,7 @@ class GraphSnapshot(BaseModel):
                     )
                 if edge.endpoint_a.identity_id != edge.endpoint_b.identity_id:
                     raise ValueError(
-                        f"edge {edge.edge_id} endpoints use different logical identities"
+                        f"edge {edge.edge_id} endpoints use different logical entities"
                     )
         known_edges = set(edge_ids)
         for annotation in self.annotations:
@@ -96,3 +83,8 @@ class GraphSnapshot(BaseModel):
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def snapshot_version(moment: datetime | None = None) -> str:
+    """The snapshot version for a build at `moment` (default now): UTC, second resolution."""
+    return (moment or now_utc()).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

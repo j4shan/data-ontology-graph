@@ -4,12 +4,14 @@ import argparse
 import asyncio
 import json
 import os
+import signal
 import socket
 import stat
 from pathlib import Path
 from threading import Event
 from typing import Any
 
+from data_ontology_graph.home import default_artifact, default_socket
 from data_ontology_graph.rpc.protocol import (
     INVALID_REQUEST,
     PARSE_ERROR,
@@ -199,21 +201,31 @@ async def _run(
         socket_path, max_concurrent_navigation=max_concurrent_navigation,
     )
     await server.start()
+    # `launchctl bootout` stops the job with SIGTERM; close cleanly so the socket file goes too.
+    stopping = asyncio.Event()
+    asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stopping.set)
+    serving = asyncio.create_task(server.serve_forever())
+    stopped = asyncio.create_task(stopping.wait())
     try:
-        await server.serve_forever()
+        await asyncio.wait({serving, stopped}, return_when=asyncio.FIRST_COMPLETED)
     finally:
+        for task in (serving, stopped):
+            task.cancel()
         await server.close()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the local ontology graph service")
-    parser.add_argument("--snapshot-dir", type=Path, required=True)
-    parser.add_argument("--socket", type=Path, required=True)
+    parser.add_argument("--snapshot-dir", type=Path, default=None,
+                        help="artifact to serve (default: the service home's current-graph)")
+    parser.add_argument("--socket", type=Path, default=None,
+                        help="socket to serve on (default: $DOG_SOCKET or the service home's)")
     parser.add_argument("--max-connecting-datasets", type=int, default=16)
     parser.add_argument("--max-concurrent-navigation", type=int, default=2)
     args = parser.parse_args()
     try:
-        asyncio.run(_run(args.snapshot_dir, args.socket, args.max_connecting_datasets,
+        asyncio.run(_run(args.snapshot_dir or default_artifact(), args.socket or default_socket(),
+                         args.max_connecting_datasets,
                          args.max_concurrent_navigation))
     except KeyboardInterrupt:
         pass

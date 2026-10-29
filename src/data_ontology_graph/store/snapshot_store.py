@@ -7,7 +7,7 @@ from pathlib import Path
 
 from data_ontology_graph.model.dataset import DatasetNode
 from data_ontology_graph.model.relationship import JoinAnnotation
-from data_ontology_graph.model.snapshot import GraphSnapshot, schema_fingerprint
+from data_ontology_graph.model.snapshot import GraphSnapshot
 
 
 class SnapshotStore:
@@ -27,8 +27,6 @@ class SnapshotStore:
         return GraphSnapshot.model_validate(
             {
                 "version": nodes_doc["version"],
-                "schema_fingerprint": nodes_doc.get("schema_fingerprint"),
-                "built_at": nodes_doc["built_at"],
                 "logical_identities": nodes_doc.get("logical_identities", []),
                 "nodes": nodes_doc["nodes"],
                 "edges": edges_doc["edges"],
@@ -96,11 +94,7 @@ def _serialize_node(node: DatasetNode) -> dict:
 
 def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
     directory.mkdir(parents=True, exist_ok=True)
-    envelope = {
-        "version": snapshot.version,
-        "schema_fingerprint": snapshot.schema_fingerprint or schema_fingerprint(),
-        "built_at": snapshot.built_at.isoformat(),
-    }
+    envelope = {"version": snapshot.version}
     nodes_doc = {
         **envelope,
         "logical_identities": [
@@ -132,6 +126,5 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
 
 
 def _require_same_envelope(reference: dict, candidate: dict, filename: str) -> None:
-    for field in ("version", "schema_fingerprint", "built_at"):
-        if candidate.get(field) != reference.get(field):
-            raise ValueError(f"{filename} {field} does not match nodes.json")
+    if candidate.get("version") != reference.get("version"):
+        raise ValueError(f"{filename} version does not match nodes.json")

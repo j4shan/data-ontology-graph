@@ -9,6 +9,9 @@ import pytest
 from pydantic import ValidationError
 
 from data_ontology_graph.builder import build_snapshot_from_yaml
+from data_ontology_graph.model.dataset import ColumnMetadata
+from data_ontology_graph.model.enums import Unknown
+from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import JoinEndpoint, JoinRelationship, edge_id_for
 from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.rpc.protocol import INVALID_PARAMS, RESOURCE_NOT_FOUND, JsonRpcDispatcher
@@ -16,7 +19,7 @@ from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.contracts import ConnectingSubgraphRequest, PathsRequest
 from data_ontology_graph.service.read import GraphReadService
 from data_ontology_graph.service.tables import to_records
-from graph_records import by_id, paths
+from graph_records import by_id, edges, paths
 from test_json_rpc_service import _rpc_call
 
 
@@ -25,32 +28,54 @@ CATALOG = ROOT / "tests/fixtures/lending/catalog.yaml"
 
 
 def service_for(names, links, **kwargs):
-    """Small topology variations using the existing lending fixture's definitions."""
+    """Small topologies built from the lending fixture's account dataset.
+
+    Each link joins its two datasets on an identity of its own, so a path passes through a
+    dataset by arriving on one link's definition and leaving on another's.
+    """
     snapshot, _, _ = build_snapshot_from_yaml(CATALOG)
     template = next(node for node in snapshot.nodes if node.node_id == "sqlite:lending.account")
     definition = next(d for d in template.entity_definitions if d.identity_id == "account_identity")
+    link_identities = {tuple(link[:2]): f"{link[0]}~{link[1]}" for link in links}
     nodes = []
     for name in names:
         node = template.model_copy(deep=True)
         node.node_id = name
-        node.entity_definitions = [definition.model_copy(deep=True)]
+        identities = [identity for pair, identity in link_identities.items() if name in pair]
+        node.columns = [ColumnMetadata(name=f"{identity}_id") for identity in identities] or [
+            ColumnMetadata(name="id")
+        ]
+        node.grain = Unknown.UNKNOWN
+        node.entity_definitions = [
+            definition.model_copy(
+                deep=True, update={"identity_id": identity, "dataset_columns": [f"{identity}_id"]},
+            )
+            for identity in identities
+        ]
         nodes.append(node)
     edges = []
     for link in links:
         left, right = link[:2]
         forward, reverse = link[2:] if len(link) == 4 else ("1:1", "1:1")
-        a = JoinEndpoint(node_id=left, identity_id=definition.identity_id,
-                         dataset_columns=definition.dataset_columns)
-        b = JoinEndpoint(node_id=right, identity_id=definition.identity_id,
-                         dataset_columns=definition.dataset_columns)
+        identity = link_identities[(left, right)]
+        a = JoinEndpoint(node_id=left, identity_id=identity, dataset_columns=[f"{identity}_id"])
+        b = JoinEndpoint(node_id=right, identity_id=identity, dataset_columns=[f"{identity}_id"])
         edges.append(JoinRelationship(
             edge_id=edge_id_for(a, b), endpoint_a=a, endpoint_b=b,
             a_to_b={"multiplicity": forward, "match_existence": "always"},
             b_to_a={"multiplicity": reverse, "match_existence": "always"},
         ))
+    identities = [
+        LogicalIdentity(identity_id=identity, name=identity)
+        for identity in sorted(set(link_identities.values()))
+    ]
     data = snapshot.model_dump()
-    data.update(nodes=nodes, edges=edges, annotations=[])
+    data.update(logical_identities=identities, nodes=nodes, edges=edges, annotations=[])
     return GraphReadService(type(snapshot).model_validate(data), **kwargs)
+
+
+def find(service, source, target, **kwargs):
+    return service.find_paths(PathsRequest(from_node_id=source, to_node_id=target, **kwargs))
 
 
 def test_filter_prunes_calendar_fanout_and_keeps_process_path():
@@ -63,42 +88,52 @@ def test_filter_prunes_calendar_fanout_and_keeps_process_path():
          ("operation", "order", "many:1", "1:many"),
          ("order", "plant", "many:1", "1:many")],
     )
-    assert service.find_paths("confirmation", "plant", max_hops=3).path_count == 2
-    filtered = service.find_paths("confirmation", "plant", max_hops=3,
-                                  allowed_multiplicities=["many:1", "1:1"])
+    assert find(service, "confirmation", "plant", max_edges=3).path_count == 2
+    filtered = find(service, "confirmation", "plant", max_edges=3,
+                    allowed_multiplicities=["many:1", "1:1"])
     assert filtered.path_count == 1
-    assert [hop["to_node_id"] for hop in paths(filtered)[0]] == [
+    assert [edge["to_node_id"] for edge in paths(filtered)[0]] == [
         "operation", "order", "plant",
     ]
-    assert service.find_paths("plant", "confirmation", max_hops=3,
-                              allowed_multiplicities=["many:1"]).path_count == 0
-    assert service.find_paths("plant", "confirmation", max_hops=3,
-                              allowed_multiplicities=["1:many"]).path_count
+    assert find(service, "plant", "confirmation", max_edges=3,
+                allowed_multiplicities=["many:1"]).path_count == 0
+    assert find(service, "plant", "confirmation", max_edges=3,
+                allowed_multiplicities=["1:many"]).path_count
 
 
-def _all_paths(service, source, target, max_hops, allowed):
-    """Reference ranking: every simple path, sorted by hop count then edge IDs."""
-    paths = []
+def _all_paths(service, source, target, max_edges, allowed):
+    """Reference: every path that never reuses a definition, as edge-ID lists.
 
-    def walk(current, hops, seen):
-        if len(hops) == max_hops:
+    A path arrives at a dataset on one definition and leaves on another, so it may revisit a
+    dataset, and it ends on first reaching the target.
+    """
+    found = []
+
+    def walk(current, arrived_on, edges, used):
+        if len(edges) == max_edges:
             return
         for edge in service.index.adjacency.get(current, ()):
-            if allowed is not None and edge.direction_from(current).multiplicity not in allowed:
-                continue
-            nxt = edge.opposite(current).node_id
-            if nxt in seen:
-                continue
-            if nxt == target:
-                paths.append([*hops, edge.edge_id])
-            else:
-                walk(nxt, [*hops, edge.edge_id], seen | {nxt})
+            for leaving, arriving in ((edge.endpoint_a, edge.endpoint_b),
+                                      (edge.endpoint_b, edge.endpoint_a)):
+                if leaving.node_id != current or leaving.identity_key() == arrived_on:
+                    continue
+                direction = edge.a_to_b if leaving is edge.endpoint_a else edge.b_to_a
+                if allowed is not None and direction.multiplicity not in allowed:
+                    continue
+                keys = {leaving.identity_key(), arriving.identity_key()}
+                if keys & used:
+                    continue
+                path = [*edges, edge.edge_id]
+                if arriving.node_id == target:
+                    found.append(path)
+                else:
+                    walk(arriving.node_id, arriving.identity_key(), path, used | keys)
 
-    walk(source, [], {source})
-    return sorted(paths, key=lambda path: (len(path), tuple(path)))
+    walk(source, None, [], set())
+    return found
 
 
-def test_path_ranking_and_truncation_match_exhaustive_enumeration():
+def test_k_shortest_paths_match_exhaustive_enumeration():
     rnd = random.Random(7)
     mults = ["1:1", "1:many", "many:1", "many:many"]
     for _ in range(8):
@@ -108,55 +143,65 @@ def test_path_ranking_and_truncation_match_exhaustive_enumeration():
             names, [(a, b, rnd.choice(mults), rnd.choice(mults)) for a, b in links]
         )
         for source, target in rnd.sample(list(combinations(names, 2)), 6):
-            for max_hops in (1, 3, 5):
+            for max_edges in (1, 3, 5):
                 for allowed in (None, ["1:1", "many:1"]):
-                    expected = _all_paths(service, source, target, max_hops, allowed)
-                    for limit in (1, 2, 5, len(expected) or 1, 1000):
-                        response = service.find_paths(
-                            source, target, max_hops=max_hops, limit=limit,
-                            allowed_multiplicities=allowed,
-                        )
-                        assert [[hop["edge_id"] for hop in path]
-                                for path in paths(response)] == expected[:limit]
+                    expected = sorted(
+                        _all_paths(service, source, target, max_edges, allowed),
+                        key=lambda path: (len(path), tuple(path)),
+                    )
+                    valid = {tuple(path) for path in expected}
+                    for limit in (1, 2, 5, len(expected) or 1, 100):
+                        response = find(service, source, target, max_edges=max_edges,
+                                        limit=limit, allowed_multiplicities=allowed)
+                        found = [tuple(edge["edge_id"] for edge in path) for path in paths(response)]
+                        # The k shortest: every path exists, lengths are the k smallest, and no
+                        # path repeats. Which of several equal-length paths is a tie-break.
+                        assert set(found) <= valid and len(set(found)) == len(found)
+                        assert [len(path) for path in found] == [
+                            len(path) for path in expected[:limit]
+                        ]
                         assert response.truncated is (len(expected) > limit)
+                        if limit >= len(expected):
+                            assert sorted(found) == sorted(map(tuple, expected))
 
 
-def test_path_search_stops_once_the_limit_is_filled():
+def test_path_search_cost_does_not_follow_the_number_of_paths(monkeypatch):
+    from data_ontology_graph.query import paths as path_module
+
     names = [f"n{i}" for i in range(10)]
     service = service_for(names, list(combinations(names, 2)))
-    expanded = []
+    searches = []
+    original = path_module._Search.shortest
 
-    class CountingAdjacency(dict):
-        def get(self, key, default=None):
-            expanded.append(key)
-            return super().get(key, default)
+    def counting(self, *args):
+        searches.append(args)
+        return original(self, *args)
 
-    service.index.adjacency = CountingAdjacency(service.index.adjacency)
-    response = service.find_paths("n0", "n9", max_hops=8, limit=1)
+    monkeypatch.setattr(path_module._Search, "shortest", counting)
+    response = find(service, "n0", "n9", max_edges=8, limit=1)
     assert [len(path) for path in paths(response)] == [1]
     assert response.truncated is True
-    # Exhaustive search would expand on the order of 10^5 partial paths here.
-    assert len(expanded) < 20
+    # Enumerating every path here would expand on the order of 10^5 partial paths; the k
+    # shortest search runs about one shortest search per state of each path found.
+    assert len(searches) < 20
 
 
-def test_paths_sharing_a_hop_list_its_relationship_once():
+def test_paths_list_each_dataset_once_and_orient_every_directed_edge():
     service = service_for(["a", "b", "c", "d"], [("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")])
-    response = service.find_paths("a", "c", max_hops=3)
-    assert [[(hop["from_node_id"], hop["to_node_id"]) for hop in path]
+    response = find(service, "a", "c", max_edges=3)
+    assert [[(edge["from_node_id"], edge["to_node_id"]) for edge in path]
             for path in paths(response)] == [[("a", "b"), ("b", "c")],
                                             [("a", "b"), ("b", "d"), ("d", "c")]]
-    relationships = by_id(response.relationships, "edge_id")
-    assert len(relationships) == 4
     assert list(by_id(response.datasets, "node_id")) == ["a", "b", "c", "d"]
-    # The c-d edge is stored canonically and traversed from d.
+    # The c-d edge is stored canonically with c first and traversed from d.
     last = paths(response)[1][-1]
-    assert relationships[last["edge_id"]]["endpoint_a"]["node_id"] == "c"
+    assert last["edge_id"].startswith("c:") and last["from_node_id"] == "d"
 
 def test_unknown_multiplicity_requires_explicit_opt_in():
     service = service_for(["a", "b"], [("a", "b", "unknown", "1:1")])
-    assert service.find_paths("a", "b").path_count
-    assert not service.find_paths("a", "b", allowed_multiplicities=["1:1"]).path_count
-    assert service.find_paths("a", "b", allowed_multiplicities=["unknown"]).path_count
+    assert find(service, "a", "b").path_count
+    assert not find(service, "a", "b", allowed_multiplicities=["1:1"]).path_count
+    assert find(service, "a", "b", allowed_multiplicities=["unknown"]).path_count
     with pytest.raises(ValidationError):
         PathsRequest(from_node_id="a", to_node_id="b", allowed_multiplicities=[])
     with pytest.raises(ValidationError):
@@ -170,11 +215,14 @@ def test_connecting_tree_uses_shared_intermediate_and_preserves_evidence():
     response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["c", "a", "b"]))
     assert response.status == "completed"
     assert list(by_id(response.datasets, "node_id")) == ["a", "b", "c", "hub"]
-    relationships = to_records(response.relationships)
-    assert len(relationships) == 3
-    edge = next(edge for edge in relationships if edge["endpoint_a"]["node_id"] == "a")
-    assert edge["a_to_b"]["multiplicity"] == "many:1"
-    assert edge["b_to_a"]["multiplicity"] == "1:many"
+    tree_edges = edges(response)
+    # Each tree relationship is a edge from each of its two datasets.
+    assert len({edge["edge_id"] for edge in tree_edges}) == 3 and len(tree_edges) == 6
+    from_a = next(edge for edge in tree_edges if edge["from_node_id"] == "a")
+    assert from_a["multiplicity"] == "many:1"
+    back = next(edge for edge in tree_edges
+                if edge["from_node_id"] == "hub" and edge["to_node_id"] == "a")
+    assert back["multiplicity"] == "1:many"
     reverse = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["b", "a", "c"]))
     assert response == reverse
 
@@ -184,7 +232,7 @@ def test_disconnected_endpoints_return_no_tree():
     response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["a", "c"]))
     assert response.status == "disconnected"
     assert list(by_id(response.datasets, "node_id")) == ["a", "c"]
-    assert not to_records(response.relationships)
+    assert not edges(response)
 
 
 def test_endpoint_cap_is_configurable_and_rpc_validates_inputs():
@@ -229,8 +277,10 @@ def test_approximation_against_exhaustive_small_graph_optimum():
         service = service_for(names, links)
         terminals = ["a", "d", "f"]
         response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=terminals))
-        result = [(edge["endpoint_a"]["node_id"], edge["endpoint_b"]["node_id"])
-                  for edge in to_records(response.relationships)]
+        result = sorted({
+            tuple(sorted((edge["from_node_id"], edge["to_node_id"])))
+            for edge in edges(response)
+        })
         datasets = by_id(response.datasets, "node_id")
         assert response.status == "completed" and is_connected(terminals, result)
         assert len(result) == len(datasets) - 1
@@ -324,14 +374,14 @@ def test_navigation_does_not_block_lookup_and_shutdown_cancels_workers():
         service = service_for(["a", "b"], [("a", "b")])
         started, stopped, second_started = Event(), Event(), Event()
         original = service.find_paths
-        def slow(from_node_id, to_node_id, cancel_event=None, **kwargs):
-            if from_node_id == "a":
+        def slow(request, cancel_event=None):
+            if request.from_node_id == "a":
                 started.set()
             else:
                 second_started.set()
             assert cancel_event.wait(3), "server did not cancel navigation"
             stopped.set()
-            return original(from_node_id, to_node_id, cancel_event=cancel_event, **kwargs)
+            return original(request, cancel_event)
         service.find_paths = slow
         with tempfile.TemporaryDirectory(prefix="dog-", dir="/tmp") as directory:
             server = GraphUnixServer(service, Path(directory) / "graph.sock",

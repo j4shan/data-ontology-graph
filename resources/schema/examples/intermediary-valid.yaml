@@ -1,4 +1,4 @@
-schema_version: "3"
+schema_version: "4"
 logical_identities:
   customer_identity:
     name: Customer identity
@@ -31,6 +31,9 @@ nodes:
       - identity_id: customer_identity
         dataset_columns: [c1, c2, c3]
         entity_universe: partial
+        unique: true
+        total: unknown
+        conforms: true
         entity_expression:
           - "[c1, xxhash64(c2, c3)]"
         entity_metadata:
@@ -53,20 +56,8 @@ nodes:
       - identity_id: customer_identity
         dataset_columns: [d1, d2]
         entity_universe: complete
+        unique: true
+        total: true
+        conforms: true
         entity_expression:
           - "[d1, d2]"
-edges:
-  - endpoint_a:
-      node_id: dataset_a
-      identity_id: customer_identity
-      dataset_columns: [c1, c2, c3]
-    endpoint_b:
-      node_id: dataset_b
-      identity_id: customer_identity
-      dataset_columns: [d1, d2]
-    a_to_b:
-      multiplicity: "many:1"
-      match_existence: always
-    b_to_a:
-      multiplicity: "1:many"
-      match_existence: unknown
