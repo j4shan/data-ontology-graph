@@ -5,11 +5,6 @@ definitions, and relationships. Source-controlled YAML builds one read-only
 current artifact. One local singleton service reads that artifact and exposes
 sessionless JSON-RPC tools over a Unix-domain socket.
 
-The DDL collector prepares schema-version-3 YAML from curated source catalogs.
-The user running it may review and answer decisions. The collector ships as the
-`ddl_collector` Python package beside the graph core in this distribution and
-runs through `ddl-collector`.
-
 ## Requirements
 
 1. Model logical entities and their relationships across addressable datasets
@@ -51,8 +46,7 @@ definition's `unique`, `total`, `conforms`, and `entity_universe` properties. Th
 Schemas are under [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
 governs the manifest and `intermediary.schema.json` governs the assembled document. Graph tests
 use the synthetic, single-file schema version `"4"` [lending fixture](tests/fixtures/lending/catalog.yaml).
-It describes no real data source. DDL collector tests use a separate synthetic SQLite fixture
-under [`tests/fixtures/minibank/`](tests/fixtures/minibank/).
+It describes no real data source.
 Test data sources, reviewed reference catalogs, generated catalogs, published graph artifacts,
 and AKG evaluation live in the sibling [Critic](../data-ontology-agent-critic/) project.
 
@@ -94,58 +88,7 @@ A finalized YAML directory may contain only `.yaml` and `.yml` files.
 Single-file input remains available and is validated directly as an assembled intermediary.
 
 The builder does not read SQLite catalogs, infer relationships from database keys or column
-names, decompose composite primary keys, or apply overlays. The DDL collector prepares YAML upstream; the builder validates its output
-through the same gate used for manually authored YAML. Dependencies flow from `ddl_collector` to
-`data_ontology_graph`, never back into the graph core.
-
-## DDL collector
-
-The collector is deprecated. It still writes schema version `"3"` with authored
-relationships, which the graph builder no longer accepts.
-
-The first source family is SQLite. Its adapter opens the database read-only and gathers table
-columns, declared primary and unique keys, foreign keys, and BIRD description CSVs. Read-only
-profiling adds counts and relationship coverage by default; `--no-profile` skips it. Source
-families collect structured evidence through a common protocol, while drafting is independent of
-the source family. SQLite needs no extra dependencies. A future family needing drivers or
-toolchains receives its own `ddl-collector-<family>` optional extra.
-
-Run the stages from the repository root with a local Critic checkout:
-
-```bash
-uv run ddl-collector extract --critic-root ../data-ontology-agent-critic --catalog catalog_name --scratch scratch/catalog-review
-uv run ddl-collector survey --scratch scratch/catalog-review
-# The user may edit the answer blocks in scratch/catalog-review/survey.md.
-uv run ddl-collector apply --scratch scratch/catalog-review
-uv run ddl-collector validate --scratch scratch/catalog-review
-uv run ddl-collector publish --scratch scratch/catalog-review --catalog-root ../data-ontology-agent-critic/resources/data/generated_catalogs
-```
-
-Replace `catalog_name` with a catalog directory registered in Critic's
-`resources/data/SOURCES.md`. The collector accepts any registered catalog directory.
-
-`extract` checks every catalog file against Critic's `resources/data/SOURCES.md` hashes before
-reading it. It creates a session with `session.yaml`, `evidence.json`, `decisions.yaml`,
-`survey.md`, `draft/`, and `report.json` under the git-ignored `scratch/` directory. The survey
-lists unresolved grain decisions before relationship decisions. Declared keys and observed data
-are proposals; the user may answer them. The current collector publishes only after every
-decision is answered, unknown, or waived; defaulting unanswered decisions is planned. Repeated
-`apply` and `survey` rounds preserve answers and report unresolved decisions and validation
-findings.
-
-The draft has a sibling `directory-manifest.yaml` and a `yaml/` directory with `identities.yaml`,
-one `nodes-<table>.yaml` per table, and `relationships.yaml`. Every physical column remains in
-the draft. SQLite node IDs use `sqlite:<catalog>.<table>` and qualified names use
-`<catalog>.<schema>.<table>`. The `accessor.sqlite.v1` properties include `host` (default
-`localhost`), `schema`, `object`, and an absolute `database_path` under the configurable
-`--source-root` (default `/opt/data-ontology/sources`). `--host` changes the accessor host.
-
-Publication rechecks source hashes and requires resolved decisions, no draft findings, and a
-valid catalog. It atomically writes `generated_catalogs/<catalog>/` in Critic with the manifest,
-`yaml/`, `decisions.md`, and `provenance.yaml`. The provenance records source hashes, generation
-details, review rounds, counts, and unknown claims. Generated catalogs are never committed here.
-Agents preparing SQLite catalogs should follow
-[the SQLite skill](skills/sqlite/SKILL.md).
+names, decompose composite primary keys, or apply overlays.
 
 Without activating the venv:
 
@@ -193,37 +136,33 @@ data-ontology-graph-client graph.search --params '{"query":"customer"}'
 ```
 
 The service supports snapshot information, lexical search, logical entity and dataset lookup,
-relationship detail, a dataset's directed edges, breadth-first subgraph expansion, and k-shortest route retrieval. It does
+relationship detail, a dataset's directed edges, breadth-first subgraph expansion, ranked shortest paths,
+and an approximate connecting subgraph for two to sixteen datasets. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
+`graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
+identifies the published data by its UTC build time. Republish the current artifact from the
+YAML intermediary with `data-ontology-graph-publish` after a software upgrade.
 
 ## AKG contract and the query-graph-api skill
 
-An abstract knowledge graph (AKG) is the subset of graph datasets and relationships that an agent
-selects for one objective. One JSON file holds the whole objective: datasets keyed by `node_id`,
-each holding the directed edges the agent traverses from it, trimmed graph fields such as name,
-source, grain, and the columns that matter, and the agent's reasoning under each dataset's and
-directed edge's `usage`, plus gaps and comparisons. Connected components are derived from the
-directed edges; disconnected components are
-a valid answer when the objective asks for unrelated facts or the graph lacks a connection, which
-the AKG records as a data gap.
+An abstract knowledge graph (AKG) selects graph datasets and directed edges for one analytical objective. It has no format version; its schema follows the graph API version. It stores datasets as response-shaped records in a list. Each selected directed edge remains an API array inside the start dataset's `edge_groups`; its position names appear in the document's `edge_fields`. Agent reasoning lives in dataset `usage`, entity-definition `usage` keyed by `edge_id`, comparisons, and gaps. Disconnected components are valid when the objective asks for separate facts or the graph lacks a connection.
 
-[`resources/schema/akg.schema.json`](resources/schema/akg.schema.json) is the public contract. The
-[`query-graph-api` skill](skills/query-graph-api/SKILL.md) builds an AKG file incrementally in file
-mode: it discovers through `scripts/graph_call.py` and writes the file only through
-`scripts/akg.py`, which copies graph objects from the service and never changes a graph field
-already present. `scripts/service.py start|stop|status` starts and stops the on-demand service
-for the agent. The scripts are standard-library only and find the service by themselves.
+The [query-graph-api skill](skills/query-graph-api/SKILL.md) documents best practices and bundles the [complete graph API reference](skills/query-graph-api/references/graph-api.md), [format guide](skills/query-graph-api/references/akg-format.md), and a [schema copy](skills/query-graph-api/references/akg.schema.json) identical to the public [AKG schema](resources/schema/akg.schema.json). Its `query.py` proxy prints each service result or error and keeps two files for one question: a JSON question file with logical entity names and a Markdown traversal file. For the context path `question.json`, these are `question.json` and `question.traversals.md`. The traversal file records requests and responses for directed-edge, subgraph, path, and connecting-subgraph calls, including service errors. The agent uses these files and the format guide to write the AKG at the caller's output path, or at `$GRAPH_WORK/akg.json`, with `status` set to `draft`.
+
+From the repository root, run the service and make the first proxy call with `--question`. Later calls use the same context file; `--entity` records a logical entity name:
 
 ```bash
 python3 skills/query-graph-api/scripts/service.py start
-python3 skills/query-graph-api/scripts/akg.py init akg.json --question "..."
-python3 skills/query-graph-api/scripts/akg.py add-edge akg.json NODE_ID EDGE_ID
-data-ontology-graph-akg check akg.json                          # findings by severity
-data-ontology-graph-akg finalize akg.json                       # or --yaml PATH
-data-ontology-graph-akg export akg.json --format markdown       # read-only copy for review
+GRAPH_WORK=$(mktemp -d)
+GRAPH_CONTEXT="$GRAPH_WORK/question.json"
+python3 skills/query-graph-api/scripts/query.py snapshot_info --context "$GRAPH_CONTEXT" --question 'How many loans are there per region?'
+python3 skills/query-graph-api/scripts/query.py get_edges '{"node_id":"sqlite:lending.loan"}' --context "$GRAPH_CONTEXT" --entity 'Account'
+# After the agent writes the AKG to "$GRAPH_WORK/akg.json":
+cd "$GRAPH_WORK"
+data-ontology-graph-akg check akg.json
+data-ontology-graph-akg finalize akg.json
+data-ontology-graph-akg export akg.json --format markdown
 ```
 
-`check` never refuses to load a parseable file; `finalize` requires no error, resolves every
-dataset and directed edge against the service or the YAML intermediary, and marks the file
-`final`.
+After writing `akg.json`, use this repository's `data-ontology-graph-akg` command for review. `check` reports findings without changing the file; pass `--socket PATH` or `--yaml PATH` to also resolve it against a graph. `finalize` resolves datasets and directed edges against the graph service or a YAML intermediary, requires no errors, and sets `status` to `final`. `export` produces a read-only Markdown copy.

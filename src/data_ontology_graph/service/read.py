@@ -37,10 +37,9 @@ from data_ontology_graph.query.neighbourhood import (
     expand,
     group_edges,
 )
-from data_ontology_graph.query.routes import RouteGraph
+from data_ontology_graph.query.paths import PathGraph
 from data_ontology_graph.service.search import LexicalSearchIndex
 from data_ontology_graph.service.tables import (
-    DATASET_HEADER,
     DEFINITION_HEADER,
     RELATIONSHIP_HEADER,
     ResponseFormat,
@@ -83,7 +82,7 @@ class GraphReadIndex:
             for node_id, edges in adjacency.items()
         }
         self.directed_edges = directed_edges_by_dataset(snapshot.edges)
-        self.routes = RouteGraph(snapshot.nodes, snapshot.edges)
+        self.paths = PathGraph(snapshot.nodes, snapshot.edges)
         self.annotations = snapshot.annotation_map()
         self.search = LexicalSearchIndex(snapshot)
 
@@ -99,8 +98,6 @@ class GraphReadService:
         snapshot = self.index.snapshot
         return SnapshotInfo(
             version=snapshot.version,
-            schema_fingerprint=snapshot.schema_fingerprint,
-            built_at=snapshot.built_at.isoformat(),
             node_count=len(snapshot.nodes),
             edge_count=len(snapshot.edges),
             identity_count=len(snapshot.logical_identities),
@@ -151,16 +148,15 @@ class GraphReadService:
                  for node_id, definition in selected],
                 DEFINITION_HEADER, request.response_format,
             ),
-            datasets=collection(
-                [self._dataset_record(node_id)
-                 for node_id in sorted({node_id for node_id, _ in selected})],
-                DATASET_HEADER, request.response_format,
+            datasets=self._dataset_collection(
+                sorted({node_id for node_id, _ in selected}), request.response_format,
             ),
             truncated=len(matching) > request.limit,
         )
 
     def get_dataset(self, node_id: str) -> DatasetDetail:
-        return self._dataset_detail(self._node(node_id))
+        self._node(node_id)
+        return DatasetDetail(**self._dataset_record(node_id, "full"))
 
     def get_relationship(
         self,
@@ -251,30 +247,30 @@ class GraphReadService:
     ) -> PathsResponse:
         self._node(request.from_node_id)
         self._node(request.to_node_id)
-        view = View.resolve(request.detail, request.fields)
+        view = View.resolve(request.detail, request.fields, paths=True)
         allowed = (set(request.allowed_multiplicities)
                    if request.allowed_multiplicities is not None else None)
-        graph = self.index.routes
+        graph = self.index.paths
         pairs, truncated = graph.k_shortest(
             request.from_node_id, request.to_node_id, request.limit, request.max_edges, allowed,
             cancelled=(cancel_event.is_set if cancel_event is not None else lambda: False),
         )
-        routes = [
-            [directed_edge_from(self.index.edges[graph.edge_id(a, b)], graph.keys[a]) for a, b in route]
-            for route in pairs
+        paths = [
+            [directed_edge_from(self.index.edges[graph.edge_id(a, b)], graph.keys[a]) for a, b in path]
+            for path in pairs
         ]
         node_ids = sorted({
-            node_id for route in routes for edge in route
+            node_id for path in paths for edge in path
             for node_id in (edge.source.node_id, edge.target.node_id)
         })
         datasets = [self._dataset_values(node_id, None, None, view) for node_id in node_ids]
         presented = self._present(datasets, view, request.response_format, distance=False)
-        presented["routes"] = [[self._edge_array(edge, view) for edge in route] for route in routes]
+        presented["paths"] = [[self._edge_array(edge, view) for edge in path] for path in paths]
         return PathsResponse(
             snapshot=self.snapshot_info(),
             from_node_id=request.from_node_id,
             to_node_id=request.to_node_id,
-            path_count=len(routes),
+            path_count=len(paths),
             **presented,
             truncated=truncated or bool(cancel_event is not None and cancel_event.is_set()),
         )
@@ -325,24 +321,15 @@ class GraphReadService:
         except KeyError as error:
             raise KeyError(f"unknown relationship {edge_id}") from error
 
-    def _dataset_detail(self, node: DatasetNode) -> DatasetDetail:
-        return DatasetDetail(
-            node_id=node.node_id,
-            descriptor=node.descriptor.model_dump(mode="json"),
-            accessor=node.accessor.model_dump(mode="json", by_alias=True),
-            grain=node.model_dump(mode="json", include={"grain"})["grain"],
-            columns=[item.model_dump(mode="json") for item in node.columns],
-            entity_definitions=[_definition_payload(node, item) for item in node.entity_definitions],
-            unknown_fields=node.unknown_fields(),
-        )
+    def _dataset_record(self, node_id: str, detail: Detail) -> dict[str, Any]:
+        """One dataset as the navigation record at ``detail``, without response-only fields."""
+        view = View.resolve(detail)
+        return pick(self._dataset_field_values(node_id, view), view.record_fields())
 
-    def _dataset_record(self, node_id: str) -> dict[str, Any]:
-        node = self._node(node_id)
-        return {
-            "node_id": node_id,
-            "descriptor": node.descriptor.model_dump(mode="json", exclude={"display_name"}),
-            "accessor": node.accessor.model_dump(mode="json", by_alias=True),
-        }
+    def _dataset_collection(self, node_ids: list[str], response_format: ResponseFormat) -> Any:
+        """Datasets beside other graph objects, as `standard` records (system design 2.4.4)."""
+        records = [self._dataset_record(node_id, "standard") for node_id in node_ids]
+        return collection(records, list(View.resolve("standard").record_fields()), response_format)
 
     @staticmethod
     def _definition_filter(node: DatasetNode, request: EdgesRequest):
@@ -384,6 +371,7 @@ class GraphReadService:
                 f"{definition_label(edge.source.node_id, edge.source.dataset_columns)} -> "
                 f"{definition_label(edge.target.node_id, edge.target.dataset_columns)}"
             ),
+            "identity_id": edge.source.identity_id,
             "multiplicity": edge.outgoing.multiplicity.value,
             "match_existence": edge.outgoing.match_existence.value,
             "reverse_multiplicity": edge.reverse.multiplicity.value,
@@ -410,18 +398,27 @@ class GraphReadService:
         self, node_id: str, distance: int | None, groups: list[EdgeGroup] | None, view: View,
     ) -> dict[str, Any]:
         """One dataset as a nested record at ``view``, with its edge groups when it lists them."""
+        values = self._dataset_field_values(node_id, view) | {"distance": distance}
+        record = pick(values, view.dataset_fields(distance=distance is not None))
+        if groups is not None:
+            record["edge_groups"] = self._edge_groups(groups, view)
+        return record
+
+    def _dataset_field_values(self, node_id: str, view: View) -> dict[str, Any]:
+        """Every dataset field by dotted name; entity definitions at ``view``."""
         node = self._node(node_id)
         descriptor = node.descriptor
         accessor = node.accessor.model_dump(mode="json", by_alias=True)
-        values = {
+        return {
             "node_id": node_id,
             "qualified_name": descriptor.qualified_name,
-            "distance": distance,
+            "distance": None,
             "edge_count": len(self.index.directed_edges.get(node_id, ())),
             "accessor.schema_id": accessor["schema_id"],
             "grain": node.model_dump(mode="json", include={"grain"})["grain"],
             "descriptor.description": descriptor.description,
             "unknown_fields": node.unknown_fields(),
+            "descriptor.display_name": descriptor.display_name,
             "descriptor.synonyms": descriptor.synonyms,
             "descriptor.tags": descriptor.tags,
             "accessor.properties": accessor["properties"],
@@ -434,10 +431,6 @@ class GraphReadService:
                 for definition in node.entity_definitions
             ],
         }
-        record = pick(values, view.dataset_fields(distance=distance is not None))
-        if groups is not None:
-            record["edge_groups"] = self._edge_groups(groups, view)
-        return record
 
     def _edge_groups(self, groups: list[EdgeGroup], view: View) -> list[dict[str, Any]]:
         """Edge groups by logical entity ID, each holding its entity definitions' directed edges."""
@@ -532,8 +525,7 @@ class _GraphObjects:
 
     def datasets(self) -> Any:
         """Endpoint datasets in node_id order."""
-        records = [self.service._dataset_record(node_id) for node_id in sorted(self._definitions)]
-        return collection(records, DATASET_HEADER, self.response_format)
+        return self.service._dataset_collection(sorted(self._definitions), self.response_format)
 
     def entity_definitions(self) -> Any:
         """The endpoint entity definitions, in node_id, logical entity ID, then column order."""

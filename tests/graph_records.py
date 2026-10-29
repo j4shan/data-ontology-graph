@@ -38,9 +38,9 @@ def _dump(response):
 
 
 def paths(response):
-    """Route directed-edge records grouped by path rank."""
+    """Path directed-edge records grouped by path rank."""
     data = _dump(response)
-    return [[decode(data["edge_fields"], edge) for edge in route] for route in data["routes"]]
+    return [[decode(data["edge_fields"], edge) for edge in path] for path in data["paths"]]
 
 
 def by_id(collection, key):

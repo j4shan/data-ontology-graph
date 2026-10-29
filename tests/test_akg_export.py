@@ -22,15 +22,16 @@ def test_export_matches_golden(name: str) -> None:
 
 def test_export_orients_each_directed_edge_from_the_dataset_that_holds_it() -> None:
     payload = _payload("akg-single")
-    loan, account = (payload["datasets"][f"sqlite:lending.{name}"] for name in ("loan", "account"))
-    edge = loan.pop("edges")[0]
-    account["edges"].insert(0, edge | {
-        "to_node_id": "sqlite:lending.loan",
-        "multiplicity": edge["reverse_multiplicity"],
-        "match_existence": edge["reverse_match_existence"],
-        "reverse_multiplicity": edge["multiplicity"],
-        "reverse_match_existence": edge["match_existence"],
-    })
+    loan, account = payload["datasets"][0], payload["datasets"][1]
+    group = loan.pop("edge_groups")[0]
+    [edge] = group["entity_definitions"][0]["edges"]
+    account["edge_groups"].insert(0, {"identity_id": "account_identity", "entity_definitions": [{
+        "dataset_columns": ["account_id"],
+        "edges": [[
+            "sqlite:lending.account[account_id] -> sqlite:lending.loan[account_id]",
+            edge[3], edge[4], edge[1], edge[2], edge[6], edge[5], edge[7],
+        ]],
+    }]})
     text = export_markdown(payload)
     assert "### account.account_id → loan.account_id" in text
     assert "- Each account row matches any number of loan rows; some match none." in text
@@ -38,7 +39,8 @@ def test_export_orients_each_directed_edge_from_the_dataset_that_holds_it() -> N
 
 def test_export_disambiguates_colliding_aliases() -> None:
     payload = _payload("akg-data-gap")
-    payload["datasets"]["sqlite:archive.region"] = {"name": "archive.main.region", "source": "sqlite"}
+    payload["datasets"].append({"node_id": "sqlite:archive.region", "qualified_name": "archive.main.region",
+                                "accessor": {"schema_id": "accessor.sqlite.v1"}})
     text = export_markdown(payload)
     assert "| lending.main.region |" in text and "| archive.main.region |" in text
 

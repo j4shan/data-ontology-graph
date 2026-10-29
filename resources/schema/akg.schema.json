@@ -1,6 +1,36 @@
 {
   "$defs": {
-    "ColumnFacts": {
+    "Accessor": {
+      "additionalProperties": true,
+      "properties": {
+        "properties": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Properties"
+        },
+        "schema_id": {
+          "minLength": 1,
+          "title": "Schema Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_id"
+      ],
+      "title": "Accessor",
+      "type": "object"
+    },
+    "Column": {
       "additionalProperties": true,
       "properties": {
         "description": {
@@ -14,6 +44,11 @@
           ],
           "default": null,
           "title": "Description"
+        },
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
         },
         "synonyms": {
           "anyOf": [
@@ -43,7 +78,10 @@
           "title": "Value Description"
         }
       },
-      "title": "ColumnFacts",
+      "required": [
+        "name"
+      ],
+      "title": "Column",
       "type": "object"
     },
     "ColumnReference": {
@@ -148,15 +186,18 @@
     },
     "Dataset": {
       "additionalProperties": true,
-      "description": "One graph dataset, keyed by `node_id` in the document.",
+      "description": "One graph dataset record, as a graph service response presents it.",
       "properties": {
+        "accessor": {
+          "$ref": "#/$defs/Accessor"
+        },
         "columns": {
           "anyOf": [
             {
-              "additionalProperties": {
-                "$ref": "#/$defs/ColumnFacts"
+              "items": {
+                "$ref": "#/$defs/Column"
               },
-              "type": "object"
+              "type": "array"
             },
             {
               "type": "null"
@@ -165,23 +206,22 @@
           "default": null,
           "title": "Columns"
         },
-        "description": {
+        "descriptor": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/Descriptor"
             },
             {
               "type": "null"
             }
           ],
-          "default": null,
-          "title": "Description"
+          "default": null
         },
-        "edges": {
+        "edge_groups": {
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/DirectedEdge"
+                "$ref": "#/$defs/EdgeGroup"
               },
               "type": "array"
             },
@@ -191,13 +231,13 @@
           ],
           "default": null,
           "description": "Selected directed edges leaving this dataset.",
-          "title": "Edges"
+          "title": "Edge Groups"
         },
         "entity_definitions": {
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/EntityDefinitionFacts"
+                "$ref": "#/$defs/EntityDefinition"
               },
               "type": "array"
             },
@@ -211,10 +251,10 @@
         "grain": {
           "anyOf": [
             {
-              "items": {
-                "type": "string"
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
               },
-              "type": "array"
+              "type": "object"
             },
             {
               "const": "unknown",
@@ -227,16 +267,14 @@
           "default": null,
           "title": "Grain"
         },
-        "name": {
-          "description": "descriptor.qualified_name",
+        "node_id": {
           "minLength": 1,
-          "title": "Name",
+          "title": "Node Id",
           "type": "string"
         },
-        "source": {
-          "description": "Accessor family, such as sqlite.",
+        "qualified_name": {
           "minLength": 1,
-          "title": "Source",
+          "title": "Qualified Name",
           "type": "string"
         },
         "stats": {
@@ -255,7 +293,7 @@
           "description": "Reserved for statistics once the graph serves them.",
           "title": "Stats"
         },
-        "synonyms": {
+        "unknown_fields": {
           "anyOf": [
             {
               "items": {
@@ -268,22 +306,7 @@
             }
           ],
           "default": null,
-          "title": "Synonyms"
-        },
-        "tags": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Tags"
+          "title": "Unknown Fields"
         },
         "usage": {
           "anyOf": [
@@ -298,8 +321,9 @@
         }
       },
       "required": [
-        "name",
-        "source"
+        "node_id",
+        "qualified_name",
+        "accessor"
       ],
       "title": "Dataset",
       "type": "object"
@@ -357,24 +381,10 @@
       "title": "DatasetUsage",
       "type": "object"
     },
-    "DirectedEdge": {
+    "Descriptor": {
       "additionalProperties": true,
-      "description": "One relationship read from the dataset that holds it, where traversal starts.\n\nA directed edge is identified by `edge_id` and `from_dataset_columns`: a relationship with\nboth endpoints on one dataset gives that dataset two directed edges.",
       "properties": {
-        "edge_id": {
-          "minLength": 1,
-          "title": "Edge Id",
-          "type": "string"
-        },
-        "from_dataset_columns": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "From Dataset Columns",
-          "type": "array"
-        },
-        "from_description": {
+        "description": {
           "anyOf": [
             {
               "type": "string"
@@ -384,90 +394,76 @@
             }
           ],
           "default": null,
-          "title": "From Description"
+          "title": "Description"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Name"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synonyms"
+        },
+        "tags": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tags"
+        }
+      },
+      "title": "Descriptor",
+      "type": "object"
+    },
+    "EdgeGroup": {
+      "additionalProperties": true,
+      "properties": {
+        "entity_definitions": {
+          "items": {
+            "$ref": "#/$defs/GroupDefinition"
+          },
+          "minItems": 1,
+          "title": "Entity Definitions",
+          "type": "array"
         },
         "identity_id": {
           "minLength": 1,
           "title": "Identity Id",
           "type": "string"
-        },
-        "match_existence": {
-          "$ref": "#/$defs/MatchExistence"
-        },
-        "multiplicity": {
-          "$ref": "#/$defs/Multiplicity"
-        },
-        "reverse_match_existence": {
-          "$ref": "#/$defs/MatchExistence"
-        },
-        "reverse_multiplicity": {
-          "$ref": "#/$defs/Multiplicity"
-        },
-        "stats": {
-          "anyOf": [
-            {
-              "additionalProperties": {
-                "$ref": "#/$defs/JsonValue"
-              },
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Reserved for statistics once the graph serves them.",
-          "title": "Stats"
-        },
-        "to_dataset_columns": {
-          "items": {
-            "type": "string"
-          },
-          "minItems": 1,
-          "title": "To Dataset Columns",
-          "type": "array"
-        },
-        "to_description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "To Description"
-        },
-        "to_node_id": {
-          "minLength": 1,
-          "title": "To Node Id",
-          "type": "string"
-        },
-        "usage": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/EdgeUsage"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
-        "edge_id",
         "identity_id",
-        "from_dataset_columns",
-        "to_node_id",
-        "to_dataset_columns",
-        "multiplicity",
-        "match_existence",
-        "reverse_multiplicity",
-        "reverse_match_existence"
+        "entity_definitions"
       ],
-      "title": "DirectedEdge",
+      "title": "EdgeGroup",
       "type": "object"
     },
     "EdgeReference": {
@@ -541,9 +537,25 @@
       "title": "EdgeUsage",
       "type": "object"
     },
-    "EntityDefinitionFacts": {
+    "EntityDefinition": {
       "additionalProperties": true,
       "properties": {
+        "conforms": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conforms"
+        },
         "dataset_columns": {
           "items": {
             "type": "string"
@@ -562,7 +574,6 @@
             }
           ],
           "default": null,
-          "description": "Effective description: the definition's own, or its single raw column's.",
           "title": "Description"
         },
         "description_source": {
@@ -581,21 +592,117 @@
           "default": null,
           "title": "Description Source"
         },
+        "effective_description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Description"
+        },
+        "entity_expression": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entity Expression"
+        },
+        "entity_metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Entity Metadata"
+        },
         "entity_universe": {
-          "$ref": "#/$defs/EntityUniverse"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntityUniverse"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "identity_id": {
           "minLength": 1,
           "title": "Identity Id",
           "type": "string"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total"
+        },
+        "unique": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "const": "unknown",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unique"
+        },
+        "unknown_fields": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unknown Fields"
         }
       },
       "required": [
         "identity_id",
-        "dataset_columns",
-        "entity_universe"
+        "dataset_columns"
       ],
-      "title": "EntityDefinitionFacts",
+      "title": "EntityDefinition",
       "type": "object"
     },
     "EntityUniverse": {
@@ -666,50 +773,79 @@
             }
           ],
           "default": null,
-          "description": "The served snapshot, recorded by `akg.py init`."
+          "description": "The served snapshot, as `graph.snapshot_info` returns it."
         }
       },
       "title": "GraphInfo",
       "type": "object"
     },
+    "GroupDefinition": {
+      "additionalProperties": true,
+      "description": "One entity definition of an edge group, with its selected directed edges.",
+      "properties": {
+        "dataset_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Dataset Columns",
+          "type": "array"
+        },
+        "edges": {
+          "description": "Directed-edge arrays at the positions the document's `edge_fields` names.",
+          "items": {
+            "items": {
+              "$ref": "#/$defs/JsonValue"
+            },
+            "type": "array"
+          },
+          "title": "Edges",
+          "type": "array"
+        },
+        "usage": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/EdgeUsage"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Agent reasoning per directed edge, keyed by `edge_id`.",
+          "title": "Usage"
+        }
+      },
+      "required": [
+        "dataset_columns",
+        "edges"
+      ],
+      "title": "GroupDefinition",
+      "type": "object"
+    },
     "JsonValue": {},
-    "MatchExistence": {
-      "enum": [
-        "always",
-        "optional",
-        "unknown"
-      ],
-      "title": "MatchExistence",
-      "type": "string"
-    },
-    "Multiplicity": {
-      "enum": [
-        "1:1",
-        "1:many",
-        "many:1",
-        "many:many",
-        "unknown"
-      ],
-      "title": "Multiplicity",
-      "type": "string"
-    },
     "Snapshot": {
       "additionalProperties": true,
       "properties": {
-        "schema_fingerprint": {
+        "api_version": {
+          "description": "The graph API version the AKG follows.",
           "minLength": 1,
-          "title": "Schema Fingerprint",
+          "title": "Api Version",
           "type": "string"
         },
         "version": {
+          "description": "The snapshot version the AKG was read from.",
           "minLength": 1,
           "title": "Version",
           "type": "string"
         }
       },
       "required": [
-        "version",
-        "schema_fingerprint"
+        "api_version",
+        "version"
       ],
       "title": "Snapshot",
       "type": "object"
@@ -734,17 +870,20 @@
       "title": "Comparisons"
     },
     "datasets": {
-      "additionalProperties": {
+      "items": {
         "$ref": "#/$defs/Dataset"
       },
       "title": "Datasets",
-      "type": "object"
+      "type": "array"
     },
-    "format_version": {
-      "const": 2,
-      "description": "AKG file format version.",
-      "title": "Format Version",
-      "type": "integer"
+    "edge_fields": {
+      "description": "Names of the directed-edge array positions.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 2,
+      "title": "Edge Fields",
+      "type": "array"
     },
     "gaps": {
       "anyOf": [
@@ -799,9 +938,9 @@
     }
   },
   "required": [
-    "format_version",
     "status",
     "question",
+    "edge_fields",
     "datasets"
   ],
   "title": "AkgDocument",

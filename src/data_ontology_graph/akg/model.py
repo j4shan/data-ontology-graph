@@ -1,19 +1,25 @@
-"""AKG document model.
+"""AKG document model, format 3.
 
-An AKG holds the graph datasets that serve one objective, keyed by `node_id`, with trimmed graph
-fields and the agent's reasoning beside them. A selected join is a directed edge stored in the
-dataset traversal starts from, as navigation responses list it. Every model accepts unknown keys;
-`check` reports them without rejecting the document.
+An AKG holds the graph datasets that serve one objective, each in the shape of the graph service
+response it was concluded from: the dataset record without the fields that describe only a
+response, with the selected columns, and with the selected directed edges in `edge_groups` as
+directed-edge arrays named by the document's `edge_fields`. The agent's reasoning sits beside
+them in `usage`, `comparisons`, and `gaps`. Every model accepts unknown keys; `check` reports
+them without rejecting the document.
 """
 
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
-from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
+from data_ontology_graph.model.enums import EntityUniverse
 
 
-FORMAT_VERSION = 2
+EDGE_FIELDS = (
+    "edge", "multiplicity", "match_existence", "reverse_multiplicity", "reverse_match_existence",
+    "from_description", "to_description", "edge_id",
+)
+"""The `standard` directed-edge positions an AKG records (system design 2.4.1)."""
 Status = Literal["draft", "final"]
 Role = Literal["anchor", "grouping", "filter", "bridge"]
 ColumnUse = Literal["measure", "count", "group", "filter", "time", "absence", "join_only", "output"]
@@ -25,31 +31,77 @@ class OpenModel(BaseModel):
 
 
 class Snapshot(OpenModel):
-    version: str = Field(min_length=1)
-    schema_fingerprint: str = Field(min_length=1)
+    api_version: str = Field(min_length=1, description="The graph API version the AKG follows.")
+    version: str = Field(min_length=1, description="The snapshot version the AKG was read from.")
 
 
 class GraphInfo(OpenModel):
     snapshot: Snapshot | None = Field(
-        default=None, description="The served snapshot, recorded by `akg.py init`."
+        default=None, description="The served snapshot, as `graph.snapshot_info` returns it."
     )
 
 
-class ColumnFacts(OpenModel):
+class Accessor(OpenModel):
+    schema_id: str = Field(min_length=1)
+    properties: dict[str, JsonValue] | None = None
+
+
+class Descriptor(OpenModel):
+    display_name: str | None = None
+    description: str | None = None
+    synonyms: list[str] | None = None
+    tags: list[str] | None = None
+
+
+class Column(OpenModel):
+    name: str = Field(min_length=1)
     description: str | None = None
     value_description: str | None = None
     synonyms: list[str] | None = None
 
 
-class EntityDefinitionFacts(OpenModel):
+class EntityDefinition(OpenModel):
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
-    entity_universe: EntityUniverse
-    description: str | None = Field(
-        default=None,
-        description="Effective description: the definition's own, or its single raw column's.",
-    )
+    entity_universe: EntityUniverse | None = None
+    unique: bool | Literal["unknown"] | None = None
+    total: bool | Literal["unknown"] | None = None
+    conforms: bool | Literal["unknown"] | None = None
+    entity_expression: list[str] | None = None
+    entity_metadata: dict[str, JsonValue] | None = None
+    description: str | None = None
+    effective_description: str | None = None
     description_source: Literal["entity", "column"] | None = None
+    unknown_fields: list[str] | None = None
+
+
+class EdgeUsage(OpenModel):
+    """Agent reasoning about one directed edge."""
+
+    keep: list[str] | None = Field(
+        default=None, description="Start or end node_id values whose unmatched rows must survive."
+    )
+    aggregate_before_join: bool | None = Field(
+        default=None, description="Aggregate the end to the start's grain before combining."
+    )
+    note: str | None = None
+
+
+class GroupDefinition(OpenModel):
+    """One entity definition of an edge group, with its selected directed edges."""
+
+    dataset_columns: list[str] = Field(min_length=1)
+    edges: list[list[JsonValue]] = Field(
+        description="Directed-edge arrays at the positions the document's `edge_fields` names."
+    )
+    usage: dict[str, EdgeUsage] | None = Field(
+        default=None, description="Agent reasoning per directed edge, keyed by `edge_id`."
+    )
+
+
+class EdgeGroup(OpenModel):
+    identity_id: str = Field(min_length=1)
+    entity_definitions: list[GroupDefinition] = Field(min_length=1)
 
 
 class ColumnUsage(OpenModel):
@@ -66,58 +118,22 @@ class DatasetUsage(OpenModel):
     note: str | None = None
 
 
-class EdgeUsage(OpenModel):
-    """Agent reasoning about one directed edge."""
-
-    keep: list[str] | None = Field(
-        default=None, description="Start or end node_id values whose unmatched rows must survive."
-    )
-    aggregate_before_join: bool | None = Field(
-        default=None, description="Aggregate the end to the start's grain before combining."
-    )
-    note: str | None = None
-
-
-class DirectedEdge(OpenModel):
-    """One relationship read from the dataset that holds it, where traversal starts.
-
-    A directed edge is identified by `edge_id` and `from_dataset_columns`: a relationship with
-    both endpoints on one dataset gives that dataset two directed edges.
-    """
-
-    edge_id: str = Field(min_length=1)
-    identity_id: str = Field(min_length=1)
-    from_dataset_columns: list[str] = Field(min_length=1)
-    to_node_id: str = Field(min_length=1)
-    to_dataset_columns: list[str] = Field(min_length=1)
-    multiplicity: Multiplicity
-    match_existence: MatchExistence
-    reverse_multiplicity: Multiplicity
-    reverse_match_existence: MatchExistence
-    from_description: str | None = None
-    to_description: str | None = None
-    stats: dict[str, JsonValue] | None = Field(
-        default=None, description="Reserved for statistics once the graph serves them."
-    )
-    usage: EdgeUsage | None = None
-
-
 class Dataset(OpenModel):
-    """One graph dataset, keyed by `node_id` in the document."""
+    """One graph dataset record, as a graph service response presents it."""
 
-    name: str = Field(min_length=1, description="descriptor.qualified_name")
-    source: str = Field(min_length=1, description="Accessor family, such as sqlite.")
-    grain: list[str] | Literal["unknown"] | None = None
-    columns: dict[str, ColumnFacts] | None = None
-    description: str | None = None
-    entity_definitions: list[EntityDefinitionFacts] | None = None
-    synonyms: list[str] | None = None
-    tags: list[str] | None = None
+    node_id: str = Field(min_length=1)
+    qualified_name: str = Field(min_length=1)
+    accessor: Accessor
+    grain: dict[str, JsonValue] | Literal["unknown"] | None = None
+    descriptor: Descriptor | None = None
+    unknown_fields: list[str] | None = None
+    columns: list[Column] | None = None
+    entity_definitions: list[EntityDefinition] | None = None
     stats: dict[str, JsonValue] | None = Field(
         default=None, description="Reserved for statistics once the graph serves them."
     )
     usage: DatasetUsage | None = None
-    edges: list[DirectedEdge] | None = Field(
+    edge_groups: list[EdgeGroup] | None = Field(
         default=None, description="Selected directed edges leaving this dataset."
     )
 
@@ -151,11 +167,13 @@ class Gap(OpenModel):
 class AkgDocument(OpenModel):
     """The graph datasets and directed edges that serve one objective."""
 
-    format_version: Literal[2] = Field(description="AKG file format version.")
     status: Status
     question: str = Field(min_length=1)
     objective: str | None = None
     graph: GraphInfo | None = None
-    datasets: dict[str, Dataset]
+    edge_fields: list[str] = Field(
+        min_length=2, description="Names of the directed-edge array positions."
+    )
+    datasets: list[Dataset]
     comparisons: dict[str, Comparison] | None = None
     gaps: dict[str, Gap] | None = None

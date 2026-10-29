@@ -1,46 +1,33 @@
 """Resolve an AKG document against the graph it was built from.
 
 The graph is either the running service, reached through its public JSON-RPC methods, or the
-YAML intermediary the snapshot was built from, with relationships derived as the build derives
-them. Both are compared through the same projection, each directed edge as its relationship
-read from the dataset that holds it, so a document resolves the same way against either.
+YAML intermediary, built into a snapshot and served by the same read service in process, so
+both sources answer in one shape. A dataset is compared with `graph.get_dataset`, and each
+directed edge, position by position, with `graph.get_relationship` read from the dataset that
+holds it.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
-from data_ontology_graph.akg.check import AkgFinding
-from data_ontology_graph.akg.projection import endpoint_descriptions, project_dataset, project_edge
-from data_ontology_graph.builder.intermediary import load_intermediary_yaml
-from data_ontology_graph.model.derivation import derive_relationships
-from data_ontology_graph.model.intermediary import IntermediaryDefinition
+from data_ontology_graph.akg.check import AkgFinding, dataset_location, edge_location
+from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.rpc import client
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
+from data_ontology_graph.service.read import GraphReadService
 
 
 GraphCall = Callable[[str, dict[str, Any]], dict[str, Any]]
 """Send one JSON-RPC request and return the full response object."""
 
-DATASET_FIELDS = ("name", "source", "grain", "description", "entity_definitions", "synonyms", "tags")
-COLUMN_FIELDS = ("description", "value_description", "synonyms")
-EDGE_FIELDS = (
-    "identity_id", "to_node_id", "to_dataset_columns", "multiplicity", "match_existence",
-    "reverse_multiplicity", "reverse_match_existence", "from_description", "to_description",
-)
-
-
-class GraphSource(Protocol):
-    def dataset(self, node_id: str) -> tuple[dict[str, Any] | None, str]: ...
-
-    def relationship(self, edge_id: str) -> tuple[dict[str, Any] | None, str]: ...
-
-    def snapshot(self) -> dict[str, Any] | None: ...
+AGENT_FIELDS = ("node_id", "usage", "edge_groups", "stats")
+"""Dataset keys that are not compared with the graph."""
 
 
 class ServiceSource:
-    """The running graph service."""
+    """The graph read service, reached through one JSON-RPC call function."""
 
     def __init__(self, call: GraphCall) -> None:
         self._call = call
@@ -48,10 +35,16 @@ class ServiceSource:
     def dataset(self, node_id: str) -> tuple[dict[str, Any] | None, str]:
         return self._result("graph.get_dataset", {"node_id": node_id})
 
-    def relationship(self, edge_id: str) -> tuple[dict[str, Any] | None, str]:
-        return self._result(
-            "graph.get_relationship", {"edge_id": edge_id, "response_format": "records"}
-        )
+    def edge(
+        self, edge_id: str, node_id: str, columns: list[str]
+    ) -> tuple[dict[str, Any] | None, str]:
+        """The directed edge leaving (`node_id`, `columns`), as its named positions."""
+        result, error = self._result("graph.get_relationship", {
+            "edge_id": edge_id, "from_node_id": node_id, "from_dataset_columns": columns,
+        })
+        if result is None:
+            return None, error
+        return dict(zip(result["edge_fields"], result["edge"])), ""
 
     def snapshot(self) -> dict[str, Any] | None:
         return self._result("graph.snapshot_info", {})[0]
@@ -63,41 +56,16 @@ class ServiceSource:
         return response["result"], ""
 
 
-class YamlSource:
-    """The YAML intermediary, as one file or a directory manifest."""
+GraphSource = ServiceSource
 
-    def __init__(self, definition: IntermediaryDefinition) -> None:
-        self._nodes = {node.node_id: node.model_dump(mode="json") for node in definition.nodes}
-        runtime = {node.node_id: node.to_runtime() for node in definition.nodes}
-        relationships = derive_relationships(runtime.values())
-        self._edges = {relationship.edge_id: relationship for relationship in relationships}
-        self._descriptions = {
-            (node_id, tuple(item.dataset_columns)): effective[0]
-            for node_id, node in runtime.items()
-            for item in node.entity_definitions
-            if (effective := item.effective_description(node.columns))
-        }
+
+class YamlSource(ServiceSource):
+    """The YAML intermediary, as one file or a directory manifest, served in process."""
 
     @classmethod
     def load(cls, path: Path | str) -> "YamlSource":
-        return cls(load_intermediary_yaml(path))
-
-    def dataset(self, node_id: str) -> tuple[dict[str, Any] | None, str]:
-        node = self._nodes.get(node_id)
-        return (node, "") if node else (None, f"unknown dataset {node_id}")
-
-    def relationship(self, edge_id: str) -> tuple[dict[str, Any] | None, str]:
-        edge = self._edges.get(edge_id)
-        if edge is None:
-            return None, f"unknown relationship {edge_id}"
-        record = edge.model_dump(mode="json")
-        record["entity_definitions"] = [
-            {**endpoint.model_dump(mode="json"),
-             "effective_description": self._descriptions.get(
-                 (endpoint.node_id, tuple(endpoint.dataset_columns)))}
-            for endpoint in (edge.endpoint_a, edge.endpoint_b)
-        ]
-        return record, ""
+        snapshot, _, _ = build_snapshot_from_yaml(path)
+        return cls(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
 
     def snapshot(self) -> dict[str, Any] | None:
         return None
@@ -118,76 +86,94 @@ def socket_call(socket_path: Path) -> GraphCall:
 
 
 def resolve_document(payload: dict[str, Any], source: GraphSource) -> list[AkgFinding]:
-    """Return one finding per element or graph field that differs from the graph.
+    """Return one finding per element or graph value that differs from the graph.
 
-    `payload` must already pass the document model. Only graph fields present in the document
+    `payload` must already pass the document checks. Only graph values present in the document
     are compared; agent fields and unknown keys are not.
     """
     findings: list[AkgFinding] = []
     recorded = (payload.get("graph") or {}).get("snapshot")
     served = source.snapshot()
     if recorded and served:
-        for field in ("version", "schema_fingerprint"):
-            if recorded.get(field) != served.get(field):
-                findings.append(
-                    _mismatch(f"$.graph.snapshot.{field}", recorded.get(field), served.get(field))
-                )
+        # The snapshot version records which data the AKG was read from; a later refresh is
+        # not a mismatch, so only the API version is compared.
+        if recorded.get("api_version") != served.get("api_version"):
+            findings.append(_mismatch(
+                "$.graph.snapshot.api_version", recorded.get("api_version"), served.get("api_version")
+            ))
 
-    for node_id, dataset in payload["datasets"].items():
-        location = f"$.datasets[{node_id!r}]"
-        node, error = source.dataset(node_id)
-        if node is None:
+    fields = payload["edge_fields"]
+    for dataset in payload["datasets"]:
+        node_id = dataset["node_id"]
+        location = dataset_location(node_id)
+        record, error = source.dataset(node_id)
+        if record is None:
             findings.append(_finding(location, "unknown_element", error))
             continue
-        findings.extend(_compare_dataset(location, dataset, project_dataset(node, "full")))
-        for index, edge in enumerate(dataset.get("edges") or []):
-            findings.extend(_compare_edge(f"{location}.edges[{index}]", node_id, edge, source))
+        findings.extend(_compare_dataset(location, dataset, record))
+        for group in dataset.get("edge_groups") or []:
+            for definition in group["entity_definitions"]:
+                columns = definition["dataset_columns"]
+                for array in definition["edges"]:
+                    edge = dict(zip(fields, array))
+                    where = edge_location(node_id, group["identity_id"], columns, edge["edge_id"])
+                    expected, error = source.edge(edge["edge_id"], node_id, columns)
+                    if expected is None:
+                        findings.append(_finding(where, "unknown_element", error))
+                        continue
+                    findings.extend(
+                        _mismatch(f"{where}.{field}", value, expected[field])
+                        for field, value in edge.items()
+                        if field in expected and value != expected[field]
+                    )
     return findings
 
 
-def _compare_edge(
-    location: str, node_id: str, edge: dict[str, Any], source: GraphSource
-) -> list[AkgFinding]:
-    record, error = source.relationship(edge["edge_id"])
-    if record is None:
-        return [_finding(location, "unknown_element", error)]
-    try:
-        expected = project_edge(
-            record, node_id, edge["from_dataset_columns"], endpoint_descriptions(record)
-        )
-    except ValueError as error:
-        return [_finding(location, "unknown_element", str(error))]
-    return [
-        _mismatch(f"{location}.{field}", edge[field], expected.get(field))
-        for field in EDGE_FIELDS
-        if field in edge and edge[field] != expected.get(field)
-    ]
-
-
 def _compare_dataset(
-    location: str, dataset: dict[str, Any], expected: dict[str, Any]
+    location: str, dataset: dict[str, Any], record: dict[str, Any]
 ) -> list[AkgFinding]:
-    findings = [
-        _mismatch(f"{location}.{field}", dataset[field], expected.get(field))
-        for field in DATASET_FIELDS
-        if field in dataset and dataset[field] != expected.get(field)
-    ]
-    served_columns = expected.get("columns", {})
-    for name, column in (dataset.get("columns") or {}).items():
-        if name not in served_columns:
-            findings.append(
-                _finding(f"{location}.columns[{name!r}]", "unknown_element", f"no column {name!r}")
-            )
+    findings: list[AkgFinding] = []
+    for field, value in dataset.items():
+        if field in AGENT_FIELDS or field not in record:
             continue
-        for field in COLUMN_FIELDS:
-            if field in column and column[field] != served_columns[name].get(field):
-                findings.append(
-                    _mismatch(
-                        f"{location}.columns[{name!r}].{field}",
-                        column[field],
-                        served_columns[name].get(field),
-                    )
-                )
+        served = record[field]
+        if field == "columns":
+            findings.extend(_compare_items(
+                f"{location}.columns", value, served, lambda item: item["name"],
+                lambda key: repr(key), "column",
+            ))
+        elif field == "entity_definitions":
+            findings.extend(_compare_items(
+                f"{location}.entity_definitions", value, served,
+                lambda item: (item["identity_id"], tuple(item["dataset_columns"])),
+                lambda key: f"{key[0]!r}, {list(key[1])!r}", "entity definition",
+            ))
+        elif field in ("accessor", "descriptor") and isinstance(value, dict):
+            findings.extend(
+                _mismatch(f"{location}.{field}.{key}", item, served.get(key))
+                for key, item in value.items()
+                if key in served and item != served[key]
+            )
+        elif value != served:
+            findings.append(_mismatch(f"{location}.{field}", value, served))
+    return findings
+
+
+def _compare_items(location, items, served, key_of, label, kind) -> list[AkgFinding]:
+    """Compare listed objects with the served ones of the same key, field by field."""
+    findings: list[AkgFinding] = []
+    by_key = {key_of(item): item for item in served}
+    for item in items:
+        key = key_of(item)
+        where = f"{location}[{label(key)}]"
+        if key not in by_key:
+            findings.append(_finding(where, "unknown_element", f"no {kind} {label(key)}"))
+            continue
+        findings.extend(
+            _mismatch(f"{where}.{field}", value, by_key[key].get(field))
+            for field, value in item.items()
+            if field in by_key[key] and value != by_key[key][field]
+        )
     return findings
 
 

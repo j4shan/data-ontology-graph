@@ -15,10 +15,13 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
+API_VERSION = "1"
+"""The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
+
+
 class SnapshotInfo(ContractModel):
+    api_version: str = API_VERSION
     version: str
-    schema_fingerprint: str | None
-    built_at: str
     node_count: int
     edge_count: int
     identity_count: int
@@ -151,13 +154,16 @@ class IdentityDetail(ContractModel):
 
 
 class DatasetDetail(ContractModel):
+    """The navigation dataset record with every field (system design 2.4.4)."""
+
     node_id: str
-    descriptor: dict[str, Any]
+    qualified_name: str
     accessor: dict[str, Any]
     grain: dict[str, Any] | Unknown
+    descriptor: dict[str, Any]
+    unknown_fields: list[str]
     columns: list[dict[str, Any]]
     entity_definitions: list[dict[str, Any]]
-    unknown_fields: list[str]
 
 
 class RelationshipDetail(ContractModel):
@@ -222,8 +228,8 @@ class PathsResponse(NavigationResponse):
     from_node_id: str
     to_node_id: str
     path_count: int
-    routes: list[list[list[Any]]]
-    """Routes in rank order, each its directed edges in travel order."""
+    paths: list[list[list[Any]]]
+    """Paths in rank order, each its directed edges in travel order."""
 
 
 class ConnectingSubgraphResponse(NavigationResponse):

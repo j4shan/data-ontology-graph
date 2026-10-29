@@ -121,8 +121,8 @@ def test_loader_rejects_mixed_build_envelopes(tmp_path: Path) -> None:
     publish_current_artifact(yaml_directory, artifact)
     edges_path = artifact / "edges.json"
     edges = json.loads(edges_path.read_text(encoding="utf-8"))
-    edges["built_at"] = "2000-01-01T00:00:00+00:00"
+    edges["version"] = "2000-01-01T00:00:00Z"
     edges_path.write_text(json.dumps(edges), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="edges.json built_at does not match nodes.json"):
+    with pytest.raises(ValueError, match="edges.json version does not match nodes.json"):
         SnapshotStore(tmp_path).load(artifact)

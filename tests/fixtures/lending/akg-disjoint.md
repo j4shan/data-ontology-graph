@@ -8,10 +8,10 @@
 
 | Alias | Dataset | Source | Grain | Role |
 | --- | --- | --- | --- | --- |
-| loan | `lending.main.loan` | sqlite | loan_id | anchor |
-| account | `lending.main.account` | sqlite | account_id | — |
-| customer | `lending.main.customer` | sqlite | customer_id | anchor |
-| region | `lending.main.region` | sqlite | region_id | — |
+| loan | `lending.main.loan` | accessor.sqlite.v1 | loan_id | anchor |
+| account | `lending.main.account` | accessor.sqlite.v1 | account_id | — |
+| customer | `lending.main.customer` | accessor.sqlite.v1 | customer_id | anchor |
+| region | `lending.main.region` | accessor.sqlite.v1 | region_id | — |
 
 ### Columns
 

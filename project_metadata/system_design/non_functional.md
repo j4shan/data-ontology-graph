@@ -22,16 +22,14 @@
 | ID | Clause |
 | --- | --- |
 | 3.1 | Socket filesystem permissions restrict the service socket to the local user, and the service opens no network listener. Serves `product/non_functional.md#4.1`. |
-| 3.2 | Accessors hold configuration and deployed location only. Preparation writes no credential into YAML, the survey, the decision log, generated commands, or other artifacts. Serves `product/non_functional.md#4.2`. |
-| 3.3 | Source adapters open source databases read-only, and bundled profiling queries only read. Serves `product/non_functional.md#4.3`. |
-| 3.4 | The collector verifies each source file's SHA-256 hash against Critic's `resources/data/SOURCES.md` before extraction and again before publication. Serves `product/non_functional.md#4.4`. |
+| 3.2 | Accessors hold configuration and deployed location only; no credential appears in YAML. Serves `product/non_functional.md#4.2`. |
 
 ## Observability
 
 | ID | Clause |
 | --- | --- |
 | 4.1 | Validation findings name the invalid location and violated rule. Serves `product/non_functional.md#2.5`. |
-| 4.2 | The build report lists every unknown typed claim and every deterministic rule violation, located by stable IDs, for the upstream preparation cycle. Serves `product/non_functional.md#2.5`. |
+| 4.2 | The build report lists every unknown typed claim and every deterministic rule violation, located by stable IDs. Serves `product/non_functional.md#2.5`. |
 
 ## Deployment
 

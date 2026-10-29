@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from hashlib import sha256
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -11,27 +10,15 @@ from data_ontology_graph.model.relationship import (
 )
 
 
-SNAPSHOT_VERSION = "6.0"
-
-
-def schema_fingerprint() -> str:
-    payload = "".join(
-        [
-            DatasetNode.model_json_schema().__str__(),
-            LogicalIdentity.model_json_schema().__str__(),
-            JoinRelationship.model_json_schema().__str__(),
-            JoinAnnotation.model_json_schema().__str__(),
-        ]
-    )
-    return sha256(payload.encode()).hexdigest()[:16]
 
 
 class GraphSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    version: str = SNAPSHOT_VERSION
-    schema_fingerprint: str | None = None
-    built_at: datetime
+    version: str = Field(
+        pattern=r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$",
+        description="The UTC build time to the second; it identifies the published data.",
+    )
     logical_identities: list[LogicalIdentity] = Field(default_factory=list)
     nodes: list[DatasetNode]
     edges: list[JoinRelationship]
@@ -96,3 +83,8 @@ class GraphSnapshot(BaseModel):
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def snapshot_version(moment: datetime | None = None) -> str:
+    """The snapshot version for a build at `moment` (default now): UTC, second resolution."""
+    return (moment or now_utc()).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

@@ -37,17 +37,17 @@ list their former IDs in the last column.
 
 | ID | Clause | Former |
 | --- | --- | --- |
-| 2.1 | A dataset is an addressable data resource, not assumed to be a SQL table or tabular storage. Distinct datasets in different access locations never collapse because their display names match. | 3.2.1 |
+| 2.1 | A dataset is an addressable data resource, uniquely identified in the graph by `node_id`, and is not assumed to be a SQL table or tabular storage. Distinct datasets in different access locations never collapse because their display names match. | 3.2.1 |
 | 2.2 | A dataset's descriptor holds its fully qualified deployed name, display name, description, synonyms, and tags in dataset terminology. Source-specific terms such as table, catalog, schema, or prefix belong only to the accessor. | 3.2.2 |
 | 2.3 | A dataset's accessor is a credential-free recipe an external tool uses to locate the dataset: a provider `schema_id` and the provider-specific properties it validates. The common model prescribes no vendor-specific properties. | 3.2.3 |
 | 2.4 | A dataset has exactly one grain: a grain whose components together describe one record boundary, or the explicit value `unknown`. Different record boundaries are different datasets. | 3.2.4 |
-| 2.5 | A dataset records its physical columns for entity definitions, grain, search, and relationship context. The graph does not reproduce primary keys, foreign keys, unique constraints, nullability, SQL types, or other source-catalog primitives. | 3.2.5 |
+| 2.5 | A dataset records its physical columns for entity definitions, grain, search, and relationship context. Each column has a name, description, value description, and synonyms. The graph does not reproduce primary keys, foreign keys, unique constraints, nullability, SQL types, or other source-catalog primitives. | 3.2.5 |
 
 ## Relationships
 
 | ID | Clause | Former |
 | --- | --- | --- |
-| 3.1 | A relationship connects two different entity definitions of the same logical entity, on different datasets or, as a self-join, on the same dataset. The graph build derives a relationship for every such pair; contributors do not author them. One relationship represents both directions; a traversal gives it a direction. | 3.3.1 |
+| 3.1 | A relationship connects two different entity definitions of the same logical entity, on different datasets or, as a self-join, on the same dataset. The graph build derives a relationship for every such pair; contributors do not author them. Its canonical `edge_id` identifies the endpoint pair independently of traversal direction. One relationship represents both directions; a traversal gives it a direction. | 3.3.1 |
 | 3.2 | Multiplicity is a directional claim derived from both endpoints' `unique` (1.11): `1:1`, `1:many`, `many:1`, `many:many`, or `unknown`. From endpoint A to B, unique on both sides gives `1:1`, nonunique A and unique B gives `many:1`, unique A and nonunique B gives `1:many`, and nonunique on both gives `many:many`; `unknown` on either side gives `unknown`. | 3.3.2 |
 | 3.3 | Match existence is a directional claim for each endpoint: `always` means every record there has a match on the other side, `optional` means zero matches are permitted without asserting that an unmatched record was observed, and `unknown` means neither is established. From A to B it is `always` when A is `total` and A's key values are contained in B's, `optional` when A is not `total` or its values are not contained in B's, and otherwise `unknown`. A's values are contained in B's when A `conforms` and B is `complete`, and are not when A is `complete` and B is `partial`; otherwise containment comes from relationship evidence (3.6) or is unknown. | 3.3.3 |
 | 3.4 | Multiplicity and match existence are independent claims. A `many:1` link can still be optional from the many side. | 3.3.4 |

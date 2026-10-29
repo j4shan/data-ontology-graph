@@ -17,14 +17,20 @@ FieldObject = Literal["dataset", "edge", "entity_definition"]
 
 DATASET_FIELDS = (
     "node_id", "qualified_name", "distance", "edge_count", "accessor.schema_id", "grain",
-    "descriptor.description", "unknown_fields", "descriptor.synonyms", "descriptor.tags",
+    "descriptor.description", "unknown_fields", "descriptor.display_name", "descriptor.synonyms",
+    "descriptor.tags",
     "accessor.properties", "columns", "entity_definitions",
 )
 EDGE_FIELDS = (
-    "edge", "multiplicity", "match_existence", "reverse_multiplicity", "reverse_match_existence",
+    "edge", "identity_id", "multiplicity", "match_existence", "reverse_multiplicity", "reverse_match_existence",
     "from_description", "to_description", "annotation", "edge_id",
 )
-"""Directed-edge array positions in order; ``edge_id`` is always last."""
+"""Directed-edge array positions in order; ``edge_id`` is always last.
+
+``identity_id`` is a basic position where no edge group carries the logical entity ID, in paths.
+"""
+RESPONSE_ONLY = ("distance", "edge_count")
+"""Dataset fields that describe a navigation response, not the dataset."""
 DEFINITION_FIELDS = (
     "identity_id", "dataset_columns", "entity_universe", "unique", "total", "conforms",
     "entity_expression", "entity_metadata", "description", "effective_description",
@@ -41,8 +47,8 @@ _LEVELS: dict[str, dict[Detail, tuple[str, ...]]] = {
     "dataset": {
         "essential": ("distance", "edge_count", "accessor.schema_id"),
         "standard": ("grain", "descriptor.description", "unknown_fields"),
-        "full": ("descriptor.synonyms", "descriptor.tags", "accessor.properties", "columns",
-                 "entity_definitions"),
+        "full": ("descriptor.display_name", "descriptor.synonyms", "descriptor.tags",
+                 "accessor.properties", "columns", "entity_definitions"),
     },
     "edge": {
         "essential": ("multiplicity", "match_existence"),
@@ -72,6 +78,44 @@ def definition_label(node_id: str, columns: Sequence[str]) -> str:
     return f"{node_id}[{','.join(names)}]"
 
 
+def split_edge_label(label: str) -> tuple[tuple[str, list[str]], tuple[str, list[str]]]:
+    """``(node_id, columns)`` of the start and end of ``"start[...] -> end[...]"``."""
+    sides: list[tuple[str, list[str]]] = []
+    decoder = json.JSONDecoder()
+    index = 0
+    for expected_end in (" -> ", ""):
+        bracket = label.find("[", index)
+        if bracket < 0:
+            raise ValueError(f"not a directed edge: {label!r}")
+        node_id, index = label[index:bracket], bracket + 1
+        columns: list[str] = []
+        while True:
+            if label.startswith('"', index):
+                name, index = decoder.raw_decode(label, index)
+            else:
+                stop = min((i for i in (label.find(",", index), label.find("]", index)) if i >= 0),
+                           default=-1)
+                if stop < 0:
+                    raise ValueError(f"not a directed edge: {label!r}")
+                name, index = label[index:stop], stop
+            columns.append(name)
+            if label.startswith(",", index):
+                index += 1
+                continue
+            if not label.startswith("]", index):
+                raise ValueError(f"not a directed edge: {label!r}")
+            index += 1
+            break
+        sides.append((node_id, columns))
+        if expected_end:
+            if not label.startswith(expected_end, index):
+                raise ValueError(f"not a directed edge: {label!r}")
+            index += len(expected_end)
+    if index != len(label):
+        raise ValueError(f"not a directed edge: {label!r}")
+    return sides[0], sides[1]
+
+
 @dataclass(frozen=True)
 class View:
     detail: Detail
@@ -81,7 +125,9 @@ class View:
     entity_definition: tuple[str, ...]
 
     @classmethod
-    def resolve(cls, detail: Detail, fields: dict[str, list[str]] | None) -> "View":
+    def resolve(
+        cls, detail: Detail, fields: dict[str, list[str]] | None = None, *, paths: bool = False,
+    ) -> "View":
         added = {name: list(dict.fromkeys(values)) for name, values in (fields or {}).items()}
         selected: dict[str, set[str]] = {}
         for name, catalog in _CATALOG.items():
@@ -93,6 +139,8 @@ class View:
                 chosen.update(_LEVELS[name][level])
             chosen.update(added.get(name, []))
             selected[name] = chosen
+        if paths:
+            selected["edge"].add("identity_id")
         if added.get("entity_definition"):
             selected["dataset"].add("entity_definitions")
         return cls(
@@ -103,6 +151,10 @@ class View:
 
     def dataset_fields(self, *, distance: bool) -> tuple[str, ...]:
         return tuple(f for f in self.dataset if distance or f != "distance")
+
+    def record_fields(self) -> tuple[str, ...]:
+        """Dataset fields outside navigation, without the response-only ones."""
+        return tuple(f for f in self.dataset if f not in RESPONSE_ONLY)
 
 
 def pick(values: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:

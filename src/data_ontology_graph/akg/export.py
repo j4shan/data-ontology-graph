@@ -8,15 +8,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from data_ontology_graph.service.views import split_edge_label
+
 
 ONE = ("1:1", "many:1")
 MANY = ("1:many", "many:many")
 
 
 def export_markdown(payload: dict[str, Any]) -> str:
-    datasets: dict[str, Any] = payload["datasets"]
-    edges = [(node_id, edge) for node_id, dataset in datasets.items()
-             for edge in dataset.get("edges") or []]
+    datasets: dict[str, Any] = {dataset["node_id"]: dataset for dataset in payload["datasets"]}
+    edges = [
+        (node_id, _edge_values(payload["edge_fields"], array), definition.get("usage") or {})
+        for node_id, dataset in datasets.items()
+        for group in dataset.get("edge_groups") or []
+        for definition in group["entity_definitions"]
+        for array in definition["edges"]
+    ]
     alias = _aliases(datasets, edges)
     lines = [f"# {payload['question']}", ""]
     if payload.get("objective"):
@@ -25,7 +32,7 @@ def export_markdown(payload: dict[str, Any]) -> str:
     status += f" · **Components:** {_component_count(datasets, edges)}"
     snapshot = (payload.get("graph") or {}).get("snapshot")
     if snapshot:
-        status += f" · **Snapshot:** {snapshot['version']} / {snapshot['schema_fingerprint']}"
+        status += f" · **Snapshot:** {snapshot['version']} (API {snapshot['api_version']})"
     lines += [status, ""]
 
     lines += [
@@ -35,19 +42,19 @@ def export_markdown(payload: dict[str, Any]) -> str:
         "| --- | --- | --- | --- | --- |",
     ]
     for node_id, dataset in datasets.items():
-        grain = dataset.get("grain")
-        grain_text = ", ".join(grain) if isinstance(grain, list) else (grain or "—")
         role = (dataset.get("usage") or {}).get("role") or "—"
         lines.append(
-            f"| {alias[node_id]} | `{dataset['name']}` | {dataset['source']} | {grain_text} | {role} |"
+            f"| {alias[node_id]} | `{dataset['qualified_name']}` | "
+            f"{dataset['accessor']['schema_id']} | {_grain(dataset.get('grain'))} | {role} |"
         )
     lines.append("")
 
     column_rows = []
     for node_id, dataset in datasets.items():
         uses = (dataset.get("usage") or {}).get("columns") or {}
-        for name in dict.fromkeys([*(dataset.get("columns") or {}), *uses]):
-            facts = (dataset.get("columns") or {}).get(name) or {}
+        listed = {column["name"]: column for column in dataset.get("columns") or []}
+        for name in dict.fromkeys([*listed, *uses]):
+            facts = listed.get(name) or {}
             use = uses.get(name) or {}
             usage = use.get("as", "—")
             if "value" in use and use["value"] is not None:
@@ -79,8 +86,8 @@ def export_markdown(payload: dict[str, Any]) -> str:
 
     if edges:
         lines += ["## Directed edges", ""]
-        for node_id, edge in edges:
-            lines += _edge(node_id, edge, alias) + [""]
+        for node_id, edge, usage in edges:
+            lines += _edge(node_id, edge, usage.get(edge["edge_id"]) or {}, alias) + [""]
 
     comparisons = payload.get("comparisons") or {}
     if comparisons:
@@ -105,12 +112,27 @@ def export_markdown(payload: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip("\n") + "\n"
 
 
-def _edge(node_id: str, edge: dict[str, Any], alias: dict[str, str]) -> list[str]:
-    usage = edge.get("usage") or {}
+def _edge_values(fields: list[str], array: list[Any]) -> dict[str, Any]:
+    """One directed-edge array by name, with its start and end entity definitions."""
+    edge = dict(zip(fields, array))
+    (_, edge["from_columns"]), (edge["to_node_id"], edge["to_columns"]) = split_edge_label(
+        edge["edge"]
+    )
+    return edge
+
+
+def _grain(grain: Any) -> str:
+    if not isinstance(grain, dict):
+        return grain or "—"
+    return " · ".join(", ".join(item["dataset_columns"]) for item in grain["components"])
+
+
+def _edge(
+    node_id: str, edge: dict[str, Any], usage: dict[str, Any], alias: dict[str, str],
+) -> list[str]:
     left, right = alias[node_id], alias[edge["to_node_id"]]
     lines = [
-        f"### {_columns(left, edge['from_dataset_columns'])} → "
-        f"{_columns(right, edge['to_dataset_columns'])}",
+        f"### {_columns(left, edge['from_columns'])} → {_columns(right, edge['to_columns'])}",
         "",
         f"- {_claim(left, right, edge['multiplicity'], edge['match_existence'])}",
         f"- {_claim(right, left, edge['reverse_multiplicity'], edge['reverse_match_existence'])}",
@@ -122,9 +144,6 @@ def _edge(node_id: str, edge: dict[str, Any], alias: dict[str, str]) -> list[str
         lines.append(f"- Aggregate {right} to the grain of {left} before combining.")
     if usage.get("note"):
         lines.append(f"- Note: {usage['note']}")
-    if edge.get("stats"):
-        stats = ", ".join(f"{key} = {value}" for key, value in edge["stats"].items())
-        lines.append(f"- Statistics: {stats}")
     return lines
 
 
@@ -146,13 +165,13 @@ def _columns(alias: str, columns: list[str]) -> str:
     return " + ".join(f"{alias}.{column}" for column in columns)
 
 
-def _aliases(datasets: dict[str, Any], edges: list[tuple[str, dict[str, Any]]]) -> dict[str, str]:
+def _aliases(datasets: dict[str, Any], edges: list[tuple]) -> dict[str, str]:
     node_ids = list(datasets)
-    for _, edge in edges:
+    for _, edge, _ in edges:
         if edge["to_node_id"] not in node_ids:
             node_ids.append(edge["to_node_id"])
     names = {
-        node_id: datasets[node_id]["name"] if node_id in datasets else node_id
+        node_id: datasets[node_id]["qualified_name"] if node_id in datasets else node_id
         for node_id in node_ids
     }
     short = {node_id: name.rsplit(".", 1)[-1] for node_id, name in names.items()}
@@ -165,7 +184,7 @@ def _aliases(datasets: dict[str, Any], edges: list[tuple[str, dict[str, Any]]]) 
     }
 
 
-def _component_count(datasets: dict[str, Any], edges: list[tuple[str, dict[str, Any]]]) -> int:
+def _component_count(datasets: dict[str, Any], edges: list[tuple]) -> int:
     parent = {node_id: node_id for node_id in datasets}
 
     def root(node_id: str) -> str:
@@ -174,7 +193,7 @@ def _component_count(datasets: dict[str, Any], edges: list[tuple[str, dict[str, 
             node_id = parent[node_id]
         return node_id
 
-    for a, edge in edges:
+    for a, edge, _ in edges:
         b = edge["to_node_id"]
         if b in parent:
             parent[root(a)] = root(b)

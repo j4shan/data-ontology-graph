@@ -3,7 +3,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-from data_ontology_graph.akg.projection import project_dataset
 from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.model.dataset import effective_description
 from data_ontology_graph.service.read import GraphReadService
@@ -100,16 +99,3 @@ def test_an_authored_description_wins_everywhere(tmp_path: Path) -> None:
         definition = _region_definition(records)
         assert definition["effective_description"].startswith("the region of the branch")
         assert definition["description_source"] == "entity"
-
-
-def test_akg_projection_copies_the_effective_description(tmp_path: Path) -> None:
-    service = _service(tmp_path)
-    node = service.get_dataset("sqlite:lending.account").model_dump(mode="json")
-    definitions = project_dataset(node, "standard")["entity_definitions"]
-    assert {
-        "identity_id": "region_identity",
-        "dataset_columns": ["region_id"],
-        "entity_universe": "partial",
-        "description": "region of the opening branch",
-        "description_source": "column",
-    } in definitions

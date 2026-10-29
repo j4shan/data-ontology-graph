@@ -30,7 +30,7 @@ CATALOG = ROOT / "tests/fixtures/lending/catalog.yaml"
 def service_for(names, links, **kwargs):
     """Small topologies built from the lending fixture's account dataset.
 
-    Each link joins its two datasets on an identity of its own, so a route passes through a
+    Each link joins its two datasets on an identity of its own, so a path passes through a
     dataset by arriving on one link's definition and leaving on another's.
     """
     snapshot, _, _ = build_snapshot_from_yaml(CATALOG)
@@ -101,13 +101,13 @@ def test_filter_prunes_calendar_fanout_and_keeps_process_path():
                 allowed_multiplicities=["1:many"]).path_count
 
 
-def _all_routes(service, source, target, max_edges, allowed):
-    """Reference: every route that never reuses a definition, as edge-ID lists.
+def _all_paths(service, source, target, max_edges, allowed):
+    """Reference: every path that never reuses a definition, as edge-ID lists.
 
-    A route arrives at a dataset on one definition and leaves on another, so it may revisit a
+    A path arrives at a dataset on one definition and leaves on another, so it may revisit a
     dataset, and it ends on first reaching the target.
     """
-    routes = []
+    found = []
 
     def walk(current, arrived_on, edges, used):
         if len(edges) == max_edges:
@@ -123,17 +123,17 @@ def _all_routes(service, source, target, max_edges, allowed):
                 keys = {leaving.identity_key(), arriving.identity_key()}
                 if keys & used:
                     continue
-                route = [*edges, edge.edge_id]
+                path = [*edges, edge.edge_id]
                 if arriving.node_id == target:
-                    routes.append(route)
+                    found.append(path)
                 else:
-                    walk(arriving.node_id, arriving.identity_key(), route, used | keys)
+                    walk(arriving.node_id, arriving.identity_key(), path, used | keys)
 
     walk(source, None, [], set())
-    return routes
+    return found
 
 
-def test_k_shortest_routes_match_exhaustive_enumeration():
+def test_k_shortest_paths_match_exhaustive_enumeration():
     rnd = random.Random(7)
     mults = ["1:1", "1:many", "many:1", "many:many"]
     for _ in range(8):
@@ -146,47 +146,47 @@ def test_k_shortest_routes_match_exhaustive_enumeration():
             for max_edges in (1, 3, 5):
                 for allowed in (None, ["1:1", "many:1"]):
                     expected = sorted(
-                        _all_routes(service, source, target, max_edges, allowed),
-                        key=lambda route: (len(route), tuple(route)),
+                        _all_paths(service, source, target, max_edges, allowed),
+                        key=lambda path: (len(path), tuple(path)),
                     )
-                    valid = {tuple(route) for route in expected}
+                    valid = {tuple(path) for path in expected}
                     for limit in (1, 2, 5, len(expected) or 1, 100):
                         response = find(service, source, target, max_edges=max_edges,
                                         limit=limit, allowed_multiplicities=allowed)
                         found = [tuple(edge["edge_id"] for edge in path) for path in paths(response)]
-                        # The k shortest: every route exists, lengths are the k smallest, and no
-                        # route repeats. Which of several equal-length routes is a tie-break.
+                        # The k shortest: every path exists, lengths are the k smallest, and no
+                        # path repeats. Which of several equal-length paths is a tie-break.
                         assert set(found) <= valid and len(set(found)) == len(found)
-                        assert [len(route) for route in found] == [
-                            len(route) for route in expected[:limit]
+                        assert [len(path) for path in found] == [
+                            len(path) for path in expected[:limit]
                         ]
                         assert response.truncated is (len(expected) > limit)
                         if limit >= len(expected):
                             assert sorted(found) == sorted(map(tuple, expected))
 
 
-def test_route_search_cost_does_not_follow_the_number_of_routes(monkeypatch):
-    from data_ontology_graph.query import routes as route_module
+def test_path_search_cost_does_not_follow_the_number_of_paths(monkeypatch):
+    from data_ontology_graph.query import paths as path_module
 
     names = [f"n{i}" for i in range(10)]
     service = service_for(names, list(combinations(names, 2)))
     searches = []
-    original = route_module._Search.shortest
+    original = path_module._Search.shortest
 
     def counting(self, *args):
         searches.append(args)
         return original(self, *args)
 
-    monkeypatch.setattr(route_module._Search, "shortest", counting)
+    monkeypatch.setattr(path_module._Search, "shortest", counting)
     response = find(service, "n0", "n9", max_edges=8, limit=1)
     assert [len(path) for path in paths(response)] == [1]
     assert response.truncated is True
-    # Enumerating every route here would expand on the order of 10^5 partial routes; the k
-    # shortest search runs about one shortest search per state of each route found.
+    # Enumerating every path here would expand on the order of 10^5 partial paths; the k
+    # shortest search runs about one shortest search per state of each path found.
     assert len(searches) < 20
 
 
-def test_routes_list_each_dataset_once_and_orient_every_directed_edge():
+def test_paths_list_each_dataset_once_and_orient_every_directed_edge():
     service = service_for(["a", "b", "c", "d"], [("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")])
     response = find(service, "a", "c", max_edges=3)
     assert [[(edge["from_node_id"], edge["to_node_id"]) for edge in path]

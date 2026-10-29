@@ -24,7 +24,7 @@ from data_ontology_graph.model.relationship import (
     derived_cardinality,
     edge_id_for,
 )
-from data_ontology_graph.model.snapshot import GraphSnapshot, now_utc
+from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
 
 
 def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> DatasetNode:
@@ -154,7 +154,7 @@ def test_snapshot_requires_registered_endpoint_definitions() -> None:
 
     with pytest.raises(ValidationError, match="unknown dataset"):
         GraphSnapshot(
-            built_at=now_utc(),
+            version=snapshot_version(),
             logical_identities=[LogicalIdentity(identity_id="customer", name="Customer")],
             nodes=[left, right],
             edges=[relationship],

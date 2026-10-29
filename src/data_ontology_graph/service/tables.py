@@ -69,12 +69,6 @@ RELATIONSHIP_HEADER = [
     "b_to_a.multiplicity", "b_to_a.match_existence",
     "unknown_fields", "annotation",
 ]
-DATASET_HEADER = [
-    "node_id",
-    "descriptor.qualified_name", "descriptor.description",
-    "descriptor.synonyms", "descriptor.tags",
-    "accessor.schema_id", "accessor.properties",
-]
 DEFINITION_HEADER = [
     "node_id", "identity_id", "dataset_columns", "entity_universe", "unique", "total",
     "conforms", "entity_expression", "entity_metadata", "description", "effective_description",

@@ -13,7 +13,7 @@ from data_ontology_graph.builder.report import ExplicitBuildReport, unknown_fiel
 from data_ontology_graph.builder.validate import Contradiction, detect_contradictions
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.model.derivation import derive_relationships
-from data_ontology_graph.model.snapshot import GraphSnapshot, now_utc, schema_fingerprint
+from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
 
 
 def build_snapshot_from_definition(
@@ -22,8 +22,7 @@ def build_snapshot_from_definition(
     """Build the graph of a validated intermediary, deriving its relationships."""
     nodes = [node.to_runtime() for node in definition.nodes]
     snapshot = GraphSnapshot(
-        built_at=now_utc(),
-        schema_fingerprint=schema_fingerprint(),
+        version=snapshot_version(),
         logical_identities=definition.runtime_identities(),
         nodes=nodes,
         edges=derive_relationships(nodes),

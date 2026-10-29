@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Start, stop, and check the local graph service on demand.
 
-Standard library only; imports no graph-core code. The service runs as a user-owned `launchd`
-job described by `service.plist` in the service home ($DOG_HOME or ~/.data-ontology-graph),
-which the project's setup writes. Nothing starts the service at login: `start` loads the job and
-waits until the service answers; `stop` unloads it.
+Standard library only. The service runs as a user-owned `launchd` job described by
+`service.plist` in the service home ($DOG_HOME or ~/.data-ontology-graph), which the graph
+service's setup writes. Nothing starts the service at login: `start` loads the job and waits
+until the service answers; `stop` unloads it.
 
     service.py start [--wait SECONDS]
     service.py stop
@@ -109,7 +109,7 @@ def _not_set_up() -> dict:
         "state": "not_set_up",
         "message": (
             f"The graph service is not set up: {service_home() / 'service.plist'} does not exist. "
-            "Ask the user to publish a graph and set up the service from the project."
+            "Ask the user to publish a graph and set up the graph service."
         ),
     }
 
@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
             "state": "blocked",
             "message": (
                 f"Could not control the graph service with launchctl ({detail.strip()}). "
-                "Ask the user to start it from the project."
+                "Ask the user to start the graph service."
             ),
         }
     print(json.dumps(outcome))
