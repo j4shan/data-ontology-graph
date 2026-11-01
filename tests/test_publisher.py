@@ -58,7 +58,6 @@ def test_publisher_replaces_one_current_artifact(tmp_path: Path) -> None:
     assert report.node_count == 2
     assert {path.name for path in artifact.iterdir()} == {
         "annotations.json",
-        "edges.json",
         "nodes.json",
     }
     assert CurrentArtifactStore(artifact).load().nodes
@@ -119,10 +118,10 @@ def test_loader_rejects_mixed_build_envelopes(tmp_path: Path) -> None:
     yaml_directory = _yaml_directory(tmp_path)
     artifact = tmp_path / "current"
     publish_current_artifact(yaml_directory, artifact)
-    edges_path = artifact / "edges.json"
-    edges = json.loads(edges_path.read_text(encoding="utf-8"))
-    edges["version"] = "2000-01-01T00:00:00Z"
-    edges_path.write_text(json.dumps(edges), encoding="utf-8")
+    annotations_path = artifact / "annotations.json"
+    annotations = json.loads(annotations_path.read_text(encoding="utf-8"))
+    annotations["version"] = "2000-01-01T00:00:00Z"
+    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="edges.json version does not match nodes.json"):
+    with pytest.raises(ValueError, match="annotations.json version does not match nodes.json"):
         SnapshotStore(tmp_path).load(artifact)

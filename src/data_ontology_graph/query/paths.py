@@ -1,6 +1,6 @@
 """The k shortest paths between two datasets, with entity definitions as path stops.
 
-A directed edge follows a stored relationship to its other endpoint and costs 1; a pivot moves to another
+A directed edge follows a derived relationship to its other endpoint and costs 1; a pivot moves to another
 definition on the same dataset and costs 0. The searched graph holds each definition twice: as
 arrived by a directed edge and as ready to leave. Pivots link the arrived copy to the ready copies of the
 dataset's other definitions, and directed edges link a ready copy to the arrived copy across a
@@ -8,8 +8,8 @@ relationship, so a directed edge is always followed by a pivot or the path's end
 directed edges on one key never repeat a direct one. A path may revisit a dataset through a different definition but never
 reuses a definition, and it ends on first reaching the target dataset.
 
-A search is linear in the stored relationships. Yen's algorithm turns the shortest search into k
-shortest simple paths.
+Relationship successors are enumerated from memberships when visited. Yen's algorithm turns
+the shortest search into k shortest simple paths.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
 
 from data_ontology_graph.model.dataset import DatasetNode
+from data_ontology_graph.model.derivation import RelationshipIndex, derived_multiplicity
 from data_ontology_graph.model.enums import Multiplicity
 from data_ontology_graph.model.relationship import JoinRelationship
 
@@ -40,7 +41,7 @@ def _arrived(definition: int) -> State:
 
 class PathGraph:
     def __init__(
-        self, nodes: Iterable[DatasetNode], relationships: Iterable[JoinRelationship],
+        self, nodes: Iterable[DatasetNode], relationships: RelationshipIndex | Iterable[JoinRelationship],
     ) -> None:
         self.keys: list[DefinitionKey] = []
         self.on_dataset: dict[str, list[int]] = defaultdict(list)
@@ -48,19 +49,37 @@ class PathGraph:
             for definition in sorted(node.entity_definitions, key=lambda item: item.key(node.node_id)):
                 self.on_dataset[node.node_id].append(len(self.keys))
                 self.keys.append(definition.key(node.node_id))
-        index = {key: position for position, key in enumerate(self.keys)}
+        self._positions = {key: position for position, key in enumerate(self.keys)}
+        self._memberships = relationships if isinstance(relationships, RelationshipIndex) else None
         self.edges: dict[int, list[tuple[int, Multiplicity, str]]] = defaultdict(list)
         """Each definition's directed edges: (target definition, outgoing multiplicity, edge ID)."""
         self._edge_by_pair: dict[tuple[int, int], str] = {}
+        if self._memberships is not None:
+            return
+        # Explicit relationship inputs remain useful for algorithm-level tests.
         for relationship in sorted(relationships, key=lambda item: item.edge_id):
-            a = index[relationship.endpoint_a.identity_key()]
-            b = index[relationship.endpoint_b.identity_key()]
+            a = self._positions[relationship.endpoint_a.identity_key()]
+            b = self._positions[relationship.endpoint_b.identity_key()]
             self.edges[a].append((b, relationship.a_to_b.multiplicity, relationship.edge_id))
             self.edges[b].append((a, relationship.b_to_a.multiplicity, relationship.edge_id))
             self._edge_by_pair[(a, b)] = self._edge_by_pair[(b, a)] = relationship.edge_id
 
     def edge_id(self, source: int, target: int) -> str:
+        if self._memberships is not None:
+            return self._memberships.edge_id(self.keys[source], self.keys[target])
         return self._edge_by_pair[(source, target)]
+
+    def successors(self, definition: int) -> Iterable[tuple[int, Multiplicity, str]]:
+        index = self._memberships
+        if index is None:
+            return self.edges.get(definition, ())
+        source = self.keys[definition]
+        # The previous materialized index ordered each definition's edges by canonical ID.
+        return sorted((
+            (self._positions[target], derived_multiplicity(index.definitions[source], index.definitions[target]),
+             index.edge_id(source, target))
+            for target in index.by_identity[source[1]] if target != source
+        ), key=lambda edge: edge[2])
 
     def k_shortest(
         self,
@@ -169,7 +188,7 @@ class _Search:
                 if other != definition and other not in blocked and (state, ready) not in removed:
                     yield ready, 0
             return
-        for target, multiplicity, _ in graph.edges[definition]:
+        for target, multiplicity, _ in graph.successors(definition):
             following = _arrived(target)
             if target in blocked or (state, following) in removed:
                 continue

@@ -374,13 +374,12 @@ def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> No
 
     assert loaded.model_dump(mode="json") == snapshot.model_dump(mode="json")
     persisted_nodes = (location / "nodes.json").read_text(encoding="utf-8")
-    persisted_edges = (location / "edges.json").read_text(encoding="utf-8")
+    assert not (location / "edges.json").exists()
+    assert "edges" not in snapshot.model_dump()
     assert "foreign_key_declarations" not in persisted_nodes
     assert "logical_entity_key" not in persisted_nodes
     assert "table_name" not in persisted_nodes
     assert "data_source" not in persisted_nodes
-    assert '"participation"' not in persisted_edges
-    assert '"precedence"' not in persisted_edges
     definition = loaded.nodes[0].entity_definitions[0]
     assert definition.dataset_columns == ["c1", "c2", "c3"]
     assert definition.entity_expression == ["[c1, xxhash64(c2, c3)]"]
@@ -393,14 +392,12 @@ def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> No
     assert "expression_context" not in yaml.safe_dump(edge_payload)
 
 
-def test_build_report_lists_unknown_claims_including_derived_ones() -> None:
+def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
     _, report, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
 
-    edge = "edges[dataset_a:customer_identity:c1+c2+c3__dataset_b:customer_identity:d1+d2]"
     assert report.unknown_fields == [
         "nodes[dataset_a].entity_definitions[customer_identity:c1+c2+c3].total",
         "nodes[dataset_b].grain",
-        f"{edge}.a_to_b.match_existence",
     ]
 
 

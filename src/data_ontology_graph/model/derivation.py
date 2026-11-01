@@ -1,11 +1,7 @@
-"""Relationships derived from entity definitions.
-
-Every two entity definitions of one logical entity are related, on different datasets or on
-the same one. Their directional claims follow from the definitions' own properties.
-"""
+"""Logical-entity memberships and relationships derived only when consumed."""
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from itertools import combinations
 
 from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition
@@ -15,6 +11,7 @@ from data_ontology_graph.model.relationship import (
     JoinRelationship,
     RelationshipDirection,
     edge_id_for,
+    endpoint_token,
 )
 
 
@@ -67,29 +64,111 @@ def derived_direction(source: EntityDefinition, target: EntityDefinition) -> Rel
     )
 
 
-def derive_relationships(nodes: Iterable[DatasetNode]) -> list[JoinRelationship]:
-    """One relationship for every two entity definitions of the same logical entity, by edge ID."""
-    by_identity: dict[str, list[tuple[str, EntityDefinition]]] = defaultdict(list)
-    for node in nodes:
-        for definition in node.entity_definitions:
-            by_identity[definition.identity_id].append((node.node_id, definition))
+DefinitionKey = tuple[str, str, tuple[str, ...]]
 
-    relationships = []
-    for identity_id in sorted(by_identity):
-        members = sorted(by_identity[identity_id], key=lambda item: item[1].key(item[0]))
-        for (node_a, definition_a), (node_b, definition_b) in combinations(members, 2):
-            endpoint_a = _endpoint(node_a, definition_a)
-            endpoint_b = _endpoint(node_b, definition_b)
-            relationships.append(
-                JoinRelationship(
-                    edge_id=edge_id_for(endpoint_a, endpoint_b),
-                    endpoint_a=endpoint_a,
-                    endpoint_b=endpoint_b,
-                    a_to_b=derived_direction(definition_a, definition_b),
-                    b_to_a=derived_direction(definition_b, definition_a),
-                )
-            )
-    return sorted(relationships, key=lambda relationship: relationship.edge_id)
+
+class RelationshipIndex(Mapping[str, JoinRelationship]):
+    """An implicit pairwise graph backed by one entry per entity definition.
+
+    Looking up a pair derives a fresh relationship. Neither construction nor counts enumerate
+    pairs, and no derived relationship is cached. Iterating the mapping explicitly enumerates
+    its virtual edge IDs; callers that need neighbours should use memberships instead.
+    """
+
+    def __init__(self, nodes: Iterable[DatasetNode]) -> None:
+        self.definitions: dict[DefinitionKey, EntityDefinition] = {}
+        self.endpoints: dict[DefinitionKey, JoinEndpoint] = {}
+        by_identity: dict[str, list[DefinitionKey]] = defaultdict(list)
+        by_dataset: dict[str, list[DefinitionKey]] = {}
+        self._by_token: dict[str, list[DefinitionKey]] = defaultdict(list)
+        for node in nodes:
+            by_dataset[node.node_id] = []
+            for definition in node.entity_definitions:
+                key = definition.key(node.node_id)
+                if key in self.definitions:
+                    raise ValueError("entity definitions must be unique by identity_id and dataset_columns")
+                self.definitions[key] = definition
+                endpoint = _endpoint(node.node_id, definition)
+                self.endpoints[key] = endpoint
+                self._by_token[endpoint_token(endpoint)].append(key)
+                by_identity[definition.identity_id].append(key)
+                by_dataset[node.node_id].append(key)
+        self.by_identity = {identity: tuple(sorted(keys)) for identity, keys in by_identity.items()}
+        self.by_dataset = {node: tuple(sorted(keys)) for node, keys in by_dataset.items()}
+        self._count = sum(len(keys) * (len(keys) - 1) // 2 for keys in self.by_identity.values())
+
+    def __len__(self) -> int:
+        return self._count
+
+    def degree(self, node_id: str) -> int:
+        """Outgoing directed edges, counting a same-dataset relationship twice."""
+        return sum(len(self.by_identity[key[1]]) - 1 for key in self.by_dataset[node_id])
+
+    def edge_id(self, left: DefinitionKey, right: DefinitionKey) -> str:
+        if left == right or left[1] != right[1]:
+            raise ValueError("a relationship requires two distinct definitions of the same logical entity")
+        return edge_id_for(self.endpoints[left], self.endpoints[right])
+
+    def resolve(self, edge_id: str) -> tuple[DefinitionKey, DefinitionKey]:
+        """Resolve an existing ID without assuming its unescaped delimiters occur only once."""
+        found = None
+        offset = 0
+        while (position := edge_id.find("__", offset)) >= 0:
+            for left in self._by_token.get(edge_id[:position], ()):
+                for right in self._by_token.get(edge_id[position + 2:], ()):
+                    if left < right and left[1] == right[1]:
+                        if found is not None:
+                            raise ValueError(f"ambiguous relationship ID {edge_id!r}")
+                        found = (left, right)
+            offset = position + 1
+        if found is None:
+            raise KeyError(edge_id)
+        return found
+
+    def pair(self, left: DefinitionKey, right: DefinitionKey) -> JoinRelationship:
+        edge_id = self.edge_id(left, right)
+        # The legacy ID format is unescaped: never silently select one colliding pair.
+        a, b = self.resolve(edge_id)
+        return JoinRelationship(
+            edge_id=edge_id,
+            endpoint_a=self.endpoints[a], endpoint_b=self.endpoints[b],
+            a_to_b=derived_direction(self.definitions[a], self.definitions[b]),
+            b_to_a=derived_direction(self.definitions[b], self.definitions[a]),
+        )
+
+    def __getitem__(self, edge_id: str) -> JoinRelationship:
+        return self.pair(*self.resolve(edge_id))
+
+    def __iter__(self) -> Iterator[str]:
+        # Enumeration is opt-in. Build, persistence, and service startup never use this path.
+        return iter(sorted(
+            self.edge_id(left, right)
+            for keys in self.by_identity.values() for left, right in combinations(keys, 2)
+        ))
+
+
+class RelationshipSequence(Sequence[JoinRelationship]):
+    """Compatibility view for explicit iteration over a snapshot's virtual relationships."""
+
+    def __init__(self, index: RelationshipIndex) -> None:
+        self.index = index
+
+    def __len__(self) -> int:
+        return len(self.index)
+
+    def __iter__(self) -> Iterator[JoinRelationship]:
+        return (self.index[edge_id] for edge_id in self.index)
+
+    def __getitem__(self, position: int | slice) -> JoinRelationship | list[JoinRelationship]:
+        ids = list(self.index)
+        if isinstance(position, slice):
+            return [self.index[edge_id] for edge_id in ids[position]]
+        return self.index[ids[position]]
+
+
+def derive_relationships(nodes: Iterable[DatasetNode]) -> list[JoinRelationship]:
+    """Explicitly enumerate all pairs, for consumers requesting a complete relationship list."""
+    return list(RelationshipSequence(RelationshipIndex(nodes)))
 
 
 def _endpoint(node_id: str, definition: EntityDefinition) -> JoinEndpoint:

@@ -13,6 +13,7 @@ from data_ontology_graph.model.derivation import (
     derive_relationships,
     derived_match_existence,
     derived_multiplicity,
+    RelationshipIndex,
 )
 from data_ontology_graph.model.enums import MatchExistence, Multiplicity
 
@@ -151,3 +152,67 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
 
 def test_a_definition_alone_yields_no_relationship() -> None:
     assert derive_relationships([_node("a", [_definition(unique=False)])]) == []
+
+
+def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) -> None:
+    from data_ontology_graph.model import derivation
+
+    nodes = [_node(str(i), [_definition(unique=i == 0)]) for i in range(40)]
+
+    def unexpected_pair(**kwargs):
+        pytest.fail("membership construction must not derive relationship objects")
+
+    monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
+    index = RelationshipIndex(nodes)
+    assert len(index.definitions) == len(index.endpoints) == 40
+    assert len(index.by_identity["device"]) == 40
+    assert len(index) == 780
+    assert index.degree(nodes[0].node_id) == 39
+
+
+def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() -> None:
+    nodes = [
+        _node("a", [_definition(["source"], unique=False), _definition(["target"], unique=True)]),
+        _node("b", [_definition(unique=True, universe="complete")]),
+        _node("c", [_definition(identity_id="unrelated")]),
+    ]
+    index = RelationshipIndex(nodes)
+    assert len(index) == 3
+    assert index.degree(nodes[0].node_id) == 4
+    assert index.degree(nodes[1].node_id) == 2
+    assert index.degree(nodes[2].node_id) == 0
+    keys = index.by_identity["device"]
+    edge = index.pair(keys[2], keys[0])
+    assert edge.a_to_b.multiplicity == Multiplicity.MANY_TO_ONE
+    assert edge.a_to_b.match_existence == MatchExistence.UNKNOWN
+    assert index[edge.edge_id] == index.pair(keys[0], keys[2])
+    assert index.resolve(edge.edge_id) == (keys[0], keys[2])
+    with pytest.raises(ValueError, match="two distinct definitions"):
+        index.pair(keys[0], keys[0])
+    with pytest.raises(ValueError, match="same logical entity"):
+        index.pair(keys[0], index.by_identity["unrelated"][0])
+    with pytest.raises(KeyError):
+        index["missing"]
+
+
+def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
+    index = RelationshipIndex([
+        _node("a__b:c", [_definition(["x+y__z"], identity_id="identity:__id")]),
+        _node("d__e:f", [_definition(["r:s__t"], identity_id="identity:__id")]),
+    ])
+    left, right = index.by_identity["identity:__id"]
+    edge = index.pair(left, right)
+    assert index.resolve(edge.edge_id) == (left, right)
+    assert index[edge.edge_id] == edge
+
+
+def test_membership_id_resolution_rejects_ambiguous_legacy_tokens() -> None:
+    index = RelationshipIndex([
+        _node("a", [_definition(["x", "y"]), _definition(["x+y"])]),
+        _node("b", [_definition()]),
+    ])
+    keys = index.by_identity["device"]
+    # The existing ID format joins columns with '+', so these two distinct pairs collide.
+    assert index.edge_id(keys[0], keys[2]) == index.edge_id(keys[1], keys[2])
+    with pytest.raises(ValueError, match="ambiguous relationship ID"):
+        index[index.edge_id(keys[0], keys[2])]

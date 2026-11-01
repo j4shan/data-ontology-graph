@@ -5,6 +5,7 @@ No path alternatives or semantic decisions are enumerated here.
 """
 
 from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
 from typing import Literal
 
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -44,7 +45,7 @@ Candidate = tuple[int, str, str, str, JoinRelationship]
 
 
 def connecting_tree(
-    adjacency: dict[str, tuple[JoinRelationship, ...]],
+    adjacency: Mapping[str, Iterable[JoinRelationship]],
     terminals: list[str],
 ) -> ConnectingTree:
     # Level-synchronous multi-source BFS builds Voronoi regions and collects the

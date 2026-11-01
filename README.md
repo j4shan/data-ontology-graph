@@ -40,10 +40,15 @@ lockfile. `--extra dev` also installs `pytest`; without it, tests will not run.
 
 The initial target build path reads a finalized YAML directory through its sibling
 `directory-manifest.yaml`, assembles the logical entity and node collections deterministically,
-validates the result before ingestion, and derives one relationship for every two entity
-definitions of the same logical entity. Multiplicity and match existence come from each
-definition's `unique`, `total`, `conforms`, and `entity_universe` properties. The governed JSON
-Schemas are under [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
+and validates the result before ingestion. The logical-entity registry and each dataset's entity
+definitions establish logical-entity membership: a definition identifies the dataset columns
+that realize a registered logical entity. Definitions of the same logical entity can form a
+relationship, including two definitions on one dataset. The graph groups definitions by logical
+entity and derives a requested pair's canonical edge ID from its endpoints. Multiplicity, match
+existence, and unknown claims follow from the definitions' `unique`, `total`, `conforms`, and
+`entity_universe` properties. Sparse annotations accompany selected relationships. Build and
+compact-artifact load do not enumerate every possible pair. The governed JSON Schemas are under
+[`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
 governs the manifest and `intermediary.schema.json` governs the assembled document. Graph tests
 use the synthetic, single-file schema version `"5"` [lending fixture](tests/fixtures/lending/catalog.yaml)
 and the [open-accessor fixture](tests/fixtures/open_accessor/catalog.yaml), which records datasets
@@ -69,6 +74,11 @@ snapshot, report, findings = build_snapshot_from_yaml(
     "path/to/catalog/yaml"
 )
 ```
+
+The build report counts all derivable relationship pairs and locates unknown input claims without
+listing an unknown entry for every implicit relationship. A requested relationship reports its
+own derived unknown claims. Callers that need a complete pair list can still explicitly enumerate
+relationships; this may be large for a logical entity with many definitions.
 
 A directory catalog has this layout:
 
@@ -128,6 +138,14 @@ data-ontology-graph-publish --yaml-dir path/to/finalized-yaml-directory
 data-ontology-graph-launchd setup
 ```
 
+New artifacts contain `nodes.json` for the registry and dataset definitions and
+`annotations.json` for sparse relationship annotations. They do not contain `edges.json`:
+relationships are derived from membership when requested. Existing artifacts with `edges.json`
+still load after their stored relationships are checked against the definitions. Loading one
+still reads that file, so its size remains part of the load cost. To replace an existing artifact
+with the compact form, run the same publish command against its finalized YAML directory;
+publication replaces the current artifact atomically. Reload the service after publishing.
+
 The service runs only on demand. Nothing starts it at login, because the job's property list sits
 in the service home rather than in `~/Library/LaunchAgents`. Start and stop it as needed; while it
 is started, `launchd` restarts it after an unexpected failure, and logging out stops it:
@@ -152,9 +170,14 @@ relationship detail, a dataset's directed edges, breadth-first subgraph expansio
 and an approximate connecting subgraph for two to sixteen datasets. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
+Membership-backed indexes serve these methods without constructing all pairs at startup. The
+graph API's methods, parameters, response shapes, count meanings, ordering, bounds, ranking,
+and version remain unchanged, as does the YAML schema. Navigation can still explore many
+implicit pairs and produce tenant shortcuts; explicit identity navigation and traversal policy
+are left for a later API change.
 `graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
-identifies the published data by its UTC build time. Republish the current artifact from the
-YAML intermediary with `data-ontology-graph-publish` after a software upgrade.
+identifies the published data by its UTC build time. After a software upgrade, republish from
+the YAML intermediary with `data-ontology-graph-publish` so the service loads a current artifact.
 
 ## AKG contract and the query-graph-api skill
 

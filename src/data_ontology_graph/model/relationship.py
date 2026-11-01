@@ -118,10 +118,10 @@ def canonical_endpoints(
 
 def edge_id_for(endpoint_a: JoinEndpoint, endpoint_b: JoinEndpoint) -> str:
     left, right = canonical_endpoints(endpoint_a, endpoint_b)
-    return f"{_side(left)}__{_side(right)}"
+    return f"{endpoint_token(left)}__{endpoint_token(right)}"
 
 
-def _side(endpoint: JoinEndpoint) -> str:
+def endpoint_token(endpoint: JoinEndpoint) -> str:
     return (
         f"{endpoint.node_id}:{endpoint.identity_id}:"
         f"{'+'.join(endpoint.dataset_columns)}"

@@ -16,8 +16,12 @@ class SnapshotStore:
 
     def load(self, directory: Path) -> GraphSnapshot:
         nodes_doc = json.loads((directory / "nodes.json").read_text(encoding="utf-8"))
-        edges_doc = json.loads((directory / "edges.json").read_text(encoding="utf-8"))
-        _require_same_envelope(nodes_doc, edges_doc, "edges.json")
+        edges_path = directory / "edges.json"
+        legacy = {}
+        if edges_path.exists():
+            edges_doc = json.loads(edges_path.read_text(encoding="utf-8"))
+            _require_same_envelope(nodes_doc, edges_doc, "edges.json")
+            legacy["edges"] = edges_doc["edges"]
         annotations_path = directory / "annotations.json"
         annotations = []
         if annotations_path.exists():
@@ -29,7 +33,7 @@ class SnapshotStore:
                 "version": nodes_doc["version"],
                 "logical_identities": nodes_doc.get("logical_identities", []),
                 "nodes": nodes_doc["nodes"],
-                "edges": edges_doc["edges"],
+                **legacy,
                 "annotations": annotations,
             }
         )
@@ -103,13 +107,6 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
         ],
         "nodes": [_serialize_node(node) for node in snapshot.nodes],
     }
-    edges_doc = {
-        **envelope,
-        "edges": [
-            edge.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
-            for edge in snapshot.edges
-        ],
-    }
     annotations_doc = {
         **envelope,
         "annotations": [
@@ -118,7 +115,6 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
         ],
     }
     (directory / "nodes.json").write_text(json.dumps(nodes_doc, indent=2), encoding="utf-8")
-    (directory / "edges.json").write_text(json.dumps(edges_doc, indent=2), encoding="utf-8")
     (directory / "annotations.json").write_text(
         json.dumps(annotations_doc, indent=2),
         encoding="utf-8",

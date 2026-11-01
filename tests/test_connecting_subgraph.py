@@ -14,6 +14,8 @@ from data_ontology_graph.model.enums import Unknown
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import JoinEndpoint, JoinRelationship, edge_id_for
 from data_ontology_graph.query.connecting import connecting_tree
+from data_ontology_graph.query.neighbourhood import directed_edges_by_dataset
+from data_ontology_graph.query.paths import PathGraph
 from data_ontology_graph.rpc.protocol import INVALID_PARAMS, RESOURCE_NOT_FOUND, JsonRpcDispatcher
 from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.contracts import ConnectingSubgraphRequest, PathsRequest
@@ -73,8 +75,21 @@ def service_for(names, links, **kwargs):
         for identity in sorted(set(link_identities.values()))
     ]
     data = snapshot.model_dump()
-    data.update(logical_identities=identities, nodes=nodes, edges=edges, annotations=[])
-    return GraphReadService(type(snapshot).model_validate(data), **kwargs)
+    data.update(logical_identities=identities, nodes=nodes, annotations=[])
+    service = GraphReadService(type(snapshot).model_validate(data), **kwargs)
+    # Algorithm tests deliberately include directional claims that no pair of uniqueness
+    # properties can produce. Supply those explicit inputs to their traversal adapters,
+    # rather than admitting authored relationship overrides into membership snapshots.
+    service.index.edges = {edge.edge_id: edge for edge in edges}
+    service.index.directed_edges = directed_edges_by_dataset(edges)
+    service.index.adjacency = {
+        name: tuple(sorted(
+            (edge for edge in edges if name in (edge.endpoint_a.node_id, edge.endpoint_b.node_id)),
+            key=lambda edge: edge.edge_id,
+        )) for name in names
+    }
+    service.index.paths = PathGraph(nodes, edges)
+    return service
 
 
 def find(service, source, target, **kwargs):

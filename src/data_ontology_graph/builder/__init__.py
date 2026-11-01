@@ -16,7 +16,6 @@ from data_ontology_graph.builder.report import (
 )
 from data_ontology_graph.builder.validate import Contradiction, detect_contradictions
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
-from data_ontology_graph.model.derivation import derive_relationships
 from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
 
 
@@ -29,12 +28,11 @@ def build_snapshot_from_definition(
         version=snapshot_version(),
         logical_identities=definition.runtime_identities(),
         nodes=nodes,
-        edges=derive_relationships(nodes),
     )
     report = ExplicitBuildReport(
         node_count=len(snapshot.nodes),
-        edge_count=len(snapshot.edges),
-        unknown_fields=unknown_field_locations(definition, snapshot.edges),
+        edge_count=len(snapshot.memberships),
+        unknown_fields=unknown_field_locations(definition),
         warnings=accessor_warnings(snapshot.nodes),
     )
     return snapshot, report, []

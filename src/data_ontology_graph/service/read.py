@@ -32,8 +32,9 @@ from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.query.neighbourhood import (
     DirectedEdge,
     EdgeGroup,
+    MembershipAdjacency,
+    MembershipDirectedEdges,
     directed_edge_from,
-    directed_edges_by_dataset,
     expand,
     group_edges,
 )
@@ -59,30 +60,16 @@ class GraphReadIndex:
         self.identities = {
             identity.identity_id: identity for identity in snapshot.logical_identities
         }
-        self.definitions: dict[DefinitionKey, EntityDefinition] = {
-            key: definition
-            for node in snapshot.nodes
-            for key, definition in node.entity_definition_map().items()
-        }
-        definitions_by_identity: dict[str, list[tuple[str, EntityDefinition]]] = defaultdict(list)
-        for node in snapshot.nodes:
-            for definition in node.entity_definitions:
-                definitions_by_identity[definition.identity_id].append((node.node_id, definition))
+        self.memberships = snapshot.memberships
+        self.definitions = self.memberships.definitions
         self.definitions_by_identity = {
-            identity_id: tuple(sorted(items, key=lambda item: (item[0], item[1].dataset_columns)))
-            for identity_id, items in definitions_by_identity.items()
+            identity_id: tuple((key[0], self.definitions[key]) for key in keys)
+            for identity_id, keys in self.memberships.by_identity.items()
         }
-        self.edges = {edge.edge_id: edge for edge in snapshot.edges}
-        adjacency: dict[str, list[JoinRelationship]] = defaultdict(list)
-        for edge in snapshot.edges:
-            adjacency[edge.endpoint_a.node_id].append(edge)
-            adjacency[edge.endpoint_b.node_id].append(edge)
-        self.adjacency = {
-            node_id: tuple(sorted(edges, key=lambda item: item.edge_id))
-            for node_id, edges in adjacency.items()
-        }
-        self.directed_edges = directed_edges_by_dataset(snapshot.edges)
-        self.paths = PathGraph(snapshot.nodes, snapshot.edges)
+        self.edges = self.memberships
+        self.adjacency = MembershipAdjacency(self.memberships)
+        self.directed_edges = MembershipDirectedEdges(self.memberships)
+        self.paths = PathGraph(snapshot.nodes, self.memberships)
         self.annotations = snapshot.annotation_map()
         self.search = LexicalSearchIndex(snapshot)
 
@@ -99,7 +86,7 @@ class GraphReadService:
         return SnapshotInfo(
             version=snapshot.version,
             node_count=len(snapshot.nodes),
-            edge_count=len(snapshot.edges),
+            edge_count=len(self.index.memberships),
             identity_count=len(snapshot.logical_identities),
         )
 

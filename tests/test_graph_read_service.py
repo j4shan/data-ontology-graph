@@ -29,6 +29,76 @@ def _service() -> GraphReadService:
     return GraphReadService(snapshot)
 
 
+def test_service_initialization_and_membership_lookup_do_not_construct_pairs(monkeypatch) -> None:
+    from data_ontology_graph.model import derivation
+
+    def unexpected_pair(**kwargs):
+        pytest.fail("service startup and membership inspection must not construct pairs")
+
+    def unexpected_enumeration(self):
+        pytest.fail("service startup must not enumerate the implicit clique")
+
+    with monkeypatch.context() as guard:
+        guard.setattr(derivation, "JoinRelationship", unexpected_pair)
+        guard.setattr(derivation.RelationshipIndex, "__iter__", unexpected_enumeration)
+        service = _service()
+        assert service.snapshot_info().edge_count == 7
+        assert service.index.edges is service.index.snapshot.memberships
+        assert not service.index.paths.edges
+        assert not service.index.paths._edge_by_pair
+        assert service.get_dataset("sqlite:lending.account").node_id == "sqlite:lending.account"
+        assert service.get_identity("account_identity").entity_definitions
+        assert service.search(SearchRequest(query="account", kind=["identity"])).groups
+        assert len(service.index.directed_edges["sqlite:lending.account"]) == 4
+
+    # Concrete pair objects are produced by relationship requests, with no retained pair cache.
+    keys = service.index.memberships.by_identity["account_identity"]
+    edge_id = service.index.memberships.edge_id(keys[0], keys[1])
+    first = service.get_relationship(edge_id)
+    assert first.edge_id == edge_id
+    assert service.index.edges[edge_id] is not service.index.edges[edge_id]
+
+
+def test_membership_navigation_matches_materialized_reference_for_public_requests() -> None:
+    from collections import defaultdict
+    from data_ontology_graph.model.derivation import derive_relationships
+    from data_ontology_graph.query.neighbourhood import directed_edges_by_dataset
+    from data_ontology_graph.query.paths import PathGraph
+    from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
+
+    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    actual = JsonRpcDispatcher(GraphReadService(snapshot))
+    reference = GraphReadService(snapshot)
+    explicit = derive_relationships(snapshot.nodes)
+    reference.index.edges = {edge.edge_id: edge for edge in explicit}
+    adjacency = defaultdict(list)
+    for edge in explicit:
+        adjacency[edge.endpoint_a.node_id].append(edge)
+        adjacency[edge.endpoint_b.node_id].append(edge)
+    reference.index.adjacency = adjacency
+    reference.index.directed_edges = directed_edges_by_dataset(explicit)
+    reference.index.paths = PathGraph(snapshot.nodes, explicit)
+    expected = JsonRpcDispatcher(reference)
+    for response_format in ("table", "records"):
+        for detail in ("essential", "standard", "full"):
+            common = {"response_format": response_format, "detail": detail}
+            requests = [
+                ("graph.get_edges", {"node_id": "sqlite:lending.account", "limit": 1}),
+                ("graph.expand_subgraph", {"seed_node_ids": ["sqlite:lending.customer"],
+                                          "max_depth": 2, "max_nodes": 3, "limit": 1}),
+                ("graph.find_paths", {"from_node_id": "sqlite:lending.customer",
+                                      "to_node_id": "sqlite:lending.loan"}),
+                ("graph.find_paths", {"from_node_id": "sqlite:lending.customer",
+                                      "to_node_id": "sqlite:lending.loan",
+                                      "allowed_multiplicities": ["many:1", "1:1"]}),
+                ("graph.find_connecting_subgraph", {
+                    "node_ids": ["sqlite:lending.customer", "sqlite:lending.loan"]}),
+            ]
+            for method, params in requests:
+                request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": {**common, **params}}
+                assert actual.dispatch(request) == expected.dispatch(request)
+
+
 def _group(response, kind):
     return next(group for group in response.groups if group.kind == kind)
 
