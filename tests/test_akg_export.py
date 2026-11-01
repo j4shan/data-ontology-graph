@@ -40,7 +40,7 @@ def test_export_orients_each_directed_edge_from_the_dataset_that_holds_it() -> N
 def test_export_disambiguates_colliding_aliases() -> None:
     payload = _payload("akg-data-gap")
     payload["datasets"].append({"node_id": "sqlite:archive.region", "qualified_name": "archive.main.region",
-                                "accessor": {"schema_id": "accessor.sqlite.v1"}})
+                                "accessor": {"kind": "sqlite", "endpoint": "/srv/archive.sqlite"}})
     text = export_markdown(payload)
     assert "| lending.main.region |" in text and "| archive.main.region |" in text
 

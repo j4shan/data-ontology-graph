@@ -41,6 +41,9 @@ def service_for(names, links, **kwargs):
     for name in names:
         node = template.model_copy(deep=True)
         node.node_id = name
+        node.accessor = node.accessor.model_copy(
+            update={"properties": {**node.accessor.properties, "object": name}}
+        )
         identities = [identity for pair, identity in link_identities.items() if name in pair]
         node.columns = [ColumnMetadata(name=f"{identity}_id") for identity in identities] or [
             ColumnMetadata(name="id")

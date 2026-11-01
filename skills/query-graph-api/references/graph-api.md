@@ -55,7 +55,7 @@ Snapshot = {
 }
 ```
 
-`api_version` names the API contract described here. It is currently `1` and rises only on a
+`api_version` names the API contract described here. It is currently `2` and rises only on a
 breaking change to a method, parameter, response field, or meaning; additions keep it.
 `version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`) and
 identifies the published data.
@@ -65,7 +65,7 @@ identifies the published data.
 ```text
 Dataset = {
   node_id: string, qualified_name: string,
-  accessor?: {schema_id?: string, properties?: object},
+  accessor?: {kind?: string, endpoint?: string, labels?: {string: string}, properties?: object | null},
   grain?: "unknown" | {
     components: [{dataset_columns: string[], identity_id: string | null, description: string}],
     description: string
@@ -92,8 +92,14 @@ collections add `node_id`; nested definitions take it from their dataset.
 
 - `qualified_name` identifies the deployed dataset in source terminology. `node_id` is its
   graph key. Display names need not be unique.
-- `accessor` is a credential-free location recipe. Its `schema_id` selects provider-specific
-  properties; do not assume all datasets are SQL tables.
+- `accessor` is a credential-free path of information to the dataset's data, written by the
+  contributor. `kind` names the kind of system in the contributor's words, such as `postgresql`,
+  `kafka`, or `sharepoint list`; it has no fixed vocabulary. `endpoint` is where the path starts:
+  a server address, URI, account identifier, connection name configured in a connector plugin, or
+  a shared document that holds connection details. `labels` is a map of strings, `{}` when
+  absent. `properties` holds any further facts in any JSON shape, or `null` when absent. The
+  graph does not follow, check, or interpret an accessor, and no dataset is assumed to be a SQL
+  table.
 - `grain` describes one record's boundary. Composite components together define that boundary.
 - An entity definition realizes a logical entity through its `dataset_columns` and describes
   the role of those columns. `entity_expression` contains descriptive labels, not executable
@@ -108,24 +114,12 @@ collections add `node_id`; nested definitions take it from their dataset.
 - `unknown_fields` names typed claims whose value is `unknown`. Descriptive text does not
   establish or override a typed claim.
 
-Supported accessor recipes currently include:
-
-| `schema_id` | Properties |
-| --- | --- |
-| `accessor.sqlite.v1` | `host`, absolute `database_path`, `schema`, `object`. |
-| `accessor.sql-database.v1` | `host`, `database`, `schema`, `object`, `dialect`, optional `format`. |
-| `accessor.snowflake.v1` | `account`, `database`, `schema`, `object`, optional `format`. |
-| `accessor.databricks-unity.v1` | `workspace_host`, `catalog`, `schema`, `object`, optional `format`. |
-| `accessor.s3.v1` | `bucket`, `prefix`, `format`. |
-
-These property values are strings; optional `format` may be null.
-
 ### Collections and response format
 
 `Collection<T>` is either a table `{"header": string[], "rows": any[][]}` (the default) or
 an array of records `T[]` when `response_format: "records"` is supported and requested.
 Each table row follows its header. Dotted headers are nested record paths: for example,
-`accessor.schema_id`. Decode with the returned header, not assumed positions.
+`accessor.kind`. Decode with the returned header, not assumed positions.
 
 Navigation in table format separates dataset fields, columns, definitions, and edge groups:
 
@@ -197,8 +191,8 @@ Detail levels are cumulative:
 
 | Level | Dataset fields | Directed-edge fields |
 | --- | --- | --- |
-| `essential` | `node_id`, `qualified_name`, `accessor.schema_id`, `distance` where applicable, `edge_count`. | `edge`, `multiplicity`, `match_existence`, `edge_id`. |
-| `standard` | Adds `grain`, `descriptor.description`, `unknown_fields`. | Adds reverse claims and endpoint descriptions. |
+| `essential` | `node_id`, `qualified_name`, `accessor.kind`, `distance` where applicable, `edge_count`. | `edge`, `multiplicity`, `match_existence`, `edge_id`. |
+| `standard` | Adds `accessor.endpoint`, `accessor.labels`, `grain`, `descriptor.description`, `unknown_fields`. | Adds reverse claims and endpoint descriptions. |
 | `full` | Adds `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. | Adds `annotation`. |
 
 Use essential for initial exploration, standard for relationship analysis, and full when
@@ -209,7 +203,7 @@ The complete caller-added field catalog is:
 
 | Object | Allowed field names |
 | --- | --- |
-| `dataset` | `node_id`, `qualified_name`, `distance`, `edge_count`, `accessor.schema_id`, `grain`, `descriptor.description`, `unknown_fields`, `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. |
+| `dataset` | `node_id`, `qualified_name`, `distance`, `edge_count`, `accessor.kind`, `accessor.endpoint`, `accessor.labels`, `grain`, `descriptor.description`, `unknown_fields`, `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. |
 | `edge` | `edge`, `identity_id`, `multiplicity`, `match_existence`, `reverse_multiplicity`, `reverse_match_existence`, `from_description`, `to_description`, `annotation`, `edge_id`. |
 | `entity_definition` | `identity_id`, `dataset_columns`, `entity_universe`, `unique`, `total`, `conforms`, `entity_expression`, `entity_metadata`, `description`, `effective_description`, `description_source`, `unknown_fields`. |
 
@@ -258,9 +252,10 @@ Each matching field value has one match row. Dataset and identity keys are their
 other subject keys identify search rows and should not be substituted for dataset IDs.
 
 Search normalizes Unicode, case, camel-case boundaries, punctuation, and whitespace. It
-indexes names, IDs, descriptions, synonyms, dataset tags/accessors, column metadata, and
-entity-definition metadata. Whole-value description placeholders such as `N/A` and `TBD`
-are not indexed; returned descriptions remain unchanged.
+indexes names, IDs, descriptions, synonyms, dataset tags, accessor fields (`kind`, `endpoint`,
+and the keys and values of `labels` and `properties`), column metadata, and entity-definition
+metadata. Whole-value description placeholders such as `N/A` and `TBD` are not indexed;
+returned descriptions remain unchanged.
 
 Match types, strongest first, are `exact`, `prefix`, `phrase`, and `all_words`. Exact and prefix
 compare normalized stored terms (whole values and individual words). Phrase and all-words

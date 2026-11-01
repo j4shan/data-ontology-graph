@@ -212,9 +212,15 @@ class LexicalSearchIndex:
             )
 
         for node in sorted(snapshot.nodes, key=lambda item: item.node_id):
+            accessor = node.accessor
             accessor_fields = [
                 (SearchField.ACCESSOR, value)
-                for value in _string_values(node.accessor.properties)
+                for value in [
+                    accessor.kind,
+                    accessor.endpoint,
+                    *_string_values(accessor.labels),
+                    *_string_values(accessor.properties),
+                ]
             ]
             add_subject(
                 "dataset",
@@ -226,7 +232,6 @@ class LexicalSearchIndex:
                     (SearchField.CANONICAL_NAME, node.descriptor.display_name),
                     (SearchField.QUALIFIED_NAME, node.descriptor.qualified_name),
                     (SearchField.DESCRIPTION, descriptive_text(node.descriptor.description)),
-                    (SearchField.ACCESSOR, node.accessor.schema_id),
                     *(
                         (SearchField.SYNONYM, synonym)
                         for synonym in node.descriptor.synonyms

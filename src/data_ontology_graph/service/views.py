@@ -16,7 +16,8 @@ Detail = Literal["essential", "standard", "full"]
 FieldObject = Literal["dataset", "edge", "entity_definition"]
 
 DATASET_FIELDS = (
-    "node_id", "qualified_name", "distance", "edge_count", "accessor.schema_id", "grain",
+    "node_id", "qualified_name", "distance", "edge_count", "accessor.kind", "accessor.endpoint",
+    "accessor.labels", "grain",
     "descriptor.description", "unknown_fields", "descriptor.display_name", "descriptor.synonyms",
     "descriptor.tags",
     "accessor.properties", "columns", "entity_definitions",
@@ -45,8 +46,9 @@ _BASIC = {
 }
 _LEVELS: dict[str, dict[Detail, tuple[str, ...]]] = {
     "dataset": {
-        "essential": ("distance", "edge_count", "accessor.schema_id"),
-        "standard": ("grain", "descriptor.description", "unknown_fields"),
+        "essential": ("distance", "edge_count", "accessor.kind"),
+        "standard": ("accessor.endpoint", "accessor.labels", "grain", "descriptor.description",
+                     "unknown_fields"),
         "full": ("descriptor.display_name", "descriptor.synonyms", "descriptor.tags",
                  "accessor.properties", "columns", "entity_definitions"),
     },

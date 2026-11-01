@@ -15,7 +15,7 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
-API_VERSION = "1"
+API_VERSION = "2"
 """The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
 
 

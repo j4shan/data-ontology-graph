@@ -39,9 +39,19 @@ list their former IDs in the last column.
 | --- | --- | --- |
 | 2.1 | A dataset is an addressable data resource, uniquely identified in the graph by `node_id`, and is not assumed to be a SQL table or tabular storage. Distinct datasets in different access locations never collapse because their display names match. | 3.2.1 |
 | 2.2 | A dataset's descriptor holds its fully qualified deployed name, display name, description, synonyms, and tags in dataset terminology. Source-specific terms such as table, catalog, schema, or prefix belong only to the accessor. | 3.2.2 |
-| 2.3 | A dataset's accessor is a credential-free recipe an external tool uses to locate the dataset: a provider `schema_id` and the provider-specific properties it validates. The common model prescribes no vendor-specific properties. | 3.2.3 |
+| 2.3 | A dataset's accessor is a credential-free path of information that leads to the dataset's data. A path of information is any statement of where the data can be found; the accessor must hold one, and its form is free. Access requirements are the protocols, drivers, connection settings, credentials, and policy needed to read the data. They are configured in connector plugins, the external tools paired with agents that read the data. The graph never follows, resolves, or interprets an accessor and does not check that it is reachable. Whether an agent can read the data through it is outside the graph's concern. | 3.2.3 |
 | 2.4 | A dataset has exactly one grain: a grain whose components together describe one record boundary, or the explicit value `unknown`. Different record boundaries are different datasets. | 3.2.4 |
 | 2.5 | A dataset records its physical columns for entity definitions, grain, search, and relationship context. Each column has a name, description, value description, and synonyms. The graph does not reproduce primary keys, foreign keys, unique constraints, nullability, SQL types, or other source-catalog primitives. | 3.2.5 |
+
+## Accessors
+
+| ID | Clause | Former |
+| --- | --- | --- |
+| 2.6 | An accessor has four fields. `kind` (required) is a non-blank free-text string that names, in the contributor's words, the kind of system the endpoint belongs to, such as `postgresql`, `kafka`, or `sharepoint list`. `endpoint` (required) is a non-blank string where the path of information starts, in any form: a server address, a URI, an account identifier, the name of a connection configured in a connector plugin, or a shared document that holds connection details, such as a Confluence page. `labels` (optional) maps non-empty string keys to string values. `properties` (optional) is a non-empty object whose values may be any JSON value, such as a database, schema, table, collection, topic, or filter. Keys and values are the contributor's choice: the product ships no provider schemas, conventions, `kind` vocabularies, or suggested label or property names. An accessor has no fields for access requirements (2.3), though a contributor may record such facts in `labels` or `properties`. It has no long text descriptive fields, such as a display name or description; the dataset's descriptor (2.2) holds the description. | — |
+| 2.7 | Two datasets never have accessors with the same `kind`, `endpoint`, and `properties`. `labels` are not compared. Many datasets may share one `endpoint`, such as several datasets on one server or several datasets described in one shared document. | — |
+| 2.8 | An accessor has a soft limit of 256 characters, measured in characters of its serialized form. The graph build warns about an accessor that exceeds it and does not reject that accessor. | — |
+| 2.9 | User credentials and system secrets are not allowed in any accessor field. Examples are passwords, tokens, API keys, access keys, private keys, and signed URLs. They stay in connector plugins (2.3; non-functional 4.2). | — |
+| 2.10 | Future enhancement: secret leakage through accessors is a high-risk area. An agent validator will monitor accessors to prevent secret leaks. | — |
 
 ## Relationships
 

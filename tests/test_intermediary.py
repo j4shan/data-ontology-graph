@@ -38,7 +38,7 @@ def _manifest_directory(tmp_path: Path, *, split_nodes: bool = True) -> tuple[Pa
     _write_yaml(
         yaml_directory / "identities.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": payload["logical_identities"],
         },
     )
@@ -46,21 +46,21 @@ def _manifest_directory(tmp_path: Path, *, split_nodes: bool = True) -> tuple[Pa
     if split_nodes:
         _write_yaml(
             yaml_directory / node_paths[0],
-            {"schema_version": "4", "nodes": [payload["nodes"][1]]},
+            {"schema_version": "5", "nodes": [payload["nodes"][1]]},
         )
         _write_yaml(
             yaml_directory / node_paths[1],
-            {"schema_version": "4", "nodes": [payload["nodes"][0]]},
+            {"schema_version": "5", "nodes": [payload["nodes"][0]]},
         )
     else:
         _write_yaml(
             yaml_directory / node_paths[0],
-            {"schema_version": "4", "nodes": payload["nodes"]},
+            {"schema_version": "5", "nodes": payload["nodes"]},
         )
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": "identities.yaml",
             "nodes": node_paths,
         },
@@ -161,7 +161,7 @@ def test_manifest_directory_is_assembled_deterministically(tmp_path: Path) -> No
 
 def test_standalone_single_file_catalog_remains_supported() -> None:
     assert validate_intermediary_yaml(VALID_EXAMPLE).valid is True
-    assert load_intermediary_yaml(VALID_EXAMPLE).schema_version == "4"
+    assert load_intermediary_yaml(VALID_EXAMPLE).schema_version == "5"
 
 
 def test_directory_requires_valid_sibling_manifest(tmp_path: Path) -> None:
@@ -193,7 +193,7 @@ def test_manifest_requires_version_four_and_all_collection_owners(tmp_path: Path
 
 def test_directory_rejects_unlisted_and_unsupported_files(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
-    _write_yaml(yaml_directory / "surprise.yaml", {"schema_version": "4", "nodes": []})
+    _write_yaml(yaml_directory / "surprise.yaml", {"schema_version": "5", "nodes": []})
     (yaml_directory / "notes.json").write_text("{}", encoding="utf-8")
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -216,7 +216,7 @@ def test_manifest_rejects_duplicate_and_cross_collection_paths(tmp_path: Path) -
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": "identities.yaml",
             "nodes": ["nodes.yaml", "nodes.yaml"],
         },
@@ -229,7 +229,7 @@ def test_manifest_rejects_duplicate_and_cross_collection_paths(tmp_path: Path) -
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": "shared.yaml",
             "nodes": ["shared.yaml"],
         },
@@ -244,7 +244,7 @@ def test_manifest_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": str((tmp_path / "outside.yaml").resolve()),
             "nodes": ["../outside.yaml"],
         },
@@ -258,7 +258,7 @@ def test_manifest_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
 def test_manifest_rejects_symlink_escape(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
     outside = tmp_path / "outside.yaml"
-    _write_yaml(outside, {"schema_version": "4", "logical_identities": {}})
+    _write_yaml(outside, {"schema_version": "5", "logical_identities": {}})
     (yaml_directory / "escape.yaml").symlink_to(outside)
     manifest = yaml.safe_load(
         (tmp_path / "directory-manifest.yaml").read_text(encoding="utf-8")
@@ -274,14 +274,14 @@ def test_collection_file_rejects_mixed_or_wrong_ownership(tmp_path: Path) -> Non
     _write_yaml(
         yaml_directory / "identities.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": payload["logical_identities"],
             "nodes": payload["nodes"],
         },
     )
     _write_yaml(
         yaml_directory / "nodes-a.yaml",
-        {"schema_version": "4", "logical_identities": payload["logical_identities"]},
+        {"schema_version": "5", "logical_identities": payload["logical_identities"]},
     )
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -292,7 +292,7 @@ def test_collection_file_rejects_mixed_or_wrong_ownership(tmp_path: Path) -> Non
 def test_collection_file_rejects_malformed_yaml(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
     (yaml_directory / "nodes-a.yaml").write_text(
-        "schema_version: '4'\nnodes: [\n",
+        "schema_version: '5'\nnodes: [\n",
         encoding="utf-8",
     )
 
@@ -316,7 +316,7 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
     yaml_directory, payload = _manifest_directory(tmp_path)
     _write_yaml(
         yaml_directory / "nodes-b.yaml",
-        {"schema_version": "4", "nodes": [payload["nodes"][0]]},
+        {"schema_version": "5", "nodes": [payload["nodes"][0]]},
     )
 
     report = validate_intermediary_yaml(yaml_directory)

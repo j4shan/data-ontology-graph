@@ -408,13 +408,15 @@ class GraphReadService:
         """Every dataset field by dotted name; entity definitions at ``view``."""
         node = self._node(node_id)
         descriptor = node.descriptor
-        accessor = node.accessor.model_dump(mode="json", by_alias=True)
+        accessor = node.accessor.model_dump(mode="json")
         return {
             "node_id": node_id,
             "qualified_name": descriptor.qualified_name,
             "distance": None,
             "edge_count": len(self.index.directed_edges.get(node_id, ())),
-            "accessor.schema_id": accessor["schema_id"],
+            "accessor.kind": accessor["kind"],
+            "accessor.endpoint": accessor["endpoint"],
+            "accessor.labels": accessor["labels"],
             "grain": node.model_dump(mode="json", include={"grain"})["grain"],
             "descriptor.description": descriptor.description,
             "unknown_fields": node.unknown_fields(),

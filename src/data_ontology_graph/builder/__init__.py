@@ -9,7 +9,11 @@ from data_ontology_graph.builder.intermediary import (
     validate_intermediary_yaml,
     write_intermediary_directory_json_schema,
 )
-from data_ontology_graph.builder.report import ExplicitBuildReport, unknown_field_locations
+from data_ontology_graph.builder.report import (
+    ExplicitBuildReport,
+    accessor_warnings,
+    unknown_field_locations,
+)
 from data_ontology_graph.builder.validate import Contradiction, detect_contradictions
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.model.derivation import derive_relationships
@@ -31,6 +35,7 @@ def build_snapshot_from_definition(
         node_count=len(snapshot.nodes),
         edge_count=len(snapshot.edges),
         unknown_fields=unknown_field_locations(definition, snapshot.edges),
+        warnings=accessor_warnings(snapshot.nodes),
     )
     return snapshot, report, []
 
@@ -47,6 +52,7 @@ __all__ = [
     "ExplicitBuildReport",
     "IntermediaryValidationError",
     "IntermediaryValidationReport",
+    "accessor_warnings",
     "build_snapshot_from_definition",
     "build_snapshot_from_yaml",
     "detect_contradictions",

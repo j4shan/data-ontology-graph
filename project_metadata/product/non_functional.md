@@ -40,4 +40,4 @@
 | --- | --- |
 | 5.1 | The product supports hybrid estates with up to about 10,000 business entities, different storage vendors and source formats, and relationship links that cross those boundaries. |
 | 5.2 | Agents integrate through one JSON-RPC 2.0 request/response tool interface over a Unix-domain socket, shared by production and development. |
-| 5.3 | A new storage or access environment is supported by registering an accessor schema, without changing the universal dataset model. |
+| 5.3 | A new storage or access environment needs no product change: contributors record its datasets with accessors (`graph-model.md#2.6`). |

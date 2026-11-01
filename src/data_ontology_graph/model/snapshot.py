@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from data_ontology_graph.model.dataset import DatasetNode
+from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import (
     JoinAnnotation,
@@ -29,6 +29,9 @@ class GraphSnapshot(BaseModel):
         ids = [node.node_id for node in self.nodes]
         if len(ids) != len(set(ids)):
             raise ValueError("node_id values must be unique")
+        duplicates = duplicate_accessor_messages(self.nodes)
+        if duplicates:
+            raise ValueError("; ".join(duplicates))
         edge_ids = [edge.edge_id for edge in self.edges]
         if len(edge_ids) != len(set(edge_ids)):
             raise ValueError("edge_id values must be unique")

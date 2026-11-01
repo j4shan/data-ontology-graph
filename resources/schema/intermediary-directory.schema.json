@@ -20,7 +20,7 @@
       "uniqueItems": true
     },
     "schema_version": {
-      "const": "4",
+      "const": "5",
       "description": "Schema version shared by the manifest and every collection file.",
       "title": "Schema Version",
       "type": "string"

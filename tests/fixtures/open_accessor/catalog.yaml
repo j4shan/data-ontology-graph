@@ -1,0 +1,269 @@
+# Synthetic `open_accessor` catalog for graph unit tests. Every identifier here belongs to
+# this catalog only; it describes no real data source. Each dataset's accessor is a path of
+# information written in the contributor's own words (product/graph-model.md 2.6).
+schema_version: '5'
+logical_identities:
+  customer_identity:
+    name: Customer identity
+    description: Identifies a customer across regions.
+  order_identity:
+    name: Order identity
+    description: Identifies a sales order.
+nodes:
+- node_id: dbx-emea:finance.gl.journal_line
+  descriptor:
+    qualified_name: finance.gl.journal_line
+    display_name: journal_line
+    description: General-ledger journal lines for EMEA.
+  accessor:
+    kind: databricks
+    endpoint: https://adb-4021.7.azuredatabricks.net
+    labels:
+      region: emea
+    properties:
+      catalog: finance
+      schema: gl
+      table: journal_line
+  grain: unknown
+  columns:
+  - name: journal_line_id
+  - name: order_id
+  entity_definitions:
+  - identity_id: order_identity
+    dataset_columns:
+    - order_id
+    entity_universe: partial
+    unique: false
+    total: false
+    conforms: unknown
+- node_id: sf-amer:SALES.CORE.ORDERS
+  descriptor:
+    qualified_name: SALES.CORE.ORDERS
+    display_name: ORDERS
+    description: Sales orders for the Americas.
+  accessor:
+    kind: snowflake
+    endpoint: acme-amer_sales
+    labels:
+      region: amer
+    properties:
+      database: SALES
+      schema: CORE
+      table: ORDERS
+  grain:
+    components:
+    - identity_id: order_identity
+      dataset_columns:
+      - ORDER_ID
+  columns:
+  - name: ORDER_ID
+  - name: CUSTOMER_ID
+  entity_definitions:
+  - identity_id: order_identity
+    dataset_columns:
+    - ORDER_ID
+    entity_universe: partial
+    unique: true
+    total: true
+    conforms: true
+  - identity_id: customer_identity
+    dataset_columns:
+    - CUSTOMER_ID
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: unknown
+- node_id: mongo-apac:app.customer_profiles
+  descriptor:
+    qualified_name: app.customer_events.profile
+    display_name: customer_profiles
+    description: Profile documents in the APAC customer-events collection.
+  accessor:
+    kind: mongodb
+    endpoint: mongodb+srv://apac-app.x7k2q.mongodb.net
+    properties:
+      database: app
+      collection: customer_events
+      filter:
+        doc_type: profile
+  grain:
+    components:
+    - identity_id: customer_identity
+      dataset_columns:
+      - customer_id
+  columns:
+  - name: customer_id
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_universe: partial
+    unique: true
+    total: true
+    conforms: true
+- node_id: mongo-apac:app.customer_logins
+  descriptor:
+    qualified_name: app.customer_events.login
+    display_name: customer_logins
+    description: Login documents in the APAC customer-events collection.
+  accessor:
+    kind: mongodb
+    endpoint: mongodb+srv://apac-app.x7k2q.mongodb.net
+    properties:
+      database: app
+      collection: customer_events
+      filter:
+        doc_type: login
+  grain: unknown
+  columns:
+  - name: customer_id
+  - name: logged_in_at
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: unknown
+- node_id: pg-eu:crm.public.customer
+  descriptor:
+    qualified_name: crm.public.customer
+    display_name: customer
+    description: EU CRM customers.
+  accessor:
+    kind: postgresql
+    endpoint: https://acme.atlassian.net/wiki/spaces/DATA/pages/48213/EU+CRM+database+access
+    labels:
+      connection: crm-eu
+    properties:
+      database: crm
+      schema: public
+      table: customer
+  grain:
+    components:
+    - identity_id: customer_identity
+      dataset_columns:
+      - customer_id
+  columns:
+  - name: customer_id
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_universe: partial
+    unique: true
+    total: true
+    conforms: true
+- node_id: pg-us:crm.public.customer
+  descriptor:
+    qualified_name: crm.public.customer
+    display_name: customer
+    description: US CRM customers.
+  accessor:
+    kind: postgresql
+    endpoint: postgres://pg-us.acme.internal:5432
+    properties:
+      database: crm
+      schema: public
+      table: customer
+  grain:
+    components:
+    - identity_id: customer_identity
+      dataset_columns:
+      - customer_id
+  columns:
+  - name: customer_id
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_universe: partial
+    unique: true
+    total: true
+    conforms: true
+- node_id: s3-us:web.clickstream
+  descriptor:
+    qualified_name: s3://acme-raw-us/web/clickstream/
+    display_name: clickstream
+    description: Raw web clickstream events.
+  accessor:
+    kind: s3
+    endpoint: s3://acme-raw-us/web/clickstream/
+  grain: unknown
+  columns:
+  - name: customer_id
+  - name: event_time
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_universe: partial
+    unique: false
+    total: false
+    conforms: unknown
+- node_id: adls-cn:supply.shipments
+  descriptor:
+    qualified_name: supply/shipments
+    display_name: shipments
+    description: China supply-chain shipments.
+  accessor:
+    kind: adls-gen2
+    endpoint: abfss://supply@acmecnsupply.dfs.core.chinacloudapi.cn/shipments/
+    labels:
+      region: china-east-2
+  grain: unknown
+  columns:
+  - name: shipment_id
+  - name: order_id
+  entity_definitions:
+  - identity_id: order_identity
+    dataset_columns:
+    - order_id
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: unknown
+- node_id: kafka-apac:orders.v2
+  descriptor:
+    qualified_name: orders.v2
+    display_name: orders.v2
+    description: APAC order events.
+  accessor:
+    kind: kafka
+    endpoint: kafka://broker-1.apac.acme.internal:9093
+    properties:
+      topic: orders.v2
+  grain: unknown
+  columns:
+  - name: order_id
+  entity_definitions:
+  - identity_id: order_identity
+    dataset_columns:
+    - order_id
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: unknown
+- node_id: sharepoint-finance:q3-forecast
+  descriptor:
+    qualified_name: finance-emea/Q3 forecast
+    display_name: Q3 forecast
+    description: Quarterly sales forecast list.
+  accessor:
+    kind: sharepoint list
+    endpoint: https://acme.sharepoint.com/sites/finance-emea
+    properties:
+      list: Q3 forecast
+  grain: unknown
+  columns:
+  - name: forecast_id
+  - name: customer_id
+  entity_definitions:
+  - identity_id: customer_identity
+    dataset_columns:
+    - customer_id
+    entity_universe: unknown
+    unique: false
+    total: unknown
+    conforms: unknown

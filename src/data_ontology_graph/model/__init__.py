@@ -1,6 +1,6 @@
 from data_ontology_graph.model.claims import ClaimModel, is_unknown
 from data_ontology_graph.model.dataset import (
-    ACCESSOR_PROPERTY_SCHEMAS,
+    ACCESSOR_SOFT_LIMIT,
     ColumnMetadata,
     DatasetAccessor,
     DatasetDescriptor,
@@ -35,7 +35,7 @@ from data_ontology_graph.model.relationship import (
 from data_ontology_graph.model.snapshot import GraphSnapshot
 
 __all__ = [
-    "ACCESSOR_PROPERTY_SCHEMAS",
+    "ACCESSOR_SOFT_LIMIT",
     "Cardinality",
     "ClaimModel",
     "ColumnMetadata",

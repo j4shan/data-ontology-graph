@@ -3,6 +3,7 @@ from collections.abc import Iterable
 from pydantic import BaseModel, Field
 
 from data_ontology_graph.model.claims import ClaimModel
+from data_ontology_graph.model.dataset import ACCESSOR_SOFT_LIMIT, DatasetNode
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.model.relationship import JoinRelationship
 
@@ -11,6 +12,7 @@ class ExplicitBuildReport(BaseModel):
     node_count: int
     edge_count: int
     unknown_fields: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
 
 
 def unknown_field_locations(
@@ -31,3 +33,16 @@ def unknown_field_locations(
 
 def _locations(subject: ClaimModel, location: str) -> list[str]:
     return [f"{location}.{path}" for path in subject.unknown_fields()]
+
+
+def accessor_warnings(nodes: Iterable[DatasetNode]) -> list[str]:
+    """Warn about each accessor longer than the soft limit; the build continues (graph-model 2.8)."""
+    warnings: list[str] = []
+    for node in sorted(nodes, key=lambda item: item.node_id):
+        length = len(node.accessor.canonical_json())
+        if length > ACCESSOR_SOFT_LIMIT:
+            warnings.append(
+                f"nodes[{node.node_id}].accessor: {length} characters exceeds the "
+                f"{ACCESSOR_SOFT_LIMIT}-character soft limit"
+            )
+    return warnings

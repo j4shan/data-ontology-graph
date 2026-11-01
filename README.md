@@ -45,8 +45,20 @@ definitions of the same logical entity. Multiplicity and match existence come fr
 definition's `unique`, `total`, `conforms`, and `entity_universe` properties. The governed JSON
 Schemas are under [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
 governs the manifest and `intermediary.schema.json` governs the assembled document. Graph tests
-use the synthetic, single-file schema version `"4"` [lending fixture](tests/fixtures/lending/catalog.yaml).
-It describes no real data source.
+use the synthetic, single-file schema version `"5"` [lending fixture](tests/fixtures/lending/catalog.yaml)
+and the [open-accessor fixture](tests/fixtures/open_accessor/catalog.yaml), which records datasets
+in several storage providers. Neither describes a real data source.
+
+Each dataset's `accessor` is a credential-free path of information to its data, written in the
+contributor's own words. `kind` (required) names the kind of system, such as `postgresql` or
+`kafka`, with no fixed vocabulary. `endpoint` (required) is where the path starts, in any form: a
+server address, URI, account identifier, connector-plugin connection name, or a shared document
+with connection details. `labels` (a map of strings) and `properties` (any JSON object) are
+optional. The product ships no provider schemas; access requirements stay in connector plugins.
+Credentials and secrets are not allowed in an accessor. The build rejects two datasets whose
+`kind`, `endpoint`, and `properties` are equal. An accessor longer than 256 characters in
+canonical JSON produces a build-report warning, which the publish command prints, and is still
+accepted. See [graph-model.md](project_metadata/product/graph-model.md) clauses 2.3 and 2.6–2.10.
 Test data sources, reviewed reference catalogs, generated catalogs, published graph artifacts,
 and AKG evaluation live in the sibling [Critic](../data-ontology-agent-critic/) project.
 
@@ -69,17 +81,17 @@ catalog/
     └── orders.yaml
 ```
 
-The manifest uses schema version `"4"` and names every collection file relative to `yaml/`:
+The manifest uses schema version `"5"` and names every collection file relative to `yaml/`:
 
 ```yaml
-schema_version: "4"
+schema_version: "5"
 logical_identities: identities.yaml
 nodes:
   - customers.yaml
   - orders.yaml
 ```
 
-Each listed file also declares schema version `"4"` and contains exactly its named collection.
+Each listed file also declares schema version `"5"` and contains exactly its named collection.
 The logical entity collection has one owner file. One or more node files partition the
 single assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
 YAML directory, mixed collection ownership, and conflicting schema versions block construction.

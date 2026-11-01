@@ -22,7 +22,7 @@
 | ID | Clause |
 | --- | --- |
 | 3.1 | Socket filesystem permissions restrict the service socket to the local user, and the service opens no network listener. Serves `product/non_functional.md#4.1`. |
-| 3.2 | Accessors hold configuration and deployed location only; no credential appears in YAML. Serves `product/non_functional.md#4.2`. |
+| 3.2 | Accessors hold a path of information only, and no credential appears in YAML. Serves `product/non_functional.md#4.2`. |
 
 ## Observability
 

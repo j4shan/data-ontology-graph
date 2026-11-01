@@ -10,6 +10,7 @@ from data_ontology_graph.model.dataset import (
     DatasetGrain,
     DatasetNode,
     EntityDefinition,
+    duplicate_accessor_messages,
 )
 from data_ontology_graph.model.enums import EntityUniverse, Unknown
 
@@ -36,7 +37,7 @@ class IntermediaryDirectoryManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["4"] = Field(
+    schema_version: Literal["5"] = Field(
         description="Schema version shared by the manifest and every collection file."
     )
     logical_identities: str = Field(
@@ -137,11 +138,9 @@ class IntermediaryNode(ClaimModel):
     node_id: str = Field(
         min_length=1,
         description=(
-            "Stable dataset identity in the form "
-            "<accessor-family>:<catalog>.<object>, where accessor-family is the middle "
-            "segment of accessor.schema_id. Keep the value stable while the dataset remains "
-            "at the same access location; a dataset served through a different accessor "
-            "family is a different node."
+            "Stable dataset identity chosen by the contributor and unique in the graph. It "
+            "does not depend on accessor content; keep it while the accessor leads to the "
+            "same data."
         ),
     )
     descriptor: DatasetDescriptor
@@ -199,7 +198,7 @@ class IntermediaryNode(ClaimModel):
 class IntermediaryDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["4"]
+    schema_version: Literal["5"]
     logical_identities: dict[str, LogicalIdentityDefinition] = Field(min_length=1, title="Logical Entities")
     nodes: list[IntermediaryNode] = Field(min_length=1)
 
@@ -211,6 +210,9 @@ class IntermediaryDefinition(BaseModel):
         node_ids = [node.node_id for node in self.nodes]
         if len(node_ids) != len(set(node_ids)):
             raise ValueError("node_id values must be unique")
+        duplicates = duplicate_accessor_messages(self.nodes)
+        if duplicates:
+            raise ValueError("; ".join(duplicates))
 
         known_identities = set(self.logical_identities)
         for node in self.nodes:

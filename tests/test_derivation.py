@@ -42,13 +42,9 @@ def _node(name: str, definitions: list[EntityDefinition]) -> DatasetNode:
         node_id=f"dataset:{name}",
         descriptor=DatasetDescriptor(qualified_name=f"example.main.{name}", display_name=name),
         accessor=DatasetAccessor(
-            schema_id="accessor.sqlite.v1",
-            properties={
-                "host": "localhost",
-                "database_path": "/srv/sqlite/example.sqlite",
-                "schema": "main",
-                "object": name,
-            },
+            kind="sqlite",
+            endpoint="/srv/sqlite/example.sqlite",
+            properties={"host": "localhost", "schema": "main", "object": name},
         ),
         grain="unknown",
         columns=[ColumnMetadata(name=column) for column in columns],

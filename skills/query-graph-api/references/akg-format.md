@@ -18,8 +18,9 @@ The snapshot block is optional; its schema requires nonempty strings for both fi
 
 ## Selected graph knowledge
 
-Each dataset record requires `node_id`, `qualified_name`, and `accessor.schema_id`.
-Optional graph fields include `accessor.properties`, `grain`, `descriptor`, `unknown_fields`,
+Each dataset record requires `node_id`, `qualified_name`, `accessor.kind`, and
+`accessor.endpoint`, so the AKG keeps each dataset's path of information. Optional graph fields
+include `accessor.labels`, `accessor.properties`, `grain`, `descriptor`, `unknown_fields`,
 `columns`, and `entity_definitions`. Copy their values from API responses, keeping the columns
 and properties relevant to the objective. Omit response-only `distance`, `edge_count`, and
 entity-definition navigation counts and truncation flags.

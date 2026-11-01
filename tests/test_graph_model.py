@@ -35,13 +35,9 @@ def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> Da
             display_name=name,
         ),
         accessor=DatasetAccessor(
-            schema_id="accessor.sqlite.v1",
-            properties={
-                "host": "localhost",
-                "database_path": "/srv/sqlite/example.sqlite",
-                "schema": "main",
-                "object": name,
-            },
+            kind="sqlite",
+            endpoint="/srv/sqlite/example.sqlite",
+            properties={"host": "localhost", "schema": "main", "object": name},
         ),
         grain=DatasetGrain(
             components=[GrainComponent(identity_id="customer", dataset_columns=["id"])]
@@ -84,17 +80,6 @@ def _relationship(left: DatasetNode, right: DatasetNode) -> JoinRelationship:
             match_existence=MatchExistence.OPTIONAL,
         ),
     )
-
-
-def test_accessor_schema_dispatch_validates_provider_properties() -> None:
-    with pytest.raises(ValidationError, match="unknown accessor schema_id"):
-        DatasetAccessor(schema_id="accessor.unknown.v1", properties={})
-
-    with pytest.raises(ValidationError, match="bucket"):
-        DatasetAccessor(
-            schema_id="accessor.s3.v1",
-            properties={"prefix": "events/", "format": "parquet"},
-        )
 
 
 def test_duplicate_column_names_are_rejected() -> None:

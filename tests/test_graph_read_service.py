@@ -48,7 +48,7 @@ def _matches(response):
 def test_snapshot_info_names_the_api_version_and_the_snapshot_build_second() -> None:
     info = _service().snapshot_info().model_dump()
     assert set(info) == {"api_version", "version", "node_count", "edge_count", "identity_count"}
-    assert info["api_version"] == "1"
+    assert info["api_version"] == "2"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["version"])
 
 
@@ -255,7 +255,9 @@ def test_identity_and_dataset_lookup_expose_target_model() -> None:
 
     dataset = service.get_dataset("sqlite:lending.account")
     assert dataset.qualified_name == "lending.main.account"
-    assert dataset.accessor["schema_id"] == "accessor.sqlite.v1"
+    assert dataset.accessor["kind"] == "sqlite"
+    assert dataset.accessor["endpoint"] == "/srv/fixtures/lending.sqlite"
+    assert dataset.accessor["labels"] == {}
     assert dataset.accessor["properties"]["schema"] == "main"
     assert dataset.accessor["properties"]["object"] == "account"
     assert dataset.entity_definitions
@@ -469,12 +471,12 @@ def test_directed_edges_nest_in_their_datasets_and_every_target_is_returned() ->
 
 def _same_dataset_service(tmp_path: Path) -> GraphReadService:
     """A link table holding two device definitions, beside the device dataset."""
-    accessor = lambda name: {"schema_id": "accessor.sqlite.v1", "properties": {
-        "host": "h", "database_path": "/d.db", "schema": "main", "object": name}}
+    accessor = lambda name: {"kind": "sqlite", "endpoint": "/d.db", "properties": {
+        "host": "h", "schema": "main", "object": name}}
     device = lambda columns, **claims: {
         "identity_id": "device", "dataset_columns": columns, **claims}
     payload = {
-        "schema_version": "4",
+        "schema_version": "5",
         "logical_identities": {"device": {"name": "Device"}},
         "nodes": [
             {"node_id": "net.device", "descriptor": {"qualified_name": "net.main.device",
@@ -544,7 +546,7 @@ def test_detail_levels_and_added_fields_shape_every_dataset_and_directed_edge() 
 
     essential = service.get_edges(account, detail="essential")
     assert essential.datasets.header == [
-        "node_id", "qualified_name", "distance", "edge_count", "accessor.schema_id",
+        "node_id", "qualified_name", "distance", "edge_count", "accessor.kind",
     ]
     # Positions only append with detail, and edge_id stays last.
     assert essential.edge_fields == ["edge", "multiplicity", "match_existence", "edge_id"]
@@ -787,8 +789,8 @@ def test_every_response_presents_a_dataset_as_one_record() -> None:
     assert full == {key: value for key, value in full_navigation.items()
                     if key not in ("distance", "edge_count", "edge_groups")}
     assert service.get_identity("region_identity").datasets.header == [
-        "node_id", "qualified_name", "accessor.schema_id", "grain", "descriptor.description",
-        "unknown_fields",
+        "node_id", "qualified_name", "accessor.kind", "accessor.endpoint", "accessor.labels",
+        "grain", "descriptor.description", "unknown_fields",
     ]
     # The display name is a full-detail descriptor field.
     assert full["descriptor"]["display_name"] == "account"
