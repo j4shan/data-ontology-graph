@@ -9,7 +9,7 @@ from data_ontology_graph.service.contracts import (
     ConnectingSubgraphRequest,
     DatasetRequest,
     EdgesRequest,
-    IdentityRequest,
+    EntityDefinitionsRequest,
     PathsRequest,
     RelationshipRequest,
     SearchRequest,
@@ -32,7 +32,7 @@ class JsonRpcDispatcher:
         self._methods: dict[str, Callable[[dict[str, Any]], Any]] = {
             "graph.snapshot_info": self._snapshot_info,
             "graph.search": self._search,
-            "graph.get_identity": self._get_identity,
+            "graph.get_entity_definitions": self._get_entity_definitions,
             "graph.get_dataset": self._get_dataset,
             "graph.get_relationship": self._get_relationship,
             "graph.get_edges": self._get_edges,
@@ -58,7 +58,7 @@ class JsonRpcDispatcher:
             return error_response(request_id, METHOD_NOT_FOUND, "Method not found")
 
         try:
-            if method == self._find_paths:
+            if method in (self._find_paths, self._get_entity_definitions):
                 result = _json_value(method(params, cancel_event))
             else:
                 result = _json_value(method(params))
@@ -91,12 +91,9 @@ class JsonRpcDispatcher:
     def _search(self, params: dict[str, Any]) -> Any:
         return self.service.search(SearchRequest.model_validate(params))
 
-    def _get_identity(self, params: dict[str, Any]) -> Any:
-        request = IdentityRequest.model_validate(params)
-        return self.service.get_identity(
-            request.identity_id, request.entity_universe, request.limit,
-            request.response_format,
-        )
+    def _get_entity_definitions(self, params: dict[str, Any], cancel_event: Event | None = None) -> Any:
+        request = EntityDefinitionsRequest.model_validate(params)
+        return self.service.get_entity_definitions(**request.model_dump(), cancel_event=cancel_event)
 
     def _get_dataset(self, params: dict[str, Any]) -> Any:
         request = DatasetRequest.model_validate(params)

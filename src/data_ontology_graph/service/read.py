@@ -5,11 +5,12 @@ import binascii
 import hashlib
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from threading import Event
 from typing import Any
 
 from data_ontology_graph.model.claims import ClaimModel
-from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition
+from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition, effective_description
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.enums import EntityUniverse
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -17,13 +18,15 @@ from data_ontology_graph.model.snapshot import GraphSnapshot
 from data_ontology_graph.service.contracts import (
     API_VERSION,
     AggregatedEdgesResponse,
+    AggregatedEntityDefinitionsResponse,
+    ContractModel,
     ConnectingSubgraphRequest,
     ConnectingSubgraphResponse,
     DatasetDetail,
     EdgesRequest,
     EdgesResponse,
-    IdentityDetail,
-    IdentityRequest,
+    EntityDefinitionsRequest,
+    EntityDefinitionsResponse,
     PathsRequest,
     PathsResponse,
     RelationshipDetail,
@@ -35,6 +38,7 @@ from data_ontology_graph.service.contracts import (
     SubgraphResponse,
 )
 from data_ontology_graph.query.edge_discovery import discover_edges
+from data_ontology_graph.query.entity_definitions import discover_entity_definitions
 from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.query.neighbourhood import (
     DirectedEdge,
@@ -60,32 +64,33 @@ from data_ontology_graph.service.views import COLUMN_FIELDS, View, definition_la
 DefinitionKey = tuple[str, str, tuple[str, ...]]
 
 
-def _edge_cursor_scope(request: EdgesRequest) -> str:
-    selection = {"api_version": API_VERSION, **request.model_dump(exclude={"cursor", "view"})}
+def _cursor_scope(request: ContractModel, method: str) -> str:
+    selection = {"api_version": API_VERSION, "method": method,
+                 **request.model_dump(mode="json", exclude={"cursor", "view"})}
     return hashlib.sha256(json.dumps(selection, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def _edge_cursor(version: str, scope: str, offset: int) -> str:
+def _cursor(version: str, scope: str, offset: int) -> str:
     payload = json.dumps({"snapshot": version, "scope": scope, "offset": offset}, separators=(",", ":"))
     return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
 
 
-def _edge_cursor_offset(cursor: str | None, version: str, scope: str) -> int:
+def _cursor_offset(cursor: str | None, version: str, scope: str, method: str) -> int:
     if cursor is None:
         return 0
     try:
         payload = json.loads(base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True))
     except (ValueError, binascii.Error, UnicodeError):
-        raise ValueError("invalid get_edges cursor") from None
+        raise ValueError(f"invalid {method} cursor") from None
     if not isinstance(payload, dict) or set(payload) != {"snapshot", "scope", "offset"}:
-        raise ValueError("invalid get_edges cursor")
+        raise ValueError(f"invalid {method} cursor")
     if payload["snapshot"] != version:
-        raise ValueError("get_edges cursor belongs to a different snapshot")
+        raise ValueError(f"{method} cursor belongs to a different snapshot")
     if payload["scope"] != scope:
-        raise ValueError("get_edges cursor does not match the request filters or presentation")
+        raise ValueError(f"{method} cursor does not match the request filters or presentation")
     offset = payload["offset"]
     if type(offset) is not int or offset <= 0:
-        raise ValueError("invalid get_edges cursor offset")
+        raise ValueError(f"invalid {method} cursor offset")
     return offset
 
 
@@ -99,10 +104,6 @@ class GraphReadIndex:
         }
         self.memberships = snapshot.memberships
         self.definitions = self.memberships.definitions
-        self.definitions_by_identity = {
-            identity_id: tuple((key[0], self.definitions[key]) for key in keys)
-            for identity_id, keys in self.memberships.by_identity.items()
-        }
         self.edges = self.memberships
         self.adjacency = MembershipAdjacency(self.memberships)
         self.directed_edges = MembershipDirectedEdges(self.memberships)
@@ -141,41 +142,94 @@ class GraphReadService:
             truncated=truncated,
         )
 
-    def get_identity(
+    def get_entity_definitions(
         self,
         identity_id: str,
         entity_universe: list[EntityUniverse] | None = None,
         limit: int = 100,
         response_format: ResponseFormat = "table",
-    ) -> IdentityDetail:
-        request = IdentityRequest(
+        target_identity_ids: list[str] | None = None,
+        view: str = "auto",
+        dataset_threshold: int = 200,
+        cursor: str | None = None,
+        cancel_event: Event | None = None,
+    ) -> EntityDefinitionsResponse | AggregatedEntityDefinitionsResponse:
+        request = EntityDefinitionsRequest(
             identity_id=identity_id, entity_universe=entity_universe, limit=limit,
             response_format=response_format,
+            target_identity_ids=target_identity_ids if target_identity_ids is not None else [],
+            view=view, dataset_threshold=dataset_threshold, cursor=cursor,
         )
         identity = self._identity(request.identity_id)
-        universes = (set(request.entity_universe)
-                     if request.entity_universe is not None else None)
-        # Definitions are indexed in node_id, then dataset_columns order.
-        matching = [
-            (node_id, definition)
-            for node_id, definition in self.index.definitions_by_identity.get(identity_id, ())
-            if universes is None or definition.entity_universe in universes
-        ]
-        selected = matching[:request.limit]
-        return IdentityDetail(
+        for target_identity in request.target_identity_ids:
+            self._identity(target_identity)
+
+        def check_cancelled() -> None:
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError("entity-definition discovery cancelled")
+
+        check_cancelled()
+        scope = _cursor_scope(request, "get_entity_definitions")
+        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_entity_definitions")
+        discovery = discover_entity_definitions(
+            self.index.memberships, request.identity_id, request.entity_universe,
+            request.target_identity_ids, check_cancelled,
+        )
+        dataset_count = len(discovery.node_ids)
+        selection = dict(
+            snapshot=self.snapshot_info(),
             identity_id=identity.identity_id,
             name=identity.name,
             description=identity.description,
             synonyms=identity.synonyms,
+            entity_universe=request.entity_universe,
+            target_identity_ids=request.target_identity_ids,
+            limit=request.limit,
+            dataset_threshold=request.dataset_threshold,
+            dataset_count=dataset_count,
+            primary_definition_count=discovery.primary_definition_count,
+        )
+        aggregated = request.view == "aggregated" or (
+            request.view == "auto" and request.cursor is None
+            and dataset_count > request.dataset_threshold
+        )
+        if aggregated:
+            rows, count = discovery.histogram(check_cancelled)
+            rows = [{**row, "name": self.index.identities[row["identity_id"]].name} for row in rows]
+            return AggregatedEntityDefinitionsResponse(
+                **selection,
+                histogram=collection(rows, ["identity_id", "name", "entity_definition_count", "dataset_count"],
+                                     request.response_format),
+                logical_entity_count=count, truncated=count > len(rows),
+            )
+        if request.cursor is not None and offset >= dataset_count:
+            raise ValueError("cursor is outside the selected dataset range")
+        selected = discovery.node_ids[offset:offset + request.limit]
+        keys = discovery.page_definitions(selected, request.target_identity_ids, check_cancelled)
+        column_descriptions = {
+            node_id: {column.name: column.description for column in self._node(node_id).columns}
+            for node_id in selected
+        }
+        definitions = []
+        for key in keys:
+            check_cancelled()
+            definitions.append({
+                "node_id": key[0],
+                **_definition_payload(self._node(key[0]), self.index.definitions[key], column_descriptions[key[0]]),
+            })
+        datasets = []
+        for node_id in selected:
+            check_cancelled()
+            datasets.append(self._dataset_record(node_id, "standard"))
+        return EntityDefinitionsResponse(
+            **selection,
             entity_definitions=collection(
-                [{"node_id": node_id, **_definition_payload(self._node(node_id), definition)}
-                 for node_id, definition in selected],
-                DEFINITION_HEADER, request.response_format,
+                definitions, DEFINITION_HEADER, request.response_format,
             ),
-            datasets=self._dataset_collection(
-                sorted({node_id for node_id, _ in selected}), request.response_format,
-            ),
-            truncated=len(matching) > request.limit,
+            datasets=collection(datasets, list(View.resolve("standard").record_fields()), request.response_format),
+            next_cursor=_cursor(self.index.fingerprint, scope, offset + request.limit)
+            if offset + request.limit < dataset_count else None,
+            truncated=len(selected) < dataset_count,
         )
 
     def get_dataset(self, node_id: str) -> DatasetDetail:
@@ -246,8 +300,8 @@ class GraphReadService:
             "target_identity_ids": request.target_identity_ids,
             "fan_out_count": len(discovery.connected), "fan_out_threshold": request.fan_out_threshold,
         }
-        scope = _edge_cursor_scope(request)
-        offset = _edge_cursor_offset(request.cursor, self.index.fingerprint, scope)
+        scope = _cursor_scope(request, "get_edges")
+        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_edges")
         aggregated = request.view == "aggregated" or (
             request.view == "auto" and request.cursor is None
             and len(discovery.connected) > request.fan_out_threshold
@@ -273,7 +327,7 @@ class GraphReadService:
         return EdgesResponse(
             **selection,
             **self._present(datasets, projection, request.response_format, distance=True),
-            next_cursor=_edge_cursor(self.index.fingerprint, scope, offset + request.limit) if more else None,
+            next_cursor=_cursor(self.index.fingerprint, scope, offset + request.limit) if more else None,
             truncated=any(group.truncated for group in groups),
         )
 
@@ -452,7 +506,7 @@ class GraphReadService:
         node = self._node(node_id)
         descriptor = node.descriptor
         accessor = node.accessor.model_dump(mode="json")
-        return {
+        values = {
             "node_id": node_id,
             "qualified_name": descriptor.qualified_name,
             "distance": None,
@@ -467,15 +521,16 @@ class GraphReadService:
             "descriptor.synonyms": descriptor.synonyms,
             "descriptor.tags": descriptor.tags,
             "accessor.properties": accessor["properties"],
-            "columns": [
-                {field: column.model_dump(mode="json")[field] for field in COLUMN_FIELDS}
-                for column in node.columns
-            ],
-            "entity_definitions": [
-                pick(_definition_payload(node, definition), view.entity_definition)
-                for definition in node.entity_definitions
-            ],
         }
+        if "columns" in view.dataset:
+            values["columns"] = [column.model_dump(mode="json") for column in node.columns]
+        if "entity_definitions" in view.dataset:
+            descriptions = {column.name: column.description for column in node.columns}
+            values["entity_definitions"] = [
+                pick(_definition_payload(node, definition, descriptions), view.entity_definition)
+                for definition in node.entity_definitions
+            ]
+        return values
 
     def _edge_groups(self, groups: list[EdgeGroup], view: View) -> list[dict[str, Any]]:
         """Edge groups by logical entity ID, each holding its entity definitions' directed edges."""
@@ -592,9 +647,13 @@ def _claim_payload(subject: ClaimModel) -> dict[str, Any]:
     return {**subject.model_dump(mode="json"), "unknown_fields": subject.unknown_fields()}
 
 
-def _definition_payload(node: DatasetNode, definition: EntityDefinition) -> dict[str, Any]:
+def _definition_payload(
+    node: DatasetNode, definition: EntityDefinition, column_descriptions: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
     """An entity definition with its effective description and where that text comes from."""
-    effective = definition.effective_description(node.columns)
+    effective = definition.effective_description(node.columns) if column_descriptions is None else effective_description(
+        definition.description, definition.dataset_columns, definition.entity_expression, column_descriptions,
+    )
     return {
         **_claim_payload(definition),
         "effective_description": effective[0] if effective else None,

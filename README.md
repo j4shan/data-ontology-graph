@@ -165,13 +165,22 @@ carries a request ID; fire-and-forget notifications are not supported:
 data-ontology-graph-client graph.search --params '{"query":"customer"}'
 ```
 
-The service supports snapshot information, lexical search, logical entity and dataset lookup,
+The service supports snapshot information, lexical search, entity-definition discovery and dataset lookup,
 relationship detail, a dataset's directed edges, breadth-first subgraph expansion, ranked shortest paths,
 and an approximate connecting subgraph for two to sixteen datasets. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
 Membership-backed indexes serve these methods without constructing all pairs at startup. The
-graph API is version `3`: `graph.get_edges` now returns a detailed view or, when more than 200
+graph API is version `4`. `graph.get_entity_definitions` replaces `graph.get_identity` and
+discovers datasets containing a primary logical entity. An optional `entity_universe` filters
+the primary definitions; up to four distinct `target_identity_ids` can require additional
+entities on every selected dataset. The result reports exact matching dataset and primary
+definition counts. With `view: "auto"`, more than `dataset_threshold` matching datasets
+(default 200) produces an aggregated top-20 histogram of other logical entities; otherwise
+detail pages list whole datasets and their selected definitions. Use `next_cursor: null` to
+recognize the end of detail, even if `truncated` remains true. Dataset-level co-occurrence
+identifies candidate bridges, not row-level value co-occurrence or business meaning.
+`graph.get_edges` returns a detailed view or, when more than 200
 distinct other datasets are connected, an aggregated view by default. Its `view` parameter can
 request either view explicitly. An aggregated result reports exact fan-out and a top-20 histogram
 of logical entities on connected datasets; it contains no relationship edges. Use
@@ -181,7 +190,8 @@ refining targets: `identity_id` and `from_dataset_columns` choose how the seed c
 `target_identity_ids` choose which connected datasets remain. Other navigation methods retain
 their contracts and can still produce tenant shortcuts. The YAML schema is unchanged.
 `graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
-records the UTC build time. Detailed `get_edges` cursors also bind to the snapshot content.
+records the UTC build time. Detailed `get_edges` and `get_entity_definitions` cursors also bind
+to the snapshot content.
 After a software upgrade, republish from the YAML intermediary with
 `data-ontology-graph-publish` so the service loads a current artifact.
 
@@ -198,6 +208,7 @@ python3 skills/query-graph-api/scripts/service.py start
 GRAPH_WORK=$(mktemp -d)
 GRAPH_CONTEXT="$GRAPH_WORK/question.json"
 python3 skills/query-graph-api/scripts/query.py snapshot_info --context "$GRAPH_CONTEXT" --question 'How many loans are there per region?'
+python3 skills/query-graph-api/scripts/query.py get_entity_definitions '{"identity_id":"ACCOUNT_ID"}' --context "$GRAPH_CONTEXT"
 python3 skills/query-graph-api/scripts/query.py get_edges '{"node_id":"sqlite:lending.loan"}' --context "$GRAPH_CONTEXT" --entity 'Account'
 # After the agent writes the AKG to "$GRAPH_WORK/akg.json":
 cd "$GRAPH_WORK"

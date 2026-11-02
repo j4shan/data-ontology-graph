@@ -15,7 +15,7 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
-API_VERSION = "3"
+API_VERSION = "4"
 """The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
 
 
@@ -69,11 +69,34 @@ class SearchResponse(ContractModel):
     truncated: bool
 
 
-class IdentityRequest(ContractModel):
+class EntityDefinitionsRequest(ContractModel):
     identity_id: str = Field(min_length=1)
     entity_universe: list[EntityUniverse] | None = Field(default=None, min_length=1)
     limit: int = Field(default=100, ge=1, le=1000)
     response_format: ResponseFormat = "table"
+    target_identity_ids: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
+    view: Literal["auto", "aggregated", "detailed"] = "auto"
+    dataset_threshold: int = Field(default=200, ge=1, le=10_000)
+    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @field_validator("target_identity_ids")
+    @classmethod
+    def canonical_targets(cls, values: list[str]) -> list[str]:
+        selected = sorted(set(values))
+        if len(selected) > 4:
+            raise ValueError("target_identity_ids allows at most four distinct logical entities")
+        return selected
+
+    @field_validator("entity_universe")
+    @classmethod
+    def canonical_universes(cls, values: list[EntityUniverse] | None) -> list[EntityUniverse] | None:
+        return sorted(set(values)) if values is not None else None
+
+    @model_validator(mode="after")
+    def cursor_needs_detail(self) -> "EntityDefinitionsRequest":
+        if self.cursor is not None and self.view == "aggregated":
+            raise ValueError("cursor requires an auto or detailed view")
+        return self
 
 
 class DatasetRequest(ContractModel):
@@ -154,13 +177,32 @@ class ConnectingSubgraphRequest(NavigationRequest):
         return self
 
 
-class IdentityDetail(ContractModel):
+class EntityDefinitionsSelection(ContractModel):
+    snapshot: SnapshotInfo
     identity_id: str
     name: str
     description: str
     synonyms: list[str]
+    entity_universe: list[EntityUniverse] | None
+    target_identity_ids: list[str]
+    limit: int
+    dataset_threshold: int
+    dataset_count: int
+    primary_definition_count: int
+
+
+class EntityDefinitionsResponse(EntityDefinitionsSelection):
+    view: Literal["detailed"] = "detailed"
     entity_definitions: Collection
     datasets: Collection
+    truncated: bool
+    next_cursor: str | None = None
+
+
+class AggregatedEntityDefinitionsResponse(EntityDefinitionsSelection):
+    view: Literal["aggregated"] = "aggregated"
+    histogram: Collection
+    logical_entity_count: int
     truncated: bool
 
 

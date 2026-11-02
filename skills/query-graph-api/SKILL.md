@@ -57,6 +57,8 @@ Call any documented method with the bundled proxy:
 ```bash
 python3 scripts/query.py search '{"query":"loan","kind":["dataset","identity"]}' \
   --context "$GRAPH_CONTEXT"
+python3 scripts/query.py get_entity_definitions '{"identity_id":"ACCOUNT_ID"}' \
+  --context "$GRAPH_CONTEXT"
 python3 scripts/query.py get_edges '{"node_id":"sqlite:lending.loan"}' \
   --context "$GRAPH_CONTEXT" --entity 'Account'
 ```
@@ -73,6 +75,28 @@ Use discovery to identify relevant datasets and logical entities, then explore t
 relationships. Select the graph knowledge that serves the analytical question, using the
 datasets' grain, column descriptions, entity roles, and directional relationship claims.
 
+Use `get_entity_definitions` to discover where a primary logical entity is defined. Its
+`identity_id` is required. An optional `entity_universe` list limits primary definitions by
+coverage; optional `target_identity_ids` requires every selected dataset to contain each
+target entity. Up to four distinct targets can be supplied in addition to the primary. These
+filters apply before counts and view selection. The returned `dataset_count` counts matching
+datasets, while `primary_definition_count` counts qualifying primary roles on them.
+`view: "auto"` returns `aggregated` when the filtered dataset count is greater than
+`dataset_threshold` (default 200), and `detailed` at or below it. Inspect the returned `view`.
+The aggregated top-20 histogram counts other logical entities across all matching datasets,
+including selected non-primary targets. It can help choose target IDs for a narrower call. It has no
+dataset or definition records. Request `view: "detailed"` to inspect whole-dataset pages of
+qualifying primary definitions and all definitions of the selected targets. `limit` counts
+datasets per page, not definitions. Both views support table and records formats.
+
+If a detailed result has a non-null `next_cursor`, repeat the same `identity_id`,
+`entity_universe`, `target_identity_ids`, `limit`, `dataset_threshold`, and `response_format`
+with that cursor until `next_cursor` is null. The `view` may be `auto` or `detailed` during
+continuation. `truncated` can remain true on the final page, so use `next_cursor` to detect
+completion. A shared dataset is a candidate bridge; membership alone does not establish
+row-level value co-occurrence or business meaning. Inspect its definitions and relationship
+claims before selecting graph evidence for an AKG.
+
 For `get_edges`, inspect the returned `view` before reading relationships. An `aggregated`
 response gives exact `fan_out_count` and a top-20 `histogram` of logical entities across the
 filtered connected datasets; it has no `datasets` or `edge_fields` and supplies no edge evidence.
@@ -88,7 +112,8 @@ parameters with that opaque cursor and continue until `next_cursor` is null. Kee
 filters, `limit`, `fan_out_threshold`, `detail`, `fields`, and `response_format` on every page;
 `view` may be `auto` or `detailed`. A detailed page's `truncated` can remain true on the last
 page, so use `next_cursor` to decide when enumeration is complete. Each call is self-contained.
-`get_identity` lists catalog-wide realizations and does not apply the `get_edges` target scope.
+`get_entity_definitions` has its own primary and target scope; it does not apply the
+`get_edges` source or target filters.
 
 Keep two temporary files and refer to both when generating the AKG.
 
@@ -126,7 +151,7 @@ executing it.
 
 The proxy accumulates request/response pairs for `get_edges`, `expand_subgraph`, `find_paths`,
 and `find_connecting_subgraph`, including service errors. Object discovery and lookup calls
-(`search`, `get_dataset`, `get_identity`, and `get_relationship`) are printed but do not enter
+(`search`, `get_dataset`, `get_entity_definitions`, and `get_relationship`) are printed but do not enter
 File B. Connection failures have no service response and are reported separately.
 
 Reread both temporary files when generating the AKG. Use aggregated responses for discovery;

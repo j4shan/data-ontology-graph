@@ -132,7 +132,7 @@ def test_dispatcher_bounds_edges_and_identity_definitions() -> None:
         METHOD_NOT_FOUND
     )
 
-    identity = call("graph.get_identity", {
+    identity = call("graph.get_entity_definitions", {
         "identity_id": "region_identity", "entity_universe": ["complete"], "limit": 1,
     })["result"]
     assert [row[0] for row in identity["entity_definitions"]["rows"]] == ["sqlite:lending.region"]
@@ -207,6 +207,18 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                     {"seed_node_ids": ["sqlite:lending.customer"], "max_depth": 1},
                 )
                 assert follow_up["result"]["datasets"]["rows"]
+                definitions = await _rpc_call(
+                    socket_path, 4, "graph.get_entity_definitions",
+                    {"identity_id": "region_identity", "target_identity_ids": ["account_identity"],
+                     "response_format": "records"},
+                )
+                result = definitions["result"]
+                assert result["snapshot"]["api_version"] == "4"
+                assert result["view"] == "detailed" and result["dataset_count"] == 1
+                assert result["datasets"][0]["node_id"] == "sqlite:lending.account"
+                assert {item["identity_id"] for item in result["entity_definitions"]} == {
+                    "region_identity", "account_identity",
+                }
             finally:
                 await server.close()
             assert not socket_path.exists()

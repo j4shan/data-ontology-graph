@@ -98,7 +98,7 @@ def test_four_traversals_keep_service_shapes_and_accumulate_history(
 @pytest.mark.parametrize("method,params", [
     ("search", {"query": "loan"}),
     ("get_dataset", {"node_id": LOAN}),
-    ("get_identity", {"identity_id": "loan_identity"}),
+    ("get_entity_definitions", {"identity_id": "loan_identity"}),
     ("get_relationship", {"edge_id": LOAN_ACCOUNT, "from_node_id": LOAN}),
     ("snapshot_info", {}),
 ])

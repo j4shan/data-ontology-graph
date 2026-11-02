@@ -47,7 +47,7 @@ def test_service_initialization_and_membership_lookup_do_not_construct_pairs(mon
         assert not service.index.paths.edges
         assert not service.index.paths._edge_by_pair
         assert service.get_dataset("sqlite:lending.account").node_id == "sqlite:lending.account"
-        assert service.get_identity("account_identity").entity_definitions
+        assert service.get_entity_definitions("account_identity").entity_definitions
         assert service.search(SearchRequest(query="account", kind=["identity"])).groups
         assert len(service.index.directed_edges["sqlite:lending.account"]) == 4
 
@@ -118,7 +118,7 @@ def _matches(response):
 def test_snapshot_info_names_the_api_version_and_the_snapshot_build_second() -> None:
     info = _service().snapshot_info().model_dump()
     assert set(info) == {"api_version", "version", "node_count", "edge_count", "identity_count"}
-    assert info["api_version"] == "3"
+    assert info["api_version"] == "4"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["version"])
 
 
@@ -314,7 +314,7 @@ def test_search_ranks_an_identity_by_its_best_match() -> None:
 
 def test_identity_and_dataset_lookup_expose_target_model() -> None:
     service = _service()
-    identity = service.get_identity("customer_identity")
+    identity = service.get_entity_definitions("customer_identity")
     definitions = to_records(identity.entity_definitions)
     assert definitions
     assert set(by_id(identity.datasets, "node_id")) == {item["node_id"] for item in definitions}
@@ -400,28 +400,28 @@ def test_edges_filter_by_logical_entity_and_start_columns() -> None:
 
 def test_identity_definitions_filter_by_universe_and_respect_limit() -> None:
     service = _service()
-    region = service.get_identity("region_identity")
+    region = service.get_entity_definitions("region_identity")
     assert [item["node_id"] for item in to_records(region.entity_definitions)] == [
         "sqlite:lending.account", "sqlite:lending.customer", "sqlite:lending.region",
     ]
     assert region.truncated is False
 
-    limited = service.get_identity("region_identity", limit=2)
+    limited = service.get_entity_definitions("region_identity", limit=2)
     assert [item["node_id"] for item in to_records(limited.entity_definitions)] == [
         "sqlite:lending.account", "sqlite:lending.customer",
     ]
     assert limited.truncated is True
 
     # The filter applies before the limit, so the complete realization is never cut.
-    complete = service.get_identity("region_identity", entity_universe=["complete"], limit=1)
+    complete = service.get_entity_definitions("region_identity", entity_universe=["complete"], limit=1)
     assert [item["node_id"] for item in to_records(complete.entity_definitions)] == [
         "sqlite:lending.region",
     ]
     assert complete.truncated is False
-    empty = service.get_identity("loan_identity", entity_universe=["complete"])
+    empty = service.get_entity_definitions("loan_identity", entity_universe=["complete"])
     assert to_records(empty.entity_definitions) == [] and to_records(empty.datasets) == []
     with pytest.raises(ValidationError):
-        service.get_identity("region_identity", entity_universe=[])
+        service.get_entity_definitions("region_identity", entity_universe=[])
 
 
 def test_directed_edges_expose_outgoing_claims_without_sql() -> None:
@@ -703,7 +703,7 @@ def test_table_and_records_formats_carry_the_same_content() -> None:
     assert table.paths == records.paths and table.edge_fields == records.edge_fields
 
     for call in (
-        lambda f: service.get_identity("region_identity", response_format=f),
+        lambda f: service.get_entity_definitions("region_identity", response_format=f),
         lambda f: service.get_relationship(edge_id, account, response_format=f),
     ):
         table = call("table").model_dump(mode="json")
@@ -777,7 +777,7 @@ def test_search_reports_unknown_claims_on_catalog_definitions() -> None:
 def test_detail_responses_expose_unknown_claims() -> None:
     service = _example_service()
 
-    identity = service.get_identity("customer_identity")
+    identity = service.get_entity_definitions("customer_identity")
     assert identity.description == "Unknown"
     assert [item["unknown_fields"] for item in to_records(identity.entity_definitions)] == [
         ["total"],
@@ -848,7 +848,7 @@ def test_every_response_presents_a_dataset_as_one_record() -> None:
     edge_id = service.index.adjacency[account][0].edge_id
     standard = ["node_id", "qualified_name", "accessor", "grain", "descriptor", "unknown_fields"]
     navigation = service.get_edges(account, response_format="records").datasets[0]
-    identity = service.get_identity("region_identity", response_format="records").datasets[0]
+    identity = service.get_entity_definitions("region_identity", response_format="records").datasets[0]
     relationship = service.get_relationship(edge_id, response_format="records").datasets[0]
     assert list(navigation) == ["node_id", "qualified_name", "distance", "edge_count", "accessor",
                                 "grain", "descriptor", "unknown_fields", "edge_groups"]
@@ -858,7 +858,7 @@ def test_every_response_presents_a_dataset_as_one_record() -> None:
     full_navigation = service.get_edges(account, response_format="records", detail="full").datasets[0]
     assert full == {key: value for key, value in full_navigation.items()
                     if key not in ("distance", "edge_count", "edge_groups")}
-    assert service.get_identity("region_identity").datasets.header == [
+    assert service.get_entity_definitions("region_identity").datasets.header == [
         "node_id", "qualified_name", "accessor.kind", "accessor.endpoint", "accessor.labels",
         "grain", "descriptor.description", "unknown_fields",
     ]

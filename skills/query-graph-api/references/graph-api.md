@@ -1,6 +1,6 @@
 # Graph service API
 
-This document describes graph API version `3`.
+This document describes graph API version `4`.
 
 The service discovers dataset metadata and explores relationships in one published graph.
 It is read-only and sessionless: the caller selects evidence and maintains its own working
@@ -55,10 +55,12 @@ Snapshot = {
 }
 ```
 
-`api_version` names the API contract described here. It is the string `"3"`; automatic
-aggregation in `get_edges` changed that method's response contract.
+`api_version` names the API contract described here. It is the string `"4"`.
+`graph.get_entity_definitions` provides filtered discovery and replaces
+`graph.get_identity`; the old name is no longer a registered method.
 `version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).
-Detailed `get_edges` cursors bind to snapshot content as well as the displayed build time.
+Detailed `get_edges` and `get_entity_definitions` cursors bind to snapshot content as well as
+the displayed build time.
 
 ### Dataset and entity metadata
 
@@ -86,9 +88,10 @@ Definition = {
 ```
 
 `get_dataset` returns every metadata field, without navigation-only `distance`, `edge_count`,
-or `edge_groups`. Lookup dataset collections from `get_identity` and `get_relationship` also
-omit `distance` and `edge_count`. Other methods select dataset fields by detail. Standalone definition
-collections add `node_id`; nested definitions take it from their dataset.
+or `edge_groups`. Dataset collections from `get_entity_definitions` and `get_relationship`
+also omit `distance`, `edge_count`, and `edge_groups`. Other methods select dataset fields by
+detail. Standalone definition collections add `node_id`; nested definitions take it from
+their dataset.
 
 - `qualified_name` identifies the deployed dataset in source terminology. `node_id` is its
   graph key. Display names need not be unique.
@@ -272,21 +275,92 @@ The top-level `truncated` is true when any group's limit omitted eligible subjec
 Parameters: required nonempty string `node_id`. Returns one full `Dataset` record. It does
 not accept `detail`, `fields`, or `response_format`.
 
-### `graph.get_identity`
+### `graph.get_entity_definitions`
+
+Find datasets containing a primary logical entity, optionally alongside up to four more
+logical entities. This is dataset-level co-occurrence: a matching dataset is a candidate
+bridge, but the result does not establish row-level value co-occurrence or business meaning.
+Use the returned definitions and relationship evidence to assess an analytical question.
 
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
-| `identity_id` | string, required | Canonical logical entity ID. |
-| `entity_universe` | Array of `"complete"`, `"partial"`, `"unknown"` | Omitted or null leaves coverage unfiltered; otherwise nonempty. |
-| `limit` | integer | 100; range 1–1000, counts entity definitions. |
+| `identity_id` | string, required | Canonical primary logical entity ID. |
+| `entity_universe` | Array of `"complete"`, `"partial"`, `"unknown"` | Omitted or null leaves primary definitions unfiltered; otherwise nonempty. Duplicates are removed and values sorted. |
+| `target_identity_ids` | string array | `[]`; at most four distinct IDs. Every selected dataset must contain a definition of each target. IDs must be nonempty; duplicates are removed and IDs sorted. |
+| `view` | `"auto"`, `"aggregated"`, or `"detailed"` | `"auto"`. |
+| `dataset_threshold` | integer | 200; range 1–10000. Applies to distinct filtered datasets. |
+| `limit` | integer | 100; range 1–1000 datasets per detailed page. |
 | `response_format` | `"table"` or `"records"` | `"table"`. |
+| `cursor` | opaque string | Omitted or null starts a selection; if supplied, nonempty and at most 4096 characters. Cannot be used with `view: "aggregated"`. |
 
-Returns `{identity_id: string, name: string, description: string, synonyms: string[],
-entity_definitions: Collection<Definition with node_id>, datasets: Collection<Dataset>,
-truncated: boolean}`. Definitions include all their metadata and sort by `node_id`, then
-`dataset_columns`. Coverage filtering happens before the limit. Datasets use standard detail
-and appear once per selected dataset. `truncated` means eligible definitions were omitted.
-This lookup is catalog-wide; it does not apply `get_edges` source or target filters.
+The primary `identity_id` is separate from the targets. `entity_universe` filters only its
+definitions, before matching datasets and calculating counts. A dataset qualifies when it has
+at least one qualifying primary definition and at least one definition of every target. Target
+definitions are not filtered by `entity_universe`. Listing the primary again as a target does
+not restore primary roles excluded by that filter; it still counts toward the four-target
+limit. An unknown primary or target ID returns resource-not-found (`-32004`); invalid filters
+return invalid parameters (`-32602`). Known filters with no matching datasets return zero
+counts and empty collections.
+
+Both response shapes include the resolved selection:
+
+```text
+EntityDefinitionsSelection = {
+  snapshot: Snapshot, identity_id: string, name: string,
+  description: string, synonyms: string[],
+  entity_universe: string[] | null, target_identity_ids: string[],
+  limit: integer, dataset_threshold: integer,
+  dataset_count: integer, primary_definition_count: integer,
+  view: "aggregated" | "detailed"
+}
+```
+
+`dataset_count` is the exact number of matching distinct datasets.
+`primary_definition_count` counts all qualifying primary roles on those datasets, before
+detailed paging. Returned filters are canonical: universes and target IDs are sorted and
+deduplicated. `view: "auto"` selects `aggregated` only when `dataset_count` exceeds
+`dataset_threshold`; equality selects `detailed`. Explicit views override this choice. A
+cursor continues detail even if `view` is `auto` and the count exceeds the threshold. Read the
+returned `view` before interpreting its collections.
+
+An aggregated response adds:
+
+```text
+{
+  histogram: Collection<{
+    identity_id: string, name: string,
+    entity_definition_count: integer, dataset_count: integer
+  }>,
+  logical_entity_count: integer, truncated: boolean
+}
+```
+
+The histogram scans every definition on every matching dataset, except the primary entity.
+It includes selected non-primary targets and counts separate roles of one entity separately in
+`entity_definition_count`; histogram `dataset_count` counts distinct matching datasets
+containing that entity. Rows sort by descending definition count, then ascending
+`identity_id`. Only the first 20 rows appear. `logical_entity_count` counts all eligible
+non-primary entities, and `truncated` means more than 20 groups exist. This response has no
+`datasets`, `entity_definitions`, or `next_cursor`.
+
+A detailed response adds `datasets: Collection<Dataset>`,
+`entity_definitions: Collection<Definition with node_id>`, `truncated: boolean`, and
+`next_cursor: string | null`. Pages contain whole datasets, sorted by `node_id`, with up to
+`limit` datasets per page. Each page includes its qualifying primary definitions and every
+definition of the selected targets on those datasets. Definitions sort by `node_id`, then
+`identity_id`, then `dataset_columns`, and include full metadata, effective descriptions,
+and unknown fields. Datasets use standard lookup metadata without navigation-only
+`distance`, `edge_count`, or nested edge groups. Detailed pages do not include a histogram.
+Here `truncated` means the page omits some matching datasets, including datasets on earlier
+pages; it can remain true on the last page. Only `next_cursor: null` marks completion.
+
+To continue, repeat the original primary and target filters, `entity_universe`, `limit`,
+`dataset_threshold`, and `response_format` with the returned cursor. The stateless cursor
+binds to those values, the method, API version, and snapshot content. Equivalent target and
+universe orderings or duplicates are canonicalized. `view` may be `auto` or `detailed` on
+continuation; `aggregated` with a cursor is invalid. Do not decode or modify cursors.
+Malformed, stale, mismatched, or out-of-range cursors return `-32602`. This method does not
+accept navigation `detail` or `fields`.
 
 ### `graph.get_relationship`
 
@@ -469,6 +543,18 @@ Find datasets and inspect their full metadata:
 ```
 
 Use those params with `graph.search`, then call `graph.get_dataset` with a returned `node_id`.
+To find datasets that define a primary entity and also contain a selected target, start with
+an aggregate summary:
+
+```json
+{"identity_id":"ACCOUNT_ID","target_identity_ids":["REGION_ID"],"view":"aggregated"}
+```
+
+Use those params with `graph.get_entity_definitions`. For full definitions, call it again
+with `view: "detailed"` and, if `next_cursor` is non-null, repeat that detailed request with
+the cursor until `next_cursor` is null. Keep the same filters, `limit`,
+`dataset_threshold`, and `response_format` across pages.
+
 For edges, inspect `view` in the response. Automatic aggregation is useful when the source has
 many connected datasets:
 
