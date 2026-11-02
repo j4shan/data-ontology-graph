@@ -1,6 +1,6 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
 from data_ontology_graph.service.tables import ResponseFormat, Table
@@ -15,7 +15,7 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
-API_VERSION = "2"
+API_VERSION = "3"
 """The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
 
 
@@ -105,11 +105,22 @@ class EdgesRequest(NavigationRequest):
     """Directed edges listed per entity definition."""
     identity_id: str | None = Field(default=None, min_length=1)
     from_dataset_columns: list[str] | None = Field(default=None, min_length=1)
+    view: Literal["auto", "aggregated", "detailed"] = "auto"
+    fan_out_threshold: int = Field(default=200, ge=1, le=10_000)
+    target_identity_ids: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
+    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @field_validator("target_identity_ids")
+    @classmethod
+    def canonical_targets(cls, values: list[str]) -> list[str]:
+        return sorted(set(values))
 
     @model_validator(mode="after")
     def columns_need_a_logical_entity(self) -> "EdgesRequest":
         if self.from_dataset_columns is not None and self.identity_id is None:
             raise ValueError("from_dataset_columns requires identity_id")
+        if self.cursor is not None and self.view == "aggregated":
+            raise ValueError("cursor requires an auto or detailed view")
         return self
 
 
@@ -210,9 +221,29 @@ class NavigationResponse(ContractModel):
         return data
 
 
-class EdgesResponse(NavigationResponse):
+class EdgesSelection(ContractModel):
+    snapshot: SnapshotInfo
     node_id: str
     limit: int
+    identity_id: str | None
+    from_dataset_columns: list[str] | None
+    target_identity_ids: list[str]
+    fan_out_count: int
+    fan_out_threshold: int
+
+
+class EdgesResponse(NavigationResponse, EdgesSelection):
+    view: Literal["detailed"] = "detailed"
+    next_cursor: str | None = None
+
+
+class AggregatedEdgesResponse(EdgesSelection):
+    view: Literal["aggregated"] = "aggregated"
+    detail: Detail
+    fields: dict[str, list[str]]
+    histogram: Collection
+    logical_entity_count: int
+    truncated: bool
 
 
 class SubgraphResponse(NavigationResponse):

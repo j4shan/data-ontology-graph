@@ -118,7 +118,7 @@ def _matches(response):
 def test_snapshot_info_names_the_api_version_and_the_snapshot_build_second() -> None:
     info = _service().snapshot_info().model_dump()
     assert set(info) == {"api_version", "version", "node_count", "edge_count", "identity_count"}
-    assert info["api_version"] == "2"
+    assert info["api_version"] == "3"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["version"])
 
 

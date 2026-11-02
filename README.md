@@ -171,13 +171,19 @@ and an approximate connecting subgraph for two to sixteen datasets. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
 Membership-backed indexes serve these methods without constructing all pairs at startup. The
-graph API's methods, parameters, response shapes, count meanings, ordering, bounds, ranking,
-and version remain unchanged, as does the YAML schema. Navigation can still explore many
-implicit pairs and produce tenant shortcuts; explicit identity navigation and traversal policy
-are left for a later API change.
+graph API is version `3`: `graph.get_edges` now returns a detailed view or, when more than 200
+distinct other datasets are connected, an aggregated view by default. Its `view` parameter can
+request either view explicitly. An aggregated result reports exact fan-out and a top-20 histogram
+of logical entities on connected datasets; it contains no relationship edges. Use
+`target_identity_ids` to retain connected datasets containing every selected entity, then request
+the detailed view and follow `next_cursor` until it is null. Keep the same source filters while
+refining targets: `identity_id` and `from_dataset_columns` choose how the seed connects, whereas
+`target_identity_ids` choose which connected datasets remain. Other navigation methods retain
+their contracts and can still produce tenant shortcuts. The YAML schema is unchanged.
 `graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
-identifies the published data by its UTC build time. After a software upgrade, republish from
-the YAML intermediary with `data-ontology-graph-publish` so the service loads a current artifact.
+records the UTC build time. Detailed `get_edges` cursors also bind to the snapshot content.
+After a software upgrade, republish from the YAML intermediary with
+`data-ontology-graph-publish` so the service loads a current artifact.
 
 ## AKG contract and the query-graph-api skill
 

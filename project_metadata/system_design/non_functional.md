@@ -29,7 +29,7 @@
 | ID | Clause |
 | --- | --- |
 | 4.1 | Validation findings name the invalid location and violated rule. Serves `product/non_functional.md#2.5`. |
-| 4.2 | The build report lists every unknown typed claim and every deterministic rule violation, located by stable IDs. Serves `product/non_functional.md#2.5`. |
+| 4.2 | The build report lists every unknown node and entity-definition claim and every deterministic rule violation, located by stable IDs. Requested relationships expose their own derived unknown claims. Reporting does not require expanding the implicit pairwise graph. Serves `product/non_functional.md#2.5`. |
 
 ## Deployment
 

@@ -73,6 +73,23 @@ Use discovery to identify relevant datasets and logical entities, then explore t
 relationships. Select the graph knowledge that serves the analytical question, using the
 datasets' grain, column descriptions, entity roles, and directional relationship claims.
 
+For `get_edges`, inspect the returned `view` before reading relationships. An `aggregated`
+response gives exact `fan_out_count` and a top-20 `histogram` of logical entities across the
+filtered connected datasets; it has no `datasets` or `edge_fields` and supplies no edge evidence.
+Choose target entity IDs from the histogram or another lookup, then repeat the source
+`node_id`, `identity_id`, and `from_dataset_columns` with the complete desired
+`target_identity_ids` list. Each target must occur on the connected dataset, but need not occur
+on the source or in the histogram. Multiple target IDs are an AND filter. These targets refine
+which datasets remain; they do not change which source definitions connect to them.
+
+Request `view: "detailed"` for concrete relationships when needed. Read its grouped directed
+edges and endpoint evidence for the AKG. If `next_cursor` is non-null, repeat the original
+parameters with that opaque cursor and continue until `next_cursor` is null. Keep the same
+filters, `limit`, `fan_out_threshold`, `detail`, `fields`, and `response_format` on every page;
+`view` may be `auto` or `detailed`. A detailed page's `truncated` can remain true on the last
+page, so use `next_cursor` to decide when enumeration is complete. Each call is self-contained.
+`get_identity` lists catalog-wide realizations and does not apply the `get_edges` target scope.
+
 Keep two temporary files and refer to both when generating the AKG.
 
 **File A — question and logical entities.** A JSON document:
@@ -112,8 +129,9 @@ and `find_connecting_subgraph`, including service errors. Object discovery and l
 (`search`, `get_dataset`, `get_identity`, and `get_relationship`) are printed but do not enter
 File B. Connection failures have no service response and are reported separately.
 
-Reread both temporary files when generating the AKG. Select relevant evidence from the
-traversal responses and use object lookups for additional metadata as needed. Follow the
+Reread both temporary files when generating the AKG. Use aggregated responses for discovery;
+select concrete edges only from detailed traversal responses, with object lookups for additional
+metadata as needed. Follow the
 bundled [AKG format guide](references/akg-format.md) and
 [AKG schema](references/akg.schema.json). Preserve graph facts and explicit unknowns; keep
 analytical reasoning separate from them. Disconnected selections are valid when the question

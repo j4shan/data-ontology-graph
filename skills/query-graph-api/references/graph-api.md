@@ -1,6 +1,6 @@
 # Graph service API
 
-This document describes graph API version `1`.
+This document describes graph API version `3`.
 
 The service discovers dataset metadata and explores relationships in one published graph.
 It is read-only and sessionless: the caller selects evidence and maintains its own working
@@ -55,10 +55,10 @@ Snapshot = {
 }
 ```
 
-`api_version` names the API contract described here. It is currently `2` and rises only on a
-breaking change to a method, parameter, response field, or meaning; additions keep it.
-`version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`) and
-identifies the published data.
+`api_version` names the API contract described here. It is the string `"3"`; automatic
+aggregation in `get_edges` changed that method's response contract.
+`version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).
+Detailed `get_edges` cursors bind to snapshot content as well as the displayed build time.
 
 ### Dataset and entity metadata
 
@@ -121,7 +121,8 @@ an array of records `T[]` when `response_format: "records"` is supported and req
 Each table row follows its header. Dotted headers are nested record paths: for example,
 `accessor.kind`. Decode with the returned header, not assumed positions.
 
-Navigation in table format separates dataset fields, columns, definitions, and edge groups:
+Detailed navigation in table format separates dataset fields, columns, definitions, and edge
+groups. An aggregated `get_edges` response uses the separate shape documented below:
 
 ```text
 Navigation = {
@@ -179,7 +180,8 @@ reasoning, not a change to these claims.
 ## Navigation detail and fields
 
 These parameters apply to `get_edges`, `expand_subgraph`, `find_paths`, and
-`find_connecting_subgraph`:
+`find_connecting_subgraph`. For aggregated `get_edges`, they select the echoed `detail` and
+`fields` and the histogram's collection format; no dataset or edge fields are returned:
 
 | Parameter | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -284,6 +286,7 @@ entity_definitions: Collection<Definition with node_id>, datasets: Collection<Da
 truncated: boolean}`. Definitions include all their metadata and sort by `node_id`, then
 `dataset_columns`. Coverage filtering happens before the limit. Datasets use standard detail
 and appear once per selected dataset. `truncated` means eligible definitions were omitted.
+This lookup is catalog-wide; it does not apply `get_edges` source or target filters.
 
 ### `graph.get_relationship`
 
@@ -317,25 +320,93 @@ definitions include full metadata. This method does not accept navigation detail
 
 ## Traversal methods
 
-Each method accepts the shared navigation parameters above. All return `Navigation` plus
-the method-specific fields below. Edges are explicit; returning two datasets does not imply
-selecting every relationship between them.
+Each method accepts the shared navigation parameters above. `get_edges` can return either its
+aggregated shape or `Navigation` with the selection fields below. The other methods return
+`Navigation` plus their method-specific fields. Edges are explicit; returning two datasets does
+not imply selecting every relationship between them.
 
 ### `graph.get_edges`
 
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
 | `node_id` | string, required | Starting dataset. |
-| `limit` | integer | 200; range 1–1000 per entity definition. |
-| `identity_id` | string | Omitted or null leaves logical entities unfiltered. |
-| `from_dataset_columns` | Nonempty string array | Requires `identity_id`; selects one starting definition. |
+| `limit` | integer | 200; range 1–1000, applied independently to each source definition on each detailed page. |
+| `identity_id` | string | Omitted or null leaves source logical entities unfiltered. |
+| `from_dataset_columns` | Nonempty string array | Requires `identity_id`; selects one source definition. |
+| `target_identity_ids` | string array | `[]`; connected datasets must contain at least one definition of every listed entity. Duplicate IDs are removed and the list is sorted. |
+| `view` | `"auto"`, `"aggregated"`, or `"detailed"` | `"auto"`. |
+| `fan_out_threshold` | integer | 200; range 1–10000. |
+| `cursor` | opaque string | Omitted or null starts a new selection; if supplied, nonempty and at most 4096 characters. Cannot be used with `view: "aggregated"`. |
 
-Adds `{node_id: string, limit: integer}` to `Navigation`. Lists outgoing edges grouped by
-logical entity and starting definition. A filter matching no definition is invalid parameters.
-The start has distance 0, including targets of self-relationships; other listed targets are
-boundary datasets at distance 1. Group
-`edge_count` counts eligible outgoing edges before its limit, and `truncated` reports cuts.
-Top-level `truncated` means at least one definition's edge list was cut. There is no paging.
+`identity_id` and `from_dataset_columns` select the source definitions that establish the
+connections. `target_identity_ids` then retains connected datasets containing every requested
+logical entity. Target entities need not occur on the source or in a previously returned
+histogram. All filters apply before counts, aggregation, view selection, and detailed paging.
+An unknown target identity returns resource-not-found (`-32004`); a known target with no
+matching connected dataset produces an empty result. A source filter matching no source
+definition is invalid parameters (`-32602`).
+
+Fan-out is the number of distinct connected datasets other than the source dataset, even when
+several source definitions connect to the same dataset. With `view: "auto"`, `get_edges` returns
+`aggregated` only when `fan_out_count` is greater than `fan_out_threshold`; equality returns
+`detailed`. Explicit `view` selects that view regardless of the count. A cursor always continues
+the detailed view, including when `view` is `auto` and fan-out exceeds the threshold.
+
+Both response shapes include these resolved selection fields:
+
+```text
+EdgesSelection = {
+  snapshot: Snapshot, node_id: string, limit: integer,
+  identity_id: string | null, from_dataset_columns: string[] | null,
+  target_identity_ids: string[], fan_out_count: integer,
+  fan_out_threshold: integer, view: "aggregated" | "detailed"
+}
+```
+
+The returned target IDs are sorted and unique. The actual `view` identifies which response
+shape to read. An aggregated response has this shape in addition to `EdgesSelection`:
+
+```text
+AggregatedEdgesResponse = {
+  detail: "essential" | "standard" | "full", fields: {object_name: string[]},
+  histogram: Collection<{
+    identity_id: string, name: string,
+    entity_definition_count: integer, dataset_count: integer
+  }>,
+  logical_entity_count: integer, truncated: boolean
+}
+```
+
+The histogram covers all distinct selected connected datasets before detailed pagination. It
+excludes the source dataset and counts every entity definition on a connected dataset, including
+separate roles of the same entity. `dataset_count` counts distinct connected datasets containing
+the entity. Rows sort by descending `entity_definition_count`, then ascending `identity_id`.
+Only the first 20 rows appear. `logical_entity_count` counts all groups before that cutoff;
+aggregated `truncated` is true only when more than 20 groups exist. The histogram is a discovery
+summary, not relationship evidence. This response has no `datasets`, `edge_fields`, or
+`next_cursor`.
+
+A detailed response adds `Navigation` and `next_cursor: string | null` to `EdgesSelection`.
+It lists outgoing directed edges by logical entity and source definition. Each page includes up
+to `limit` eligible edges independently for each source definition, in the existing target
+order. A group's `edge_count` counts all its eligible matches, even when the current page lists
+none. Group `truncated` is true when any eligible match is omitted from that page, including
+matches on earlier pages. Top-level detailed `truncated` is true when any group is truncated,
+so it can remain true on the last page. Only `next_cursor: null` means enumeration is complete.
+Groups already exhausted can remain with their full count and an empty edge list.
+
+The source dataset has distance 0; other targets listed on the page have distance 1. Eligible
+same-dataset relationships remain in detail when the source satisfies the target filters, but
+they do not increase fan-out or contribute to the histogram. Detailed edges retain their
+source-definition grouping and endpoint claims. Only relationships on the current page are
+derived.
+
+To continue, send the returned opaque `next_cursor` with the original `node_id`, source and
+target filters, `limit`, `fan_out_threshold`, `detail`, `fields`, and `response_format`. The
+cursor is stateless and bound to the snapshot's content, API version, and those request values;
+the service keeps no cursor session. `view` may switch between `auto` and `detailed` across
+pages. Do not decode or modify the cursor. A malformed, stale, mismatched, or out-of-range
+cursor returns invalid parameters (`-32602`).
 
 ### `graph.expand_subgraph`
 
@@ -398,10 +469,27 @@ Find datasets and inspect their full metadata:
 ```
 
 Use those params with `graph.search`, then call `graph.get_dataset` with a returned `node_id`.
-For edges, retain standard claims while adding selected dataset metadata:
+For edges, inspect `view` in the response. Automatic aggregation is useful when the source has
+many connected datasets:
 
 ```json
-{"node_id":"sqlite:lending.loan","detail":"standard","response_format":"records","fields":{"dataset":["columns","accessor.properties"]}}
+{"node_id":"sqlite:lending.loan","view":"auto","fan_out_threshold":200}
+```
+
+To inspect concrete relationships on connected datasets containing both selected logical
+entities, keep the same source scope and request detail:
+
+```json
+{"node_id":"sqlite:lending.loan","target_identity_ids":["ACCOUNT_ID","REGION_ID"],"view":"detailed","limit":200,"response_format":"records"}
+```
+
+If that response has a non-null `next_cursor`, repeat the same parameters with the returned
+cursor, until `next_cursor` is null. The ID strings above are illustrative; use registered
+logical entity IDs from the served graph. To retain standard claims while adding selected
+dataset metadata in a detailed response:
+
+```json
+{"node_id":"sqlite:lending.loan","view":"detailed","detail":"standard","response_format":"records","fields":{"dataset":["columns","accessor.properties"]}}
 ```
 
 For paths restricted to outgoing non-fan-out multiplicities:

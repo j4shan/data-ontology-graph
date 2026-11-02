@@ -111,10 +111,7 @@ class JsonRpcDispatcher:
 
     def _get_edges(self, params: dict[str, Any]) -> Any:
         request = EdgesRequest.model_validate(params)
-        return self.service.get_edges(
-            request.node_id, request.limit, request.response_format, request.detail,
-            request.fields, request.identity_id, request.from_dataset_columns,
-        )
+        return self.service.get_edges(**request.model_dump())
 
     def _expand_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.expand_subgraph(SubgraphRequest.model_validate(params))

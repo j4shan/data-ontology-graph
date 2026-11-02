@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import json
 from collections import defaultdict
 from threading import Event
 from typing import Any
@@ -11,6 +15,8 @@ from data_ontology_graph.model.enums import EntityUniverse
 from data_ontology_graph.model.relationship import JoinRelationship
 from data_ontology_graph.model.snapshot import GraphSnapshot
 from data_ontology_graph.service.contracts import (
+    API_VERSION,
+    AggregatedEdgesResponse,
     ConnectingSubgraphRequest,
     ConnectingSubgraphResponse,
     DatasetDetail,
@@ -28,6 +34,7 @@ from data_ontology_graph.service.contracts import (
     SubgraphRequest,
     SubgraphResponse,
 )
+from data_ontology_graph.query.edge_discovery import discover_edges
 from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.query.neighbourhood import (
     DirectedEdge,
@@ -53,9 +60,39 @@ from data_ontology_graph.service.views import COLUMN_FIELDS, View, definition_la
 DefinitionKey = tuple[str, str, tuple[str, ...]]
 
 
+def _edge_cursor_scope(request: EdgesRequest) -> str:
+    selection = {"api_version": API_VERSION, **request.model_dump(exclude={"cursor", "view"})}
+    return hashlib.sha256(json.dumps(selection, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def _edge_cursor(version: str, scope: str, offset: int) -> str:
+    payload = json.dumps({"snapshot": version, "scope": scope, "offset": offset}, separators=(",", ":"))
+    return base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+
+
+def _edge_cursor_offset(cursor: str | None, version: str, scope: str) -> int:
+    if cursor is None:
+        return 0
+    try:
+        payload = json.loads(base64.b64decode(cursor + "=" * (-len(cursor) % 4), altchars=b"-_", validate=True))
+    except (ValueError, binascii.Error, UnicodeError):
+        raise ValueError("invalid get_edges cursor") from None
+    if not isinstance(payload, dict) or set(payload) != {"snapshot", "scope", "offset"}:
+        raise ValueError("invalid get_edges cursor")
+    if payload["snapshot"] != version:
+        raise ValueError("get_edges cursor belongs to a different snapshot")
+    if payload["scope"] != scope:
+        raise ValueError("get_edges cursor does not match the request filters or presentation")
+    offset = payload["offset"]
+    if type(offset) is not int or offset <= 0:
+        raise ValueError("invalid get_edges cursor offset")
+    return offset
+
+
 class GraphReadIndex:
     def __init__(self, snapshot: GraphSnapshot) -> None:
         self.snapshot = snapshot
+        self.fingerprint = hashlib.sha256(snapshot.model_dump_json().encode()).hexdigest()
         self.nodes = {node.node_id: node for node in snapshot.nodes}
         self.identities = {
             identity.identity_id: identity for identity in snapshot.logical_identities
@@ -182,26 +219,62 @@ class GraphReadService:
         fields: dict[str, list[str]] | None = None,
         identity_id: str | None = None,
         from_dataset_columns: list[str] | None = None,
-    ) -> EdgesResponse:
+        view: str = "auto",
+        fan_out_threshold: int = 200,
+        target_identity_ids: list[str] | None = None,
+        cursor: str | None = None,
+    ) -> EdgesResponse | AggregatedEdgesResponse:
         request = EdgesRequest(
             node_id=node_id, limit=limit, response_format=response_format, detail=detail,
             fields=fields or {}, identity_id=identity_id, from_dataset_columns=from_dataset_columns,
+            view=view, fan_out_threshold=fan_out_threshold,
+            target_identity_ids=target_identity_ids if target_identity_ids is not None else [],
+            cursor=cursor,
         )
-        node = self._node(request.node_id)
-        view = View.resolve(request.detail, request.fields)
-        neighbourhood = expand(
-            self.index.directed_edges, [request.node_id], 1, limit=request.limit,
-            edge_filter=self._definition_filter(node, request), referenced_only=True,
+        self._node(request.node_id)
+        for target_identity in request.target_identity_ids:
+            self._identity(target_identity)
+        projection = View.resolve(request.detail, request.fields)
+        discovery = discover_edges(
+            self.index.memberships, request.node_id, request.identity_id,
+            request.from_dataset_columns, request.target_identity_ids,
         )
+        snapshot = self.snapshot_info()
+        selection = {
+            "snapshot": snapshot, "node_id": request.node_id, "limit": request.limit,
+            "identity_id": request.identity_id, "from_dataset_columns": request.from_dataset_columns,
+            "target_identity_ids": request.target_identity_ids,
+            "fan_out_count": len(discovery.connected), "fan_out_threshold": request.fan_out_threshold,
+        }
+        scope = _edge_cursor_scope(request)
+        offset = _edge_cursor_offset(request.cursor, self.index.fingerprint, scope)
+        aggregated = request.view == "aggregated" or (
+            request.view == "auto" and request.cursor is None
+            and len(discovery.connected) > request.fan_out_threshold
+        )
+        if aggregated:
+            rows, count = discovery.histogram()
+            rows = [{"identity_id": row["identity_id"],
+                     "name": self.index.identities[row["identity_id"]].name, **row} for row in rows]
+            return AggregatedEdgesResponse(
+                **selection, detail=projection.detail, fields=projection.added,
+                histogram=collection(rows, ["identity_id", "name", "entity_definition_count", "dataset_count"],
+                                     request.response_format),
+                logical_entity_count=count, truncated=count > len(rows),
+            )
+        groups, more = discovery.page(offset, request.limit)
+        if request.cursor is not None and not any(group.edges for group in groups):
+            raise ValueError("cursor is outside the selected relationship range")
+        targets = sorted({edge.target.node_id for group in groups for edge in group.edges} - {request.node_id})
         datasets = [
-            self._dataset_values(node_id, distance, neighbourhood.groups.get(node_id), view)
-            for node_id, distance in neighbourhood.datasets
+            self._dataset_values(request.node_id, 0, groups, projection),
+            *(self._dataset_values(target, 1, None, projection) for target in targets),
         ]
         return EdgesResponse(
-            node_id=request.node_id,
-            limit=request.limit,
-            **self._present(datasets, view, request.response_format, distance=True),
-            truncated=neighbourhood.truncated,
+            **selection,
+            **self._present(datasets, projection, request.response_format, distance=True),
+            next_cursor=_edge_cursor(self.index.fingerprint, scope, offset + request.limit) if more else None,
+            truncated=any(group.truncated for group in groups),
         )
 
     def expand_subgraph(self, request: SubgraphRequest) -> SubgraphResponse:
@@ -317,23 +390,6 @@ class GraphReadService:
         """Datasets beside other graph objects, as `standard` records (system design 2.4.4)."""
         records = [self._dataset_record(node_id, "standard") for node_id in node_ids]
         return collection(records, list(View.resolve("standard").record_fields()), response_format)
-
-    @staticmethod
-    def _definition_filter(node: DatasetNode, request: EdgesRequest):
-        """Keep the directed edges leaving the requested entity definitions, if any are named."""
-        if request.identity_id is None:
-            return None
-        matched = {
-            definition.key(node.node_id) for definition in node.entity_definitions
-            if definition.identity_id == request.identity_id
-            and request.from_dataset_columns in (None, definition.dataset_columns)
-        }
-        if not matched:
-            columns = f" on {request.from_dataset_columns}" if request.from_dataset_columns else ""
-            raise ValueError(
-                f"{node.node_id!r} has no entity definition of {request.identity_id!r}{columns}"
-            )
-        return lambda edge: edge.source.identity_key() in matched
 
     def _edge_from(
         self, relationship: JoinRelationship, node_id: str, columns: list[str] | None,
