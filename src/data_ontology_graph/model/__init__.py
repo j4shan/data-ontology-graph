@@ -7,6 +7,7 @@ from data_ontology_graph.model.dataset import (
     DatasetDescriptor,
     DatasetGrain,
     DatasetNode,
+    DefinitionKey,
     EntityDefinition,
     GrainComponent,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "DatasetDescriptor",
     "DatasetGrain",
     "DatasetNode",
+    "DefinitionKey",
     "EntityDefinition",
     "EntityUniverse",
     "GrainComponent",

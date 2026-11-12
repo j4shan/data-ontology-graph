@@ -5,22 +5,23 @@ from collections import Counter
 from dataclasses import dataclass
 from heapq import nsmallest
 
-from data_ontology_graph.model.derivation import DefinitionKey, RelationshipIndex
+from data_ontology_graph.model.dataset import DefinitionKey
+from data_ontology_graph.model.derivation import RelationshipIndex
 from data_ontology_graph.query.neighbourhood import DirectedEdge, EdgeGroup
 
 
 @dataclass
 class EdgeDiscovery:
     memberships: RelationshipIndex
-    source_keys: tuple[DefinitionKey, ...]
+    source_keys: list[DefinitionKey]
     connected: frozenset[str]
-    targets_by_identity: dict[str, tuple[DefinitionKey, ...]]
+    targets_by_identity: dict[str, list[DefinitionKey]]
 
     def histogram(self) -> tuple[list[dict], int]:
         definitions: Counter[str] = Counter()
         datasets: Counter[str] = Counter()
         for node_id in self.connected:
-            identities = [key[1] for key in self.memberships.by_dataset[node_id]]
+            identities = [key.identity_id for key in self.memberships.by_dataset[node_id]]
             definitions.update(identities)
             datasets.update(set(identities))
         top = nsmallest(20, definitions, key=lambda identity: (-definitions[identity], identity))
@@ -36,7 +37,7 @@ class EdgeDiscovery:
         more = False
         index = self.memberships
         for source in self.source_keys:
-            targets = self.targets_by_identity[source[1]]
+            targets = self.targets_by_identity[source.identity_id]
             own_position = bisect_left(targets, source)
             contains_self = own_position < len(targets) and targets[own_position] == source
             count = len(targets) - int(contains_self)
@@ -61,25 +62,25 @@ def discover_edges(
     target_identity_ids: list[str],
 ) -> EdgeDiscovery:
     """Select the complete neighbourhood before any detail limit or pair derivation."""
-    source_keys = tuple(
+    source_keys = [
         key for key in memberships.by_dataset[node_id]
-        if (identity_id is None or key[1] == identity_id)
-        and (from_dataset_columns is None or key[2] == tuple(from_dataset_columns))
-    )
+        if (identity_id is None or key.identity_id == identity_id)
+        and (from_dataset_columns is None or key.dataset_columns == tuple(from_dataset_columns))
+    ]
     if identity_id is not None and not source_keys:
         columns = f" on {from_dataset_columns}" if from_dataset_columns else ""
         raise ValueError(f"{node_id!r} has no entity definition of {identity_id!r}{columns}")
-    source_identities = {key[1] for key in source_keys}
+    source_identities = {key.identity_id for key in source_keys}
     targets = {
-        key[0] for identity in source_identities for key in memberships.by_identity[identity]
+        key.node_id for identity in source_identities for key in memberships.by_identity[identity]
     }
     for target_identity in target_identity_ids:
         targets.intersection_update(
-            key[0] for key in memberships.by_identity.get(target_identity, ())
+            key.node_id for key in memberships.by_identity.get(target_identity, ())
         )
     connected = frozenset(targets - {node_id})
     return EdgeDiscovery(
         memberships, source_keys, connected,
-        {identity: tuple(key for key in memberships.by_identity[identity] if key[0] in targets)
+        {identity: [key for key in memberships.by_identity[identity] if key.node_id in targets]
          for identity in source_identities},
     )

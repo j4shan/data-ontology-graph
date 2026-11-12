@@ -82,7 +82,7 @@ class _DatasetEdges(Sequence[DirectedEdge]):
     def __iter__(self) -> Iterator[DirectedEdge]:
         index = self.memberships
         for source in index.by_dataset[self.node_id]:
-            for target in index.by_identity[source[1]]:
+            for target in index.by_identity[source.identity_id]:
                 if target != source:
                     yield DirectedEdge(index.pair(source, target), index.endpoints[source], index.endpoints[target])
 

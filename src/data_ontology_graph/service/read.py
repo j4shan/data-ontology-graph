@@ -61,9 +61,6 @@ from data_ontology_graph.service.tables import (
 from data_ontology_graph.service.views import COLUMN_FIELDS, View, definition_label, pick
 
 
-DefinitionKey = tuple[str, str, tuple[str, ...]]
-
-
 def _cursor_scope(request: ContractModel, method: str) -> str:
     selection = {"api_version": API_VERSION, "method": method,
                  **request.model_dump(mode="json", exclude={"cursor", "view"})}
@@ -214,8 +211,10 @@ class GraphReadService:
         for key in keys:
             check_cancelled()
             definitions.append({
-                "node_id": key[0],
-                **_definition_payload(self._node(key[0]), self.index.definitions[key], column_descriptions[key[0]]),
+                "node_id": key.node_id,
+                **_definition_payload(
+                    self._node(key.node_id), self.index.definitions[key], column_descriptions[key.node_id],
+                ),
             })
         datasets = []
         for node_id in selected:

@@ -3,6 +3,7 @@ from typing import ClassVar
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from data_ontology_graph.model.claims import ClaimModel
+from data_ontology_graph.model.dataset import DefinitionKey
 from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
 
 
@@ -35,8 +36,8 @@ class JoinEndpoint(StrictModel):
             raise ValueError("dataset_columns must use ascending exact-name order")
         return value
 
-    def identity_key(self) -> tuple[str, str, tuple[str, ...]]:
-        return (self.node_id, self.identity_id, tuple(self.dataset_columns))
+    def identity_key(self) -> DefinitionKey:
+        return DefinitionKey(self.node_id, self.identity_id, tuple(self.dataset_columns))
 
 
 class RelationshipDirection(StrictModel):

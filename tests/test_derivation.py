@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from data_ontology_graph.model.dataset import (
+    DefinitionKey,
     ColumnMetadata,
     DatasetAccessor,
     DatasetDescriptor,
@@ -182,6 +183,9 @@ def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() ->
     assert index.degree(nodes[1].node_id) == 2
     assert index.degree(nodes[2].node_id) == 0
     keys = index.by_identity["device"]
+    assert isinstance(keys, list) and keys == sorted(keys)
+    assert all(isinstance(key, DefinitionKey) for key in keys)
+    assert [key.node_id for key in keys] == ["dataset:a", "dataset:a", "dataset:b"]
     edge = index.pair(keys[2], keys[0])
     assert edge.a_to_b.multiplicity == Multiplicity.MANY_TO_ONE
     assert edge.a_to_b.match_existence == MatchExistence.UNKNOWN

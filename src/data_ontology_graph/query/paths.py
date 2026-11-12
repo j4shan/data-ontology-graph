@@ -18,7 +18,7 @@ import heapq
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
 
-from data_ontology_graph.model.dataset import DatasetNode
+from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey
 from data_ontology_graph.model.derivation import RelationshipIndex, derived_multiplicity
 from data_ontology_graph.model.enums import Multiplicity
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -26,7 +26,6 @@ from data_ontology_graph.model.relationship import JoinRelationship
 SOURCE = -1
 TARGET = -2
 
-DefinitionKey = tuple[str, str, tuple[str, ...]]
 State = int
 """``SOURCE``, ``TARGET``, ``2 * d`` (ready to leave definition d), or ``2 * d + 1`` (arrived)."""
 
@@ -78,7 +77,7 @@ class PathGraph:
         return sorted((
             (self._positions[target], derived_multiplicity(index.definitions[source], index.definitions[target]),
              index.edge_id(source, target))
-            for target in index.by_identity[source[1]] if target != source
+            for target in index.by_identity[source.identity_id] if target != source
         ), key=lambda edge: edge[2])
 
     def k_shortest(

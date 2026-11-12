@@ -5,7 +5,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from heapq import nsmallest
 
-from data_ontology_graph.model.derivation import DefinitionKey, RelationshipIndex
+from data_ontology_graph.model.dataset import DefinitionKey
+from data_ontology_graph.model.derivation import RelationshipIndex
 from data_ontology_graph.model.enums import EntityUniverse
 
 
@@ -28,8 +29,8 @@ class EntityDefinitionDiscovery:
             identities = []
             for key in self.memberships.by_dataset[node_id]:
                 check_cancelled()
-                if key[1] != self.identity_id:
-                    identities.append(key[1])
+                if key.identity_id != self.identity_id:
+                    identities.append(key.identity_id)
             definitions.update(identities)
             datasets.update(set(identities))
         top = nsmallest(20, definitions, key=lambda identity: (-definitions[identity], identity))
@@ -48,7 +49,7 @@ class EntityDefinitionDiscovery:
             primary = set(self.primary_by_dataset[node_id])
             for key in self.memberships.by_dataset[node_id]:
                 check_cancelled()
-                if key in primary or key[1] in target_entities:
+                if key in primary or key.identity_id in target_entities:
                     selected.append(key)
         return selected
 
@@ -65,7 +66,7 @@ def discover_entity_definitions(
     for key in memberships.by_identity.get(identity_id, ()):
         check_cancelled()
         if universes is None or memberships.definitions[key].entity_universe in universes:
-            primary[key[0]].append(key)
+            primary[key.node_id].append(key)
     selected = set(primary)
     # Start with shorter postings; every identity is considered at most once.
     for target in sorted(target_identity_ids, key=lambda entity: len(memberships.by_identity.get(entity, ()))):
@@ -74,7 +75,7 @@ def discover_entity_definitions(
         matching = set()
         for key in memberships.by_identity.get(target, ()):
             check_cancelled()
-            if key[0] in selected:
-                matching.add(key[0])
+            if key.node_id in selected:
+                matching.add(key.node_id)
         selected.intersection_update(matching)
     return EntityDefinitionDiscovery(memberships, identity_id, dict(primary), sorted(selected))

@@ -4,7 +4,7 @@ from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from itertools import combinations
 
-from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition
+from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
 from data_ontology_graph.model.relationship import (
     JoinEndpoint,
@@ -64,9 +64,6 @@ def derived_direction(source: EntityDefinition, target: EntityDefinition) -> Rel
     )
 
 
-DefinitionKey = tuple[str, str, tuple[str, ...]]
-
-
 class RelationshipIndex(Mapping[str, JoinRelationship]):
     """An implicit pairwise graph backed by one entry per entity definition.
 
@@ -93,8 +90,8 @@ class RelationshipIndex(Mapping[str, JoinRelationship]):
                 self._by_token[endpoint_token(endpoint)].append(key)
                 by_identity[definition.identity_id].append(key)
                 by_dataset[node.node_id].append(key)
-        self.by_identity = {identity: tuple(sorted(keys)) for identity, keys in by_identity.items()}
-        self.by_dataset = {node: tuple(sorted(keys)) for node, keys in by_dataset.items()}
+        self.by_identity = {identity: sorted(keys) for identity, keys in by_identity.items()}
+        self.by_dataset = {node: sorted(keys) for node, keys in by_dataset.items()}
         self._count = sum(len(keys) * (len(keys) - 1) // 2 for keys in self.by_identity.values())
 
     def __len__(self) -> int:
@@ -102,10 +99,10 @@ class RelationshipIndex(Mapping[str, JoinRelationship]):
 
     def degree(self, node_id: str) -> int:
         """Outgoing directed edges, counting a same-dataset relationship twice."""
-        return sum(len(self.by_identity[key[1]]) - 1 for key in self.by_dataset[node_id])
+        return sum(len(self.by_identity[key.identity_id]) - 1 for key in self.by_dataset[node_id])
 
     def edge_id(self, left: DefinitionKey, right: DefinitionKey) -> str:
-        if left == right or left[1] != right[1]:
+        if left == right or left.identity_id != right.identity_id:
             raise ValueError("a relationship requires two distinct definitions of the same logical entity")
         return edge_id_for(self.endpoints[left], self.endpoints[right])
 
@@ -116,7 +113,7 @@ class RelationshipIndex(Mapping[str, JoinRelationship]):
         while (position := edge_id.find("__", offset)) >= 0:
             for left in self._by_token.get(edge_id[:position], ()):
                 for right in self._by_token.get(edge_id[position + 2:], ()):
-                    if left < right and left[1] == right[1]:
+                    if left < right and left.identity_id == right.identity_id:
                         if found is not None:
                             raise ValueError(f"ambiguous relationship ID {edge_id!r}")
                         found = (left, right)

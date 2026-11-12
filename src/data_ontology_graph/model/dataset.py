@@ -1,11 +1,19 @@
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Annotated, Any, ClassVar
+from typing import Annotated, Any, ClassVar, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.enums import EntityUniverse, Unknown
+
+
+class DefinitionKey(NamedTuple):
+    """Identifies one entity definition: its dataset, logical entity ID, and columns."""
+
+    node_id: str
+    identity_id: str
+    dataset_columns: tuple[str, ...]
 
 
 class StrictModel(BaseModel):
@@ -160,8 +168,8 @@ class EntityDefinition(ClaimModel):
             raise ValueError("a complete entity definition conforms by definition")
         return self
 
-    def key(self, node_id: str) -> tuple[str, str, tuple[str, ...]]:
-        return (node_id, self.identity_id, tuple(self.dataset_columns))
+    def key(self, node_id: str) -> DefinitionKey:
+        return DefinitionKey(node_id, self.identity_id, tuple(self.dataset_columns))
 
     def conforming(self) -> bool | None:
         """Whether every non-null key value belongs to the population; None when unknown."""
@@ -263,5 +271,5 @@ class DatasetNode(ClaimModel):
 
     def entity_definition_map(
         self,
-    ) -> dict[tuple[str, str, tuple[str, ...]], EntityDefinition]:
+    ) -> dict[DefinitionKey, EntityDefinition]:
         return {definition.key(self.node_id): definition for definition in self.entity_definitions}
