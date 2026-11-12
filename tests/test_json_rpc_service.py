@@ -214,7 +214,7 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                      "response_format": "records"},
                 )
                 result = definitions["result"]
-                assert result["snapshot"]["api_version"] == "4"
+                assert result["snapshot"]["api_version"] == "5"
                 assert result["view"] == "detailed" and result["dataset_count"] == 1
                 assert result["datasets"][0]["node_id"] == "sqlite:lending.account"
                 assert {item["identity_id"] for item in result["entity_definitions"]} == {

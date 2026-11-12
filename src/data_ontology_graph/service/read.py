@@ -118,7 +118,7 @@ class GraphReadService:
         return SnapshotInfo(
             version=snapshot.version,
             node_count=len(snapshot.nodes),
-            edge_count=len(self.index.memberships),
+            entity_definition_count=self.index.memberships.entity_definition_count,
             identity_count=len(snapshot.logical_identities),
         )
 

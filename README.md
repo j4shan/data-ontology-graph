@@ -75,10 +75,9 @@ snapshot, report = build_snapshot_from_yaml(
 )
 ```
 
-The build report counts all derivable relationship pairs and locates unknown input claims without
+The build report counts datasets and entity definitions and locates unknown input claims without
 listing an unknown entry for every implicit relationship. A requested relationship reports its
-own derived unknown claims. Callers that need a complete pair list can still explicitly enumerate
-relationships; this may be large for a logical entity with many definitions.
+own derived unknown claims. The graph offers no list of all relationships.
 
 A directory catalog has this layout:
 
@@ -140,11 +139,10 @@ data-ontology-graph-launchd setup
 
 New artifacts contain `nodes.json` for the registry and dataset definitions and
 `annotations.json` for sparse relationship annotations. They do not contain `edges.json`:
-relationships are derived from membership when requested. Existing artifacts with `edges.json`
-still load after their stored relationships are checked against the definitions. Loading one
-still reads that file, so its size remains part of the load cost. To replace an existing artifact
-with the compact form, run the same publish command against its finalized YAML directory;
-publication replaces the current artifact atomically. Reload the service after publishing.
+relationships are derived from membership when requested. An artifact that still holds
+`edges.json` is refused at load; republish it by running the same publish command against its
+finalized YAML directory. Publication replaces the current artifact atomically. Reload the
+service after publishing.
 
 The service runs only on demand. Nothing starts it at login, because the job's property list sits
 in the service home rather than in `~/Library/LaunchAgents`. Start and stop it as needed; while it

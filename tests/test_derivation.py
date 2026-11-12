@@ -173,7 +173,7 @@ def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) 
     assert len(index.definitions) == 40
     assert not hasattr(index, "endpoints")
     assert len(index.by_identity["device"]) == 40
-    assert len(index) == 780
+    assert index.entity_definition_count == 40
     assert index.degree(nodes[0].node_id) == 39
 
 
@@ -184,7 +184,7 @@ def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() ->
         _node("c", [_definition(identity_id="unrelated")]),
     ]
     index = _index(nodes)
-    assert len(index) == 3
+    assert index.entity_definition_count == 4
     assert index.degree(nodes[0].node_id) == 4
     assert index.degree(nodes[1].node_id) == 2
     assert index.degree(nodes[2].node_id) == 0

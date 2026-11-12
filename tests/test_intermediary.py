@@ -157,7 +157,7 @@ def test_manifest_directory_is_assembled_deterministically(tmp_path: Path) -> No
         node["node_id"] for node in payload["nodes"]
     )
     assert report.node_count == len(payload["nodes"])
-    assert report.edge_count == 1
+    assert report.entity_definition_count == 2
 
 
 def test_standalone_single_file_catalog_remains_supported() -> None:
@@ -333,8 +333,8 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     assert sum(len(node.columns) for node in definition.nodes) == 17
     assert all(column.description for node in definition.nodes for column in node.columns)
     assert len(definition.logical_identities) == 5
-    # account: 3 definitions, 3 pairs; customer: 2 definitions, 1 pair; region: 3, 3 pairs.
-    assert report.edge_count == 7
+    # Ten entity definitions across the five logical entities.
+    assert report.entity_definition_count == 10
 
     nodes = {node.descriptor.display_name: node for node in snapshot.nodes}
     loan_columns = nodes["loan"].column_map()

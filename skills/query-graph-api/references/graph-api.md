@@ -51,11 +51,12 @@ marks a field that can be absent. Arbitrary JSON objects are written as `object`
 ```text
 Snapshot = {
   api_version: string, version: string,
-  node_count: integer, edge_count: integer, identity_count: integer
+  node_count: integer, entity_definition_count: integer, identity_count: integer
 }
 ```
 
-`api_version` names the API contract described here. It is the string `"4"`.
+`api_version` names the API contract described here. It is the string `"5"`.
+`entity_definition_count` is the number of entity definitions in the snapshot.
 `graph.get_entity_definitions` provides filtered discovery and replaces
 `graph.get_identity`; the old name is no longer a registered method.
 `version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).

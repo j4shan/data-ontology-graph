@@ -85,10 +85,10 @@ class RelationshipIndex:
                 self._by_token[endpoint_token(self.endpoint(key))].append(key)
                 by_identity[definition.identity_id].append(key)
         self.by_identity = {identity: sorted(keys) for identity, keys in by_identity.items()}
-        self._count = sum(len(keys) * (len(keys) - 1) // 2 for keys in self.by_identity.values())
 
-    def __len__(self) -> int:
-        return self._count
+    @property
+    def entity_definition_count(self) -> int:
+        return len(self.definitions)
 
     @staticmethod
     def endpoint(key: DefinitionKey) -> JoinEndpoint:

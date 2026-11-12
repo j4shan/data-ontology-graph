@@ -227,7 +227,7 @@ def test_rpc_validates_unknown_targets_and_new_controls_and_serializes_histogram
     records = rpc(response_format="records")["result"]
     assert table["view"] == records["view"] == "aggregated"
     assert to_records(table["histogram"]) == records["histogram"]
-    assert table["snapshot"]["api_version"] == "4"
+    assert table["snapshot"]["api_version"] == "5"
 
 
 def test_public_rpc_workflow_can_drill_down_then_exhaust_a_still_large_selection():

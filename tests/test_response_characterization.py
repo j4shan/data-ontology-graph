@@ -51,7 +51,7 @@ def _edge_ids(value, found: set[str]) -> None:
 def _requests(snapshot) -> list[tuple[str, dict]]:
     node_ids = sorted(node.node_id for node in snapshot.nodes)
     identity_ids = sorted(identity.identity_id for identity in snapshot.logical_identities)
-    requests: list[tuple[str, dict]] = []
+    requests: list[tuple[str, dict]] = [("graph.snapshot_info", {})]
     for node_id in node_ids:
         requests.append(("graph.get_dataset", {"node_id": node_id}))
     for identity_id in identity_ids:

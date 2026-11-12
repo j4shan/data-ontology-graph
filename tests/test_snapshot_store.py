@@ -56,7 +56,7 @@ def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monke
 
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
     snapshot, report = build_snapshot_from_yaml(VALID_EXAMPLE)
-    assert report.edge_count == len(snapshot.memberships) == 1
+    assert report.entity_definition_count == 2
     assert not any(location.startswith("edges[") for location in report.unknown_fields)
     left, right = snapshot.memberships.by_identity["customer_identity"]
     edge_id = snapshot.memberships.edge_id(left, right)
@@ -65,7 +65,7 @@ def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monke
     store.publish(snapshot)
     loaded = store.load()
     assert loaded.annotations[0].edge_id == edge_id
-    assert len(loaded.memberships) == 1
+    assert loaded.memberships.entity_definition_count == 2
     assert "edges" not in loaded.model_dump()
     assert set(path.name for path in store.directory.iterdir()) == {"nodes.json", "annotations.json"}
 

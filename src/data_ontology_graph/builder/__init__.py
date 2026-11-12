@@ -30,7 +30,7 @@ def build_snapshot_from_definition(
     )
     report = ExplicitBuildReport(
         node_count=len(snapshot.nodes),
-        edge_count=len(snapshot.memberships),
+        entity_definition_count=snapshot.memberships.entity_definition_count,
         unknown_fields=unknown_field_locations(definition),
         warnings=accessor_warnings(snapshot.nodes),
     )

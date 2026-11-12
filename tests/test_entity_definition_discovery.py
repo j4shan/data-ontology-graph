@@ -39,7 +39,7 @@ def test_discovery_histogram_and_detail_never_construct_relationship_pairs(monke
     monkeypatch.setattr(type(s.index.memberships), "pair", unexpected)
     result = call(s, limit=1)
     assert result["view"] == "aggregated"
-    assert result["snapshot"]["api_version"] == "4"
+    assert result["snapshot"]["api_version"] == "5"
     assert result["dataset_count"] == 211
     assert result["primary_definition_count"] == 212
     assert result["logical_entity_count"] == 34

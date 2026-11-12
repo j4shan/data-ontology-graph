@@ -15,7 +15,7 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
-API_VERSION = "4"
+API_VERSION = "5"
 """The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
 
 
@@ -23,7 +23,7 @@ class SnapshotInfo(ContractModel):
     api_version: str = API_VERSION
     version: str
     node_count: int
-    edge_count: int
+    entity_definition_count: int
     identity_count: int
 
 

@@ -38,7 +38,7 @@ def test_service_initialization_and_membership_lookup_do_not_construct_pairs(mon
     with monkeypatch.context() as guard:
         guard.setattr(derivation, "JoinRelationship", unexpected_pair)
         service = _service()
-        assert service.snapshot_info().edge_count == 7
+        assert service.snapshot_info().entity_definition_count == 10
         assert service.get_dataset("sqlite:lending.account").node_id == "sqlite:lending.account"
         assert service.get_entity_definitions("account_identity").entity_definitions
         assert service.search(SearchRequest(query="account", kind=["identity"])).groups
@@ -73,8 +73,8 @@ def _matches(response):
 
 def test_snapshot_info_names_the_api_version_and_the_snapshot_build_second() -> None:
     info = _service().snapshot_info().model_dump()
-    assert set(info) == {"api_version", "version", "node_count", "edge_count", "identity_count"}
-    assert info["api_version"] == "4"
+    assert set(info) == {"api_version", "version", "node_count", "entity_definition_count", "identity_count"}
+    assert info["api_version"] == "5"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["version"])
 
 
