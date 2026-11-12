@@ -10,7 +10,7 @@ from, and limits apply per group, so every entity definition stays visible.
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
-from data_ontology_graph.model.derivation import RelationshipIndex
+from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.model.relationship import (
     JoinEndpoint,
     JoinRelationship,
@@ -61,7 +61,7 @@ def directed_edge_from(relationship: JoinRelationship, source_key: tuple) -> Dir
 class _DatasetEdges(Sequence[DirectedEdge]):
     """A re-iterable outgoing-edge view; creating it does not derive a relationship."""
 
-    def __init__(self, memberships: RelationshipIndex, node_id: str) -> None:
+    def __init__(self, memberships: MembershipIndex, node_id: str) -> None:
         self.memberships = memberships
         self.node_id = node_id
 
@@ -82,7 +82,7 @@ class _DatasetEdges(Sequence[DirectedEdge]):
 class MembershipDirectedEdges(Mapping[str, Sequence[DirectedEdge]]):
     """Dataset adjacency backed by memberships, with no stored pairwise edge collection."""
 
-    def __init__(self, memberships: RelationshipIndex) -> None:
+    def __init__(self, memberships: MembershipIndex) -> None:
         self.memberships = memberships
 
     def __len__(self) -> int:

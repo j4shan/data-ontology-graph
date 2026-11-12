@@ -19,7 +19,7 @@ from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
 
 from data_ontology_graph.model.dataset import DefinitionKey
-from data_ontology_graph.model.derivation import RelationshipIndex, derived_multiplicity
+from data_ontology_graph.model.derivation import MembershipIndex, derived_multiplicity
 from data_ontology_graph.model.enums import Multiplicity
 
 SOURCE = -1
@@ -38,7 +38,7 @@ def _arrived(definition: int) -> State:
 
 
 class PathGraph:
-    def __init__(self, memberships: RelationshipIndex) -> None:
+    def __init__(self, memberships: MembershipIndex) -> None:
         """Number every entity definition, in ascending key order, for the search's states."""
         self.keys: list[DefinitionKey] = []
         self.on_dataset: dict[str, list[int]] = defaultdict(list)

@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from heapq import nsmallest
 
 from data_ontology_graph.model.dataset import DefinitionKey
-from data_ontology_graph.model.derivation import RelationshipIndex
+from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.model.enums import EntityUniverse
 
 
 @dataclass
 class EntityDefinitionDiscovery:
-    memberships: RelationshipIndex
+    memberships: MembershipIndex
     identity_id: str
     primary_by_dataset: dict[str, list[DefinitionKey]]
     node_ids: list[str]
@@ -55,7 +55,7 @@ class EntityDefinitionDiscovery:
 
 
 def discover_entity_definitions(
-    memberships: RelationshipIndex,
+    memberships: MembershipIndex,
     identity_id: str,
     entity_universe: list[EntityUniverse] | None,
     target_identity_ids: list[str],

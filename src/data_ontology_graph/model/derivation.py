@@ -63,7 +63,7 @@ def derived_direction(source: EntityDefinition, target: EntityDefinition) -> Rel
     )
 
 
-class RelationshipIndex:
+class MembershipIndex:
     """Logical-entity memberships, one entry per entity definition.
 
     A relationship is derived fresh from two entity definitions when requested (graph-model 3.1).

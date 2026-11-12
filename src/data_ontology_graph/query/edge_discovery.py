@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from heapq import nsmallest
 
 from data_ontology_graph.model.dataset import DefinitionKey
-from data_ontology_graph.model.derivation import RelationshipIndex
+from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.query.neighbourhood import DirectedEdge, EdgeGroup
 
 
 @dataclass
 class EdgeDiscovery:
-    memberships: RelationshipIndex
+    memberships: MembershipIndex
     source_keys: list[DefinitionKey]
     connected: frozenset[str]
     targets_by_identity: dict[str, list[DefinitionKey]]
@@ -56,7 +56,7 @@ class EdgeDiscovery:
 
 
 def discover_edges(
-    memberships: RelationshipIndex,
+    memberships: MembershipIndex,
     node_id: str,
     identity_id: str | None,
     from_dataset_columns: list[str] | None,

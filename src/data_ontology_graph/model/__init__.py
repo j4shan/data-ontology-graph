@@ -1,5 +1,5 @@
 from data_ontology_graph.model.claims import ClaimModel, is_unknown
-from data_ontology_graph.model.derivation import RelationshipIndex
+from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.model.dataset import (
     ACCESSOR_SOFT_LIMIT,
     ColumnMetadata,
@@ -61,7 +61,7 @@ __all__ = [
     "MatchExistence",
     "Multiplicity",
     "RelationshipDirection",
-    "RelationshipIndex",
+    "MembershipIndex",
     "Unknown",
     "canonical_endpoints",
     "derived_cardinality",

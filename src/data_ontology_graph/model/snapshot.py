@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
-from data_ontology_graph.model.derivation import RelationshipIndex
+from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import JoinAnnotation
 
@@ -21,7 +21,7 @@ class GraphSnapshot(BaseModel):
     nodes: list[DatasetNode]
     annotations: list[JoinAnnotation] = Field(default_factory=list)
     _nodes_by_id: dict[str, DatasetNode] = PrivateAttr()
-    _memberships: RelationshipIndex = PrivateAttr()
+    _memberships: MembershipIndex = PrivateAttr()
 
     @model_validator(mode="after")
     def validate_graph(self) -> "GraphSnapshot":
@@ -43,7 +43,7 @@ class GraphSnapshot(BaseModel):
                         f"{definition.identity_id}"
                     )
         self._nodes_by_id = {node.node_id: node for node in sorted(self.nodes, key=lambda item: item.node_id)}
-        self._memberships = RelationshipIndex(self._nodes_by_id)
+        self._memberships = MembershipIndex(self._nodes_by_id)
         annotated = set()
         for annotation in self.annotations:
             if annotation.edge_id in annotated:
@@ -56,7 +56,7 @@ class GraphSnapshot(BaseModel):
         return self
 
     @property
-    def memberships(self) -> RelationshipIndex:
+    def memberships(self) -> MembershipIndex:
         return self._memberships
 
     @property

@@ -15,7 +15,7 @@ from data_ontology_graph.model.derivation import (
     contained,
     derived_match_existence,
     derived_multiplicity,
-    RelationshipIndex,
+    MembershipIndex,
 )
 from data_ontology_graph.model.enums import MatchExistence, Multiplicity
 
@@ -39,8 +39,8 @@ def _definition(
     )
 
 
-def _index(nodes: list[DatasetNode]) -> RelationshipIndex:
-    return RelationshipIndex({node.node_id: node for node in nodes})
+def _index(nodes: list[DatasetNode]) -> MembershipIndex:
+    return MembershipIndex({node.node_id: node for node in nodes})
 
 
 def _node(name: str, definitions: list[EntityDefinition]) -> DatasetNode:
