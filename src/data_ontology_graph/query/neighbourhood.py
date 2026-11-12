@@ -73,7 +73,7 @@ class _DatasetEdges(Sequence[DirectedEdge]):
         for source in index.definition_keys(self.node_id):
             for target in index.by_identity[source.identity_id]:
                 if target != source:
-                    yield DirectedEdge(index.pair(source, target), index.endpoints[source], index.endpoints[target])
+                    yield DirectedEdge(index.pair(source, target), index.endpoint(source), index.endpoint(target))
 
     def __getitem__(self, position: int | slice) -> DirectedEdge | list[DirectedEdge]:
         return list(self)[position]

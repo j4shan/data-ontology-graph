@@ -170,7 +170,8 @@ def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) 
 
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
     index = _index(nodes)
-    assert len(index.definitions) == len(index.endpoints) == 40
+    assert len(index.definitions) == 40
+    assert not hasattr(index, "endpoints")
     assert len(index.by_identity["device"]) == 40
     assert len(index) == 780
     assert index.degree(nodes[0].node_id) == 39

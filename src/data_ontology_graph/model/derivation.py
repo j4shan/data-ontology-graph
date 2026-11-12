@@ -74,7 +74,6 @@ class RelationshipIndex:
         self.nodes = nodes
         """Dataset nodes by ``node_id``; each holds its entity definitions."""
         self.definitions: dict[DefinitionKey, EntityDefinition] = {}
-        self.endpoints: dict[DefinitionKey, JoinEndpoint] = {}
         by_identity: dict[str, list[DefinitionKey]] = defaultdict(list)
         self._by_token: dict[str, list[DefinitionKey]] = defaultdict(list)
         for node in nodes.values():
@@ -83,15 +82,20 @@ class RelationshipIndex:
                 if key in self.definitions:
                     raise ValueError("entity definitions must be unique by identity_id and dataset_columns")
                 self.definitions[key] = definition
-                endpoint = _endpoint(node.node_id, definition)
-                self.endpoints[key] = endpoint
-                self._by_token[endpoint_token(endpoint)].append(key)
+                self._by_token[endpoint_token(self.endpoint(key))].append(key)
                 by_identity[definition.identity_id].append(key)
         self.by_identity = {identity: sorted(keys) for identity, keys in by_identity.items()}
         self._count = sum(len(keys) * (len(keys) - 1) // 2 for keys in self.by_identity.values())
 
     def __len__(self) -> int:
         return self._count
+
+    @staticmethod
+    def endpoint(key: DefinitionKey) -> JoinEndpoint:
+        """The entity definition ``key`` as a relationship endpoint (graph-model 3.1)."""
+        return JoinEndpoint(
+            node_id=key.node_id, identity_id=key.identity_id, dataset_columns=list(key.dataset_columns),
+        )
 
     def definition_keys(self, node_id: str) -> list[DefinitionKey]:
         """The dataset's entity definitions in ascending key order; KeyError for an unknown dataset."""
@@ -108,7 +112,7 @@ class RelationshipIndex:
     def edge_id(self, left: DefinitionKey, right: DefinitionKey) -> str:
         if left == right or left.identity_id != right.identity_id:
             raise ValueError("a relationship requires two distinct definitions of the same logical entity")
-        return edge_id_for(self.endpoints[left], self.endpoints[right])
+        return edge_id_for(self.endpoint(left), self.endpoint(right))
 
     def resolve(self, edge_id: str) -> tuple[DefinitionKey, DefinitionKey]:
         """Resolve an existing ID without assuming its unescaped delimiters occur only once."""
@@ -132,7 +136,7 @@ class RelationshipIndex:
         a, b = self.resolve(edge_id)
         return JoinRelationship(
             edge_id=edge_id,
-            endpoint_a=self.endpoints[a], endpoint_b=self.endpoints[b],
+            endpoint_a=self.endpoint(a), endpoint_b=self.endpoint(b),
             a_to_b=derived_direction(self.definitions[a], self.definitions[b]),
             b_to_a=derived_direction(self.definitions[b], self.definitions[a]),
         )
@@ -141,10 +145,3 @@ class RelationshipIndex:
         """The relationship an existing ``edge_id`` names; KeyError when it names none."""
         return self.pair(*self.resolve(edge_id))
 
-
-def _endpoint(node_id: str, definition: EntityDefinition) -> JoinEndpoint:
-    return JoinEndpoint(
-        node_id=node_id,
-        identity_id=definition.identity_id,
-        dataset_columns=definition.dataset_columns,
-    )

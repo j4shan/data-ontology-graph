@@ -49,9 +49,9 @@ class EdgeDiscovery:
             for position in range(offset, min(offset + limit, count)):
                 target = targets[position + int(contains_self and position >= own_position)]
                 edges.append(DirectedEdge(
-                    index.pair(source, target), index.endpoints[source], index.endpoints[target],
+                    index.pair(source, target), index.endpoint(source), index.endpoint(target),
                 ))
-            groups.append(EdgeGroup(index.endpoints[source], count, edges))
+            groups.append(EdgeGroup(index.endpoint(source), count, edges))
         return groups, more
 
 
