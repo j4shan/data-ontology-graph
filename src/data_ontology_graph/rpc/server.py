@@ -9,7 +9,6 @@ import socket
 import stat
 from pathlib import Path
 from threading import Event
-from typing import Any
 
 from data_ontology_graph.home import default_artifact, default_socket
 from data_ontology_graph.rpc.protocol import (

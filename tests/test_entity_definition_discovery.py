@@ -37,7 +37,6 @@ def test_discovery_histogram_and_detail_never_construct_relationship_pairs(monke
         pytest.fail("entity-definition discovery must use memberships without relationship pairs")
 
     monkeypatch.setattr(type(s.index.memberships), "pair", unexpected)
-    monkeypatch.setattr(type(s.index.memberships), "__iter__", unexpected)
     result = call(s, limit=1)
     assert result["view"] == "aggregated"
     assert result["snapshot"]["api_version"] == "4"

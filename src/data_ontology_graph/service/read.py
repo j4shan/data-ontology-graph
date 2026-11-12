@@ -101,7 +101,6 @@ class GraphReadIndex:
         }
         self.memberships = snapshot.memberships
         self.definitions = self.memberships.definitions
-        self.edges = self.memberships
         self.adjacency = MembershipAdjacency(self.memberships)
         self.directed_edges = MembershipDirectedEdges(self.memberships)
         self.paths = PathGraph(snapshot.nodes, self.memberships)
@@ -368,8 +367,10 @@ class GraphReadService:
             request.from_node_id, request.to_node_id, request.limit, request.max_edges, allowed,
             cancelled=(cancel_event.is_set if cancel_event is not None else lambda: False),
         )
+        memberships = self.index.memberships
         paths = [
-            [directed_edge_from(self.index.edges[graph.edge_id(a, b)], graph.keys[a]) for a, b in path]
+            [directed_edge_from(memberships.pair(graph.keys[a], graph.keys[b]), graph.keys[a])
+             for a, b in path]
             for path in pairs
         ]
         node_ids = sorted({
@@ -430,7 +431,7 @@ class GraphReadService:
 
     def _edge(self, edge_id: str) -> JoinRelationship:
         try:
-            return self.index.edges[edge_id]
+            return self.index.memberships.relationship(edge_id)
         except KeyError as error:
             raise KeyError(f"unknown relationship {edge_id}") from error
 

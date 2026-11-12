@@ -190,14 +190,14 @@ def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() ->
     edge = index.pair(keys[2], keys[0])
     assert edge.a_to_b.multiplicity == Multiplicity.MANY_TO_ONE
     assert edge.a_to_b.match_existence == MatchExistence.UNKNOWN
-    assert index[edge.edge_id] == index.pair(keys[0], keys[2])
+    assert index.relationship(edge.edge_id) == index.pair(keys[0], keys[2])
     assert index.resolve(edge.edge_id) == (keys[0], keys[2])
     with pytest.raises(ValueError, match="two distinct definitions"):
         index.pair(keys[0], keys[0])
     with pytest.raises(ValueError, match="same logical entity"):
         index.pair(keys[0], index.by_identity["unrelated"][0])
     with pytest.raises(KeyError):
-        index["missing"]
+        index.relationship("missing")
 
 
 def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
@@ -208,7 +208,7 @@ def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
     left, right = index.by_identity["identity:__id"]
     edge = index.pair(left, right)
     assert index.resolve(edge.edge_id) == (left, right)
-    assert index[edge.edge_id] == edge
+    assert index.relationship(edge.edge_id) == edge
 
 
 def test_membership_id_resolution_rejects_ambiguous_legacy_tokens() -> None:
@@ -220,4 +220,4 @@ def test_membership_id_resolution_rejects_ambiguous_legacy_tokens() -> None:
     # The existing ID format joins columns with '+', so these two distinct pairs collide.
     assert index.edge_id(keys[0], keys[2]) == index.edge_id(keys[1], keys[2])
     with pytest.raises(ValueError, match="ambiguous relationship ID"):
-        index[index.edge_id(keys[0], keys[2])]
+        index.relationship(index.edge_id(keys[0], keys[2]))

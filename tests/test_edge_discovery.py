@@ -60,7 +60,6 @@ def test_auto_histogram_covers_all_targets_before_detail_limits_and_derives_no_p
         pytest.fail("aggregated discovery must not derive or enumerate pairwise relationships")
 
     monkeypatch.setattr(type(s.index.memberships), "pair", unexpected)
-    monkeypatch.setattr(type(s.index.memberships), "__iter__", unexpected)
     result = call(s, limit=1)
     assert result["view"] == "aggregated"
     assert result["fan_out_count"] == 210

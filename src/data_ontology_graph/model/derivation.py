@@ -1,8 +1,7 @@
 """Logical-entity memberships and relationships derived only when consumed."""
 
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping
-from itertools import combinations
+from collections.abc import Iterable
 
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
@@ -64,12 +63,11 @@ def derived_direction(source: EntityDefinition, target: EntityDefinition) -> Rel
     )
 
 
-class RelationshipIndex(Mapping[str, JoinRelationship]):
-    """An implicit pairwise graph backed by one entry per entity definition.
+class RelationshipIndex:
+    """Logical-entity memberships, one entry per entity definition.
 
-    Looking up a pair derives a fresh relationship. Neither construction nor counts enumerate
-    pairs, and no derived relationship is cached. Iterating the mapping explicitly enumerates
-    its virtual edge IDs; callers that need neighbours should use memberships instead.
+    A relationship is derived fresh from two entity definitions when requested (graph-model 3.1).
+    The index neither stores nor lists relationships, and caches none.
     """
 
     def __init__(self, nodes: Iterable[DatasetNode]) -> None:
@@ -133,15 +131,9 @@ class RelationshipIndex(Mapping[str, JoinRelationship]):
             b_to_a=derived_direction(self.definitions[b], self.definitions[a]),
         )
 
-    def __getitem__(self, edge_id: str) -> JoinRelationship:
+    def relationship(self, edge_id: str) -> JoinRelationship:
+        """The relationship an existing ``edge_id`` names; KeyError when it names none."""
         return self.pair(*self.resolve(edge_id))
-
-    def __iter__(self) -> Iterator[str]:
-        # Enumeration is opt-in. Build, persistence, and service startup never use this path.
-        return iter(sorted(
-            self.edge_id(left, right)
-            for keys in self.by_identity.values() for left, right in combinations(keys, 2)
-        ))
 
 
 def _endpoint(node_id: str, definition: EntityDefinition) -> JoinEndpoint:

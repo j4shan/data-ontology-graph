@@ -35,15 +35,10 @@ def test_service_initialization_and_membership_lookup_do_not_construct_pairs(mon
     def unexpected_pair(**kwargs):
         pytest.fail("service startup and membership inspection must not construct pairs")
 
-    def unexpected_enumeration(self):
-        pytest.fail("service startup must not enumerate the implicit clique")
-
     with monkeypatch.context() as guard:
         guard.setattr(derivation, "JoinRelationship", unexpected_pair)
-        guard.setattr(derivation.RelationshipIndex, "__iter__", unexpected_enumeration)
         service = _service()
         assert service.snapshot_info().edge_count == 7
-        assert service.index.edges is service.index.snapshot.memberships
         assert not service.index.paths.edges
         assert not service.index.paths._edge_by_pair
         assert service.get_dataset("sqlite:lending.account").node_id == "sqlite:lending.account"
@@ -56,7 +51,10 @@ def test_service_initialization_and_membership_lookup_do_not_construct_pairs(mon
     edge_id = service.index.memberships.edge_id(keys[0], keys[1])
     first = service.get_relationship(edge_id)
     assert first.edge_id == edge_id
-    assert service.index.edges[edge_id] is not service.index.edges[edge_id]
+    memberships = service.index.memberships
+    assert memberships.relationship(edge_id) is not memberships.relationship(edge_id)
+    # The index offers no way to list every relationship.
+    assert not hasattr(memberships, "__iter__") and not hasattr(memberships, "__getitem__")
 
 
 def _group(response, kind):
