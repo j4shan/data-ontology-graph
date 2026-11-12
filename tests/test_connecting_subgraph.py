@@ -10,12 +10,10 @@ from pydantic import ValidationError
 
 from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.model.dataset import ColumnMetadata
-from data_ontology_graph.model.enums import Unknown
+from data_ontology_graph.model.derivation import multiplicity_between
+from data_ontology_graph.model.enums import EntityUniverse, Unknown
 from data_ontology_graph.model.intermediary import LogicalIdentity
-from data_ontology_graph.model.relationship import JoinEndpoint, JoinRelationship, edge_id_for
 from data_ontology_graph.query.connecting import connecting_tree
-from data_ontology_graph.query.neighbourhood import directed_edges_by_dataset
-from data_ontology_graph.query.paths import PathGraph
 from data_ontology_graph.rpc.protocol import INVALID_PARAMS, RESOURCE_NOT_FOUND, JsonRpcDispatcher
 from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.contracts import ConnectingSubgraphRequest, PathsRequest
@@ -29,16 +27,36 @@ ROOT = Path(__file__).resolve().parents[1]
 CATALOG = ROOT / "tests/fixtures/lending/catalog.yaml"
 
 
+_UNIQUE = {
+    "1:1": (True, True),
+    "many:1": (False, True),
+    "1:many": (True, False),
+    "many:many": (False, False),
+    "unknown": (Unknown.UNKNOWN, True),
+}
+"""Uniqueness of a link's (left, right) entity definitions that yields its forward multiplicity."""
+
+
 def service_for(names, links, **kwargs):
     """Small topologies built from the lending fixture's account dataset.
 
-    Each link joins its two datasets on an identity of its own, so a path passes through a
-    dataset by arriving on one link's definition and leaving on another's.
+    Each link joins its two datasets on a logical entity of its own, so a path passes through a
+    dataset by arriving on one link's entity definition and leaving on another's. A link's
+    multiplicities come from the `unique` claims of its two entity definitions, and every
+    entity definition is `total`, conforming, and `complete`, so match existence is `always`.
     """
     snapshot, _, _ = build_snapshot_from_yaml(CATALOG)
     template = next(node for node in snapshot.nodes if node.node_id == "sqlite:lending.account")
     definition = next(d for d in template.entity_definitions if d.identity_id == "account_identity")
     link_identities = {tuple(link[:2]): f"{link[0]}~{link[1]}" for link in links}
+    unique: dict[tuple[str, str], object] = {}
+    for link in links:
+        left, right = link[:2]
+        forward = link[2] if len(link) > 2 else "1:1"
+        identity = link_identities[(left, right)]
+        unique[(left, identity)], unique[(right, identity)] = _UNIQUE[forward]
+        if len(link) > 3:
+            assert multiplicity_between(*reversed(_UNIQUE[forward])).value == link[3], link
     nodes = []
     for name in names:
         node = template.model_copy(deep=True)
@@ -52,44 +70,21 @@ def service_for(names, links, **kwargs):
         ]
         node.grain = Unknown.UNKNOWN
         node.entity_definitions = [
-            definition.model_copy(
-                deep=True, update={"identity_id": identity, "dataset_columns": [f"{identity}_id"]},
-            )
+            definition.model_copy(deep=True, update={
+                "identity_id": identity, "dataset_columns": [f"{identity}_id"],
+                "unique": unique[(name, identity)], "total": True, "conforms": True,
+                "entity_universe": EntityUniverse.COMPLETE,
+            })
             for identity in identities
         ]
         nodes.append(node)
-    edges = []
-    for link in links:
-        left, right = link[:2]
-        forward, reverse = link[2:] if len(link) == 4 else ("1:1", "1:1")
-        identity = link_identities[(left, right)]
-        a = JoinEndpoint(node_id=left, identity_id=identity, dataset_columns=[f"{identity}_id"])
-        b = JoinEndpoint(node_id=right, identity_id=identity, dataset_columns=[f"{identity}_id"])
-        edges.append(JoinRelationship(
-            edge_id=edge_id_for(a, b), endpoint_a=a, endpoint_b=b,
-            a_to_b={"multiplicity": forward, "match_existence": "always"},
-            b_to_a={"multiplicity": reverse, "match_existence": "always"},
-        ))
     identities = [
         LogicalIdentity(identity_id=identity, name=identity)
         for identity in sorted(set(link_identities.values()))
     ]
     data = snapshot.model_dump()
     data.update(logical_identities=identities, nodes=nodes, annotations=[])
-    service = GraphReadService(type(snapshot).model_validate(data), **kwargs)
-    # Algorithm tests deliberately include directional claims that no pair of uniqueness
-    # properties can produce. Supply those explicit inputs to their traversal adapters,
-    # rather than admitting authored relationship overrides into membership snapshots.
-    service.index.edges = {edge.edge_id: edge for edge in edges}
-    service.index.directed_edges = directed_edges_by_dataset(edges)
-    service.index.adjacency = {
-        name: tuple(sorted(
-            (edge for edge in edges if name in (edge.endpoint_a.node_id, edge.endpoint_b.node_id)),
-            key=lambda edge: edge.edge_id,
-        )) for name in names
-    }
-    service.index.paths = PathGraph(nodes, edges)
-    return service
+    return GraphReadService(type(snapshot).model_validate(data), **kwargs)
 
 
 def find(service, source, target, **kwargs):
@@ -130,22 +125,20 @@ def _all_paths(service, source, target, max_edges, allowed):
     def walk(current, arrived_on, edges, used):
         if len(edges) == max_edges:
             return
-        for edge in service.index.adjacency.get(current, ()):
-            for leaving, arriving in ((edge.endpoint_a, edge.endpoint_b),
-                                      (edge.endpoint_b, edge.endpoint_a)):
-                if leaving.node_id != current or leaving.identity_key() == arrived_on:
-                    continue
-                direction = edge.a_to_b if leaving is edge.endpoint_a else edge.b_to_a
-                if allowed is not None and direction.multiplicity not in allowed:
-                    continue
-                keys = {leaving.identity_key(), arriving.identity_key()}
-                if keys & used:
-                    continue
-                path = [*edges, edge.edge_id]
-                if arriving.node_id == target:
-                    found.append(path)
-                else:
-                    walk(arriving.node_id, arriving.identity_key(), path, used | keys)
+        for edge in service.index.directed_edges.get(current, ()):
+            leaving, arriving = edge.source, edge.target
+            if leaving.identity_key() == arrived_on:
+                continue
+            if allowed is not None and edge.outgoing.multiplicity not in allowed:
+                continue
+            keys = {leaving.identity_key(), arriving.identity_key()}
+            if keys & used:
+                continue
+            path = [*edges, edge.edge_id]
+            if arriving.node_id == target:
+                found.append(path)
+            else:
+                walk(arriving.node_id, arriving.identity_key(), path, used | keys)
 
     walk(source, None, [], set())
     return found
@@ -158,7 +151,7 @@ def test_k_shortest_paths_match_exhaustive_enumeration():
         names = [f"n{i}" for i in range(9)]
         links = rnd.sample(list(combinations(names, 2)), 16)
         service = service_for(
-            names, [(a, b, rnd.choice(mults), rnd.choice(mults)) for a, b in links]
+            names, [(a, b, rnd.choice(mults)) for a, b in links]
         )
         for source, target in rnd.sample(list(combinations(names, 2)), 6):
             for max_edges in (1, 3, 5):
@@ -216,7 +209,7 @@ def test_paths_list_each_dataset_once_and_orient_every_directed_edge():
     assert last["edge_id"].startswith("c:") and last["from_node_id"] == "d"
 
 def test_unknown_multiplicity_requires_explicit_opt_in():
-    service = service_for(["a", "b"], [("a", "b", "unknown", "1:1")])
+    service = service_for(["a", "b"], [("a", "b", "unknown", "unknown")])
     assert find(service, "a", "b").path_count
     assert not find(service, "a", "b", allowed_multiplicities=["1:1"]).path_count
     assert find(service, "a", "b", allowed_multiplicities=["unknown"]).path_count
