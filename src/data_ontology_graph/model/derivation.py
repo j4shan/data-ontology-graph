@@ -1,7 +1,7 @@
 """Logical-entity memberships and relationships derived only when consumed."""
 
 from collections import defaultdict
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping
 from itertools import combinations
 
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition
@@ -142,30 +142,6 @@ class RelationshipIndex(Mapping[str, JoinRelationship]):
             self.edge_id(left, right)
             for keys in self.by_identity.values() for left, right in combinations(keys, 2)
         ))
-
-
-class RelationshipSequence(Sequence[JoinRelationship]):
-    """Compatibility view for explicit iteration over a snapshot's virtual relationships."""
-
-    def __init__(self, index: RelationshipIndex) -> None:
-        self.index = index
-
-    def __len__(self) -> int:
-        return len(self.index)
-
-    def __iter__(self) -> Iterator[JoinRelationship]:
-        return (self.index[edge_id] for edge_id in self.index)
-
-    def __getitem__(self, position: int | slice) -> JoinRelationship | list[JoinRelationship]:
-        ids = list(self.index)
-        if isinstance(position, slice):
-            return [self.index[edge_id] for edge_id in ids[position]]
-        return self.index[ids[position]]
-
-
-def derive_relationships(nodes: Iterable[DatasetNode]) -> list[JoinRelationship]:
-    """Explicitly enumerate all pairs, for consumers requesting a complete relationship list."""
-    return list(RelationshipSequence(RelationshipIndex(nodes)))
 
 
 def _endpoint(node_id: str, definition: EntityDefinition) -> JoinEndpoint:

@@ -16,6 +16,7 @@ from data_ontology_graph.builder.intermediary import (
 )
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
 from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+from graph_records import first_relationship, relationship_between
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -156,7 +157,7 @@ def test_manifest_directory_is_assembled_deterministically(tmp_path: Path) -> No
         node["node_id"] for node in payload["nodes"]
     )
     assert report.node_count == len(payload["nodes"])
-    assert report.edge_count == len(snapshot.edges) == 1
+    assert report.edge_count == 1
 
 
 def test_standalone_single_file_catalog_remains_supported() -> None:
@@ -333,7 +334,7 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     assert all(column.description for node in definition.nodes for column in node.columns)
     assert len(definition.logical_identities) == 5
     # account: 3 definitions, 3 pairs; customer: 2 definitions, 1 pair; region: 3, 3 pairs.
-    assert report.edge_count == len(snapshot.edges) == 7
+    assert report.edge_count == 7
     assert contradictions == []
 
     nodes = {node.descriptor.display_name: node for node in snapshot.nodes}
@@ -342,22 +343,12 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     assert loan_columns["term"].value_description == "unit: month"
     assert "monthly statements" in account_columns["statement_cycle"].value_description
 
-    account_to_region = next(
-        edge
-        for edge in snapshot.edges
-        if {edge.endpoint_a.node_id, edge.endpoint_b.node_id}
-        == {"sqlite:lending.account", "sqlite:lending.region"}
-    )
+    account_to_region = relationship_between(snapshot, "sqlite:lending.account", "sqlite:lending.region")
     direction = account_to_region.direction_from("sqlite:lending.account")
     assert direction.multiplicity == Multiplicity.MANY_TO_ONE
     assert direction.match_existence == MatchExistence.UNKNOWN
 
-    holder_to_loan = next(
-        edge
-        for edge in snapshot.edges
-        if {edge.endpoint_a.node_id, edge.endpoint_b.node_id}
-        == {"sqlite:lending.account_holder", "sqlite:lending.loan"}
-    )
+    holder_to_loan = relationship_between(snapshot, "sqlite:lending.account_holder", "sqlite:lending.loan")
     direction = holder_to_loan.direction_from("sqlite:lending.account_holder")
     assert direction.multiplicity == Multiplicity.MANY_TO_MANY
     assert direction.match_existence == MatchExistence.OPTIONAL
@@ -387,7 +378,7 @@ def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> No
     assert definition.entity_universe == EntityUniverse.PARTIAL
     assert loaded.nodes[0].grain is not None
     assert len(loaded.nodes[0].grain.components) == 1
-    edge_payload = loaded.edges[0].model_dump(mode="json")
+    edge_payload = first_relationship(loaded).model_dump(mode="json")
     assert "entity_expression" not in yaml.safe_dump(edge_payload)
     assert "expression_context" not in yaml.safe_dump(edge_payload)
 

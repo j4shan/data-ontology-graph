@@ -1,3 +1,5 @@
+from itertools import combinations
+
 import pytest
 from pydantic import ValidationError
 
@@ -11,7 +13,6 @@ from data_ontology_graph.model.dataset import (
 )
 from data_ontology_graph.model.derivation import (
     contained,
-    derive_relationships,
     derived_match_existence,
     derived_multiplicity,
     RelationshipIndex,
@@ -119,18 +120,16 @@ def test_every_two_definitions_of_one_identity_are_related() -> None:
         _node("d", [_definition(["other"], identity_id="group")]),
     ]
 
-    relationships = derive_relationships(nodes)
+    index = RelationshipIndex(nodes)
 
-    by_identity = {}
-    for relationship in relationships:
-        by_identity.setdefault(relationship.endpoint_a.identity_id, []).append(relationship)
-    assert {identity: len(items) for identity, items in by_identity.items()} == {
+    related = {
+        identity: {index.pair(left, right).edge_id for left, right in combinations(keys, 2)}
+        for identity, keys in index.by_identity.items()
+    }
+    assert {identity: len(edge_ids) for identity, edge_ids in related.items()} == {
         "device": 3,
         "group": 1,
     }
-    assert [relationship.edge_id for relationship in relationships] == sorted(
-        relationship.edge_id for relationship in relationships
-    )
 
 
 def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
@@ -142,7 +141,7 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
         ],
     )
 
-    [relationship] = derive_relationships([link])
+    relationship = RelationshipIndex([link]).pair(*RelationshipIndex([link]).by_identity["device"])
 
     assert relationship.endpoint_a.node_id == relationship.endpoint_b.node_id == link.node_id
     assert relationship.endpoint_a.dataset_columns == ["device_a"]
@@ -152,7 +151,9 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
 
 
 def test_a_definition_alone_yields_no_relationship() -> None:
-    assert derive_relationships([_node("a", [_definition(unique=False)])]) == []
+    index = RelationshipIndex([_node("a", [_definition(unique=False)])])
+    assert len(index.by_identity["device"]) == 1
+    assert index.degree("dataset:a") == 0
 
 
 def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) -> None:

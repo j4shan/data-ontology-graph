@@ -14,6 +14,7 @@ from data_ontology_graph.rpc.protocol import (
 )
 from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.read import GraphReadService
+from graph_records import first_relationship
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,7 +78,7 @@ def test_dispatcher_exposes_only_read_methods() -> None:
 def test_dispatcher_orients_relationship_detail_from_an_endpoint() -> None:
     dispatcher = JsonRpcDispatcher(_service())
     service = _service()
-    edge = service.index.snapshot.edges[0]
+    edge = first_relationship(service.index.snapshot)
 
     response = dispatcher.dispatch(
         {

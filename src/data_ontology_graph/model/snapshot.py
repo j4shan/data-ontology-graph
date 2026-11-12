@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
-from data_ontology_graph.model.derivation import RelationshipIndex, RelationshipSequence
+from data_ontology_graph.model.derivation import RelationshipIndex
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import JoinAnnotation
 
@@ -56,11 +56,6 @@ class GraphSnapshot(BaseModel):
     @property
     def memberships(self) -> RelationshipIndex:
         return self._memberships
-
-    @property
-    def edges(self) -> RelationshipSequence:
-        """An opt-in view; pairwise records are not part of snapshot serialization."""
-        return RelationshipSequence(self._memberships)
 
     def node_map(self) -> dict[str, DatasetNode]:
         return {node.node_id: node for node in self.nodes}
