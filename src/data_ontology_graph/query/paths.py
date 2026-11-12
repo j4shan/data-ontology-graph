@@ -18,7 +18,7 @@ import heapq
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
 
-from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey
+from data_ontology_graph.model.dataset import DefinitionKey
 from data_ontology_graph.model.derivation import RelationshipIndex, derived_multiplicity
 from data_ontology_graph.model.enums import Multiplicity
 
@@ -38,13 +38,14 @@ def _arrived(definition: int) -> State:
 
 
 class PathGraph:
-    def __init__(self, nodes: Iterable[DatasetNode], memberships: RelationshipIndex) -> None:
+    def __init__(self, memberships: RelationshipIndex) -> None:
+        """Number every entity definition, in ascending key order, for the search's states."""
         self.keys: list[DefinitionKey] = []
         self.on_dataset: dict[str, list[int]] = defaultdict(list)
-        for node in sorted(nodes, key=lambda item: item.node_id):
-            for definition in sorted(node.entity_definitions, key=lambda item: item.key(node.node_id)):
-                self.on_dataset[node.node_id].append(len(self.keys))
-                self.keys.append(definition.key(node.node_id))
+        for node_id in sorted(memberships.nodes):
+            for key in memberships.definition_keys(node_id):
+                self.on_dataset[node_id].append(len(self.keys))
+                self.keys.append(key)
         self._positions = {key: position for position, key in enumerate(self.keys)}
         self._memberships = memberships
 

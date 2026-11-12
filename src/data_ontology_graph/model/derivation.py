@@ -1,7 +1,7 @@
 """Logical-entity memberships and relationships derived only when consumed."""
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Mapping
 
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
@@ -70,14 +70,14 @@ class RelationshipIndex:
     The index neither stores nor lists relationships, and caches none.
     """
 
-    def __init__(self, nodes: Iterable[DatasetNode]) -> None:
+    def __init__(self, nodes: Mapping[str, DatasetNode]) -> None:
+        self.nodes = nodes
+        """Dataset nodes by ``node_id``; each holds its entity definitions."""
         self.definitions: dict[DefinitionKey, EntityDefinition] = {}
         self.endpoints: dict[DefinitionKey, JoinEndpoint] = {}
         by_identity: dict[str, list[DefinitionKey]] = defaultdict(list)
-        by_dataset: dict[str, list[DefinitionKey]] = {}
         self._by_token: dict[str, list[DefinitionKey]] = defaultdict(list)
-        for node in nodes:
-            by_dataset[node.node_id] = []
+        for node in nodes.values():
             for definition in node.entity_definitions:
                 key = definition.key(node.node_id)
                 if key in self.definitions:
@@ -87,17 +87,23 @@ class RelationshipIndex:
                 self.endpoints[key] = endpoint
                 self._by_token[endpoint_token(endpoint)].append(key)
                 by_identity[definition.identity_id].append(key)
-                by_dataset[node.node_id].append(key)
         self.by_identity = {identity: sorted(keys) for identity, keys in by_identity.items()}
-        self.by_dataset = {node: sorted(keys) for node, keys in by_dataset.items()}
         self._count = sum(len(keys) * (len(keys) - 1) // 2 for keys in self.by_identity.values())
 
     def __len__(self) -> int:
         return self._count
 
+    def definition_keys(self, node_id: str) -> list[DefinitionKey]:
+        """The dataset's entity definitions in ascending key order; KeyError for an unknown dataset."""
+        node = self.nodes[node_id]
+        return sorted(definition.key(node_id) for definition in node.entity_definitions)
+
     def degree(self, node_id: str) -> int:
         """Outgoing directed edges, counting a same-dataset relationship twice."""
-        return sum(len(self.by_identity[key.identity_id]) - 1 for key in self.by_dataset[node_id])
+        return sum(
+            len(self.by_identity[definition.identity_id]) - 1
+            for definition in self.nodes[node_id].entity_definitions
+        )
 
     def edge_id(self, left: DefinitionKey, right: DefinitionKey) -> str:
         if left == right or left.identity_id != right.identity_id:

@@ -94,7 +94,7 @@ def test_soft_limit_warns_and_never_rejects(length: int, warned: bool) -> None:
     snapshot, report = build_snapshot_from_definition(
         IntermediaryDefinition.model_validate(payload)
     )
-    assert len(snapshot.node_map()[S3].accessor.canonical_json()) == length
+    assert len(snapshot.nodes_by_id[S3].accessor.canonical_json()) == length
     expected = [
         f"nodes[{S3}].accessor: {length} characters exceeds the 256-character soft limit"
     ]
@@ -118,7 +118,7 @@ def test_equal_accessors_are_rejected_even_when_labels_differ() -> None:
 
 
 def test_datasets_may_share_an_endpoint_when_properties_differ() -> None:
-    nodes = build_snapshot_from_yaml(OPEN)[0].node_map()
+    nodes = build_snapshot_from_yaml(OPEN)[0].nodes_by_id
     profiles = nodes["mongo-apac:app.customer_profiles"].accessor
     logins = nodes["mongo-apac:app.customer_logins"].accessor
     assert profiles.endpoint == logins.endpoint and profiles.properties != logins.properties

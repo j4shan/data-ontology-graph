@@ -20,6 +20,7 @@ class GraphSnapshot(BaseModel):
     logical_identities: list[LogicalIdentity] = Field(default_factory=list)
     nodes: list[DatasetNode]
     annotations: list[JoinAnnotation] = Field(default_factory=list)
+    _nodes_by_id: dict[str, DatasetNode] = PrivateAttr()
     _memberships: RelationshipIndex = PrivateAttr()
 
     @model_validator(mode="after")
@@ -41,7 +42,8 @@ class GraphSnapshot(BaseModel):
                         f"node {node.node_id} references unknown logical entity "
                         f"{definition.identity_id}"
                     )
-        self._memberships = RelationshipIndex(self.nodes)
+        self._nodes_by_id = {node.node_id: node for node in sorted(self.nodes, key=lambda item: item.node_id)}
+        self._memberships = RelationshipIndex(self._nodes_by_id)
         annotated = set()
         for annotation in self.annotations:
             if annotation.edge_id in annotated:
@@ -57,8 +59,10 @@ class GraphSnapshot(BaseModel):
     def memberships(self) -> RelationshipIndex:
         return self._memberships
 
-    def node_map(self) -> dict[str, DatasetNode]:
-        return {node.node_id: node for node in self.nodes}
+    @property
+    def nodes_by_id(self) -> dict[str, DatasetNode]:
+        """Dataset nodes by ``node_id``, built once at load."""
+        return self._nodes_by_id
 
     def annotation_map(self) -> dict[str, JoinAnnotation]:
         return {annotation.edge_id: annotation for annotation in self.annotations}

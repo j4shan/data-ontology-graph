@@ -27,10 +27,10 @@ class EntityDefinitionDiscovery:
         for node_id in self.node_ids:
             check_cancelled()
             identities = []
-            for key in self.memberships.by_dataset[node_id]:
+            for definition in self.memberships.nodes[node_id].entity_definitions:
                 check_cancelled()
-                if key.identity_id != self.identity_id:
-                    identities.append(key.identity_id)
+                if definition.identity_id != self.identity_id:
+                    identities.append(definition.identity_id)
             definitions.update(identities)
             datasets.update(set(identities))
         top = nsmallest(20, definitions, key=lambda identity: (-definitions[identity], identity))
@@ -47,7 +47,7 @@ class EntityDefinitionDiscovery:
         selected = []
         for node_id in node_ids:
             primary = set(self.primary_by_dataset[node_id])
-            for key in self.memberships.by_dataset[node_id]:
+            for key in self.memberships.definition_keys(node_id):
                 check_cancelled()
                 if key in primary or key.identity_id in target_entities:
                     selected.append(key)

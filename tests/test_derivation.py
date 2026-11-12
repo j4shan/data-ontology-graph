@@ -39,6 +39,10 @@ def _definition(
     )
 
 
+def _index(nodes: list[DatasetNode]) -> RelationshipIndex:
+    return RelationshipIndex({node.node_id: node for node in nodes})
+
+
 def _node(name: str, definitions: list[EntityDefinition]) -> DatasetNode:
     columns = sorted({column for definition in definitions for column in definition.dataset_columns})
     return DatasetNode(
@@ -120,7 +124,7 @@ def test_every_two_definitions_of_one_identity_are_related() -> None:
         _node("d", [_definition(["other"], identity_id="group")]),
     ]
 
-    index = RelationshipIndex(nodes)
+    index = _index(nodes)
 
     related = {
         identity: {index.pair(left, right).edge_id for left, right in combinations(keys, 2)}
@@ -141,7 +145,7 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
         ],
     )
 
-    relationship = RelationshipIndex([link]).pair(*RelationshipIndex([link]).by_identity["device"])
+    relationship = _index([link]).pair(*_index([link]).by_identity["device"])
 
     assert relationship.endpoint_a.node_id == relationship.endpoint_b.node_id == link.node_id
     assert relationship.endpoint_a.dataset_columns == ["device_a"]
@@ -151,7 +155,7 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
 
 
 def test_a_definition_alone_yields_no_relationship() -> None:
-    index = RelationshipIndex([_node("a", [_definition(unique=False)])])
+    index = _index([_node("a", [_definition(unique=False)])])
     assert len(index.by_identity["device"]) == 1
     assert index.degree("dataset:a") == 0
 
@@ -165,7 +169,7 @@ def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) 
         pytest.fail("membership construction must not derive relationship objects")
 
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
-    index = RelationshipIndex(nodes)
+    index = _index(nodes)
     assert len(index.definitions) == len(index.endpoints) == 40
     assert len(index.by_identity["device"]) == 40
     assert len(index) == 780
@@ -178,7 +182,7 @@ def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() ->
         _node("b", [_definition(unique=True, universe="complete")]),
         _node("c", [_definition(identity_id="unrelated")]),
     ]
-    index = RelationshipIndex(nodes)
+    index = _index(nodes)
     assert len(index) == 3
     assert index.degree(nodes[0].node_id) == 4
     assert index.degree(nodes[1].node_id) == 2
@@ -201,7 +205,7 @@ def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() ->
 
 
 def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
-    index = RelationshipIndex([
+    index = _index([
         _node("a__b:c", [_definition(["x+y__z"], identity_id="identity:__id")]),
         _node("d__e:f", [_definition(["r:s__t"], identity_id="identity:__id")]),
     ])
@@ -212,7 +216,7 @@ def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
 
 
 def test_membership_id_resolution_rejects_ambiguous_legacy_tokens() -> None:
-    index = RelationshipIndex([
+    index = _index([
         _node("a", [_definition(["x", "y"]), _definition(["x+y"])]),
         _node("b", [_definition()]),
     ])

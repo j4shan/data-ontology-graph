@@ -70,7 +70,7 @@ class _DatasetEdges(Sequence[DirectedEdge]):
 
     def __iter__(self) -> Iterator[DirectedEdge]:
         index = self.memberships
-        for source in index.by_dataset[self.node_id]:
+        for source in index.definition_keys(self.node_id):
             for target in index.by_identity[source.identity_id]:
                 if target != source:
                     yield DirectedEdge(index.pair(source, target), index.endpoints[source], index.endpoints[target])
@@ -86,13 +86,13 @@ class MembershipDirectedEdges(Mapping[str, Sequence[DirectedEdge]]):
         self.memberships = memberships
 
     def __len__(self) -> int:
-        return len(self.memberships.by_dataset)
+        return len(self.memberships.nodes)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self.memberships.by_dataset)
+        return iter(self.memberships.nodes)
 
     def __getitem__(self, node_id: str) -> Sequence[DirectedEdge]:
-        if node_id not in self.memberships.by_dataset:
+        if node_id not in self.memberships.nodes:
             raise KeyError(node_id)
         return _DatasetEdges(self.memberships, node_id)
 

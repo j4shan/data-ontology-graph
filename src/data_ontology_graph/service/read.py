@@ -10,7 +10,7 @@ from threading import Event
 from typing import Any
 
 from data_ontology_graph.model.claims import ClaimModel
-from data_ontology_graph.model.dataset import DatasetNode, EntityDefinition, effective_description
+from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition, effective_description
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.enums import EntityUniverse
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -94,14 +94,14 @@ class GraphReadIndex:
     def __init__(self, snapshot: GraphSnapshot) -> None:
         self.snapshot = snapshot
         self.fingerprint = hashlib.sha256(snapshot.model_dump_json().encode()).hexdigest()
-        self.nodes = {node.node_id: node for node in snapshot.nodes}
+        self.nodes = snapshot.nodes_by_id
         self.identities = {
             identity.identity_id: identity for identity in snapshot.logical_identities
         }
         self.memberships = snapshot.memberships
         self.definitions = self.memberships.definitions
         self.directed_edges = MembershipDirectedEdges(self.memberships)
-        self.paths = PathGraph(snapshot.nodes, self.memberships)
+        self.paths = PathGraph(self.memberships)
         self.annotations = snapshot.annotation_map()
         self.search = LexicalSearchIndex(snapshot)
 

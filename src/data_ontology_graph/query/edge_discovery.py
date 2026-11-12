@@ -21,7 +21,8 @@ class EdgeDiscovery:
         definitions: Counter[str] = Counter()
         datasets: Counter[str] = Counter()
         for node_id in self.connected:
-            identities = [key.identity_id for key in self.memberships.by_dataset[node_id]]
+            node = self.memberships.nodes[node_id]
+            identities = [definition.identity_id for definition in node.entity_definitions]
             definitions.update(identities)
             datasets.update(set(identities))
         top = nsmallest(20, definitions, key=lambda identity: (-definitions[identity], identity))
@@ -63,7 +64,7 @@ def discover_edges(
 ) -> EdgeDiscovery:
     """Select the complete neighbourhood before any detail limit or pair derivation."""
     source_keys = [
-        key for key in memberships.by_dataset[node_id]
+        key for key in memberships.definition_keys(node_id)
         if (identity_id is None or key.identity_id == identity_id)
         and (from_dataset_columns is None or key.dataset_columns == tuple(from_dataset_columns))
     ]
