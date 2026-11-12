@@ -17,11 +17,11 @@
 | ID | Clause |
 | --- | --- |
 | 2.1.1 | The service exposes one JSON-RPC 2.0 request/response interface over a Unix-domain socket. Every call carries a request `id` and receives exactly one result or error. Notifications are not supported, and HTTP/OpenAPI is not part of the interface. |
-| 2.1.2 | The methods are snapshot information, lexical search, logical entity and dataset lookup, relationship detail, a dataset's edges, breadth-first subgraph expansion, ranked paths, and connecting subgraphs. `graph.snapshot_info` reports the graph API version, the snapshot version, and the numbers of datasets, entity definitions, and logical entities. |
+| 2.1.2 | The methods are snapshot information, lexical search, logical entity and dataset lookup, relationship detail, a dataset's edges, breadth-first subgraph expansion, ranked paths, and connecting subgraphs. `graph.snapshot_info` reports the graph API version and the snapshot version. |
 | 2.1.3 | Responses are uncompressed text that the agent reads as sent. Response size is reduced by response structure, not transport compression. |
 | 2.1.4 | Each operation returns a lightweight default and lets the caller request non-default metadata. Navigation methods do so through detail levels and added fields (2.4.6–2.4.8). |
 | 2.1.5 | Every dataset, entity definition, and relationship in a response carries `unknown_fields`, the typed claims whose value is `unknown`. A directed edge names them relative to the dataset it leaves (`multiplicity`, `match_existence`, `reverse_multiplicity`, `reverse_match_existence`); canonical relationship detail names them `a_to_b.*` and `b_to_a.*`. |
-| 2.1.6 | `api_version`, currently `"5"`, names the graph API contract: its methods, parameters, and response shapes. It rises only on a breaking change, such as a renamed or removed method, parameter, or field, or a changed meaning. Additions keep the same API version. |
+| 2.1.6 | `api_version`, currently `"4"`, names the graph API contract: its methods, parameters, and response shapes. It rises only on a breaking change, such as a renamed or removed method, parameter, or field, or a changed meaning. Additions keep the same API version. |
 
 ### Search
 
@@ -71,7 +71,7 @@
 
 | ID | Clause |
 | --- | --- |
-| 2.5.1 | `build_snapshot_from_yaml(path)` takes an assembled YAML file or a finalized `yaml/` directory and returns the snapshot and the build report. |
+| 2.5.1 | `build_snapshot_from_yaml(path)` takes an assembled YAML file or a finalized `yaml/` directory and returns the snapshot, the build report, and validation findings. |
 | 2.5.2 | `data-ontology-graph-publish` takes a finalized YAML directory and replaces the current artifact, by default in the service home. `data-ontology-graph-server` serves a snapshot directory on a socket path, by default the service home's, and `data-ontology-graph-client` calls the same interface used in production. |
 | 2.5.3 | `data-ontology-graph-launchd` provides `setup`, which writes the job's property list into the service home without starting it, and `start`, `stop`, `reload`, and `status`. `start` and `reload` wait until the service answers `graph.snapshot_info`. |
 | 2.5.5 | The service home is one private, per-user directory, `~/.data-ontology-graph` or `$DOG_HOME`, created with owner-only permissions. It holds the job's property list (`service.plist`), the current artifact (`current-graph/`), the socket while the service runs (`graph.sock`), and the logs (`logs/`). Every command and bundled script resolves the socket as an explicit `--socket`, then `$DOG_SOCKET`, then the service home's. |
@@ -120,7 +120,7 @@
 | --- | --- |
 | 3.4.1 | A snapshot carries its `version`, the UTC build time to the second in `YYYY-MM-DDTHH:MM:SSZ` form, its logical entities (`logical_identities`), dataset nodes with their entity definitions, and sparse annotations. The entity definitions are the authoritative logical-entity memberships. A new artifact does not persist an array of all derived relationships. |
 | 3.4.2 | A snapshot rejects duplicate node or logical-entity IDs, invalid or duplicate entity definitions, and references to unknown nodes, logical entities, or definitions. An annotated relationship must resolve to two distinct definitions of the same registered logical entity. Validating a membership snapshot does not enumerate unannotated endpoint pairs. |
-| 3.4.3 | The registry and dataset definitions are persisted in `nodes.json`, and sparse annotations in `annotations.json`, with matching snapshot versions. Loading a newly written artifact rebuilds membership indexes without reading an all-pairs edge file. An artifact holding `edges.json` is refused at load and must be republished from its YAML source. |
+| 3.4.3 | The registry and dataset definitions are persisted in `nodes.json`, and sparse annotations in `annotations.json`, with matching snapshot versions. Loading a newly written artifact rebuilds membership indexes without reading an all-pairs edge file. Existing artifacts with `edges.json` may be loaded by validating their relationships against the definitions and then retaining the memberships; republication writes the compact representation. A legacy artifact read remains proportional to its supplied size. |
 
 ### Search index
 
