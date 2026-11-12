@@ -22,7 +22,7 @@ LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 
 
 def _service() -> GraphReadService:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    snapshot, _ = build_snapshot_from_yaml(LENDING)
     return GraphReadService(snapshot)
 
 

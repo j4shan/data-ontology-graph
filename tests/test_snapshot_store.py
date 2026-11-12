@@ -16,7 +16,7 @@ VALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid
 
 
 def test_snapshot_round_trip() -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     edge_id = first_relationship(snapshot).edge_id
     snapshot.annotations = [
         JoinAnnotation(edge_id=edge_id, description="customer relationship", tags=["core"])
@@ -35,7 +35,7 @@ def test_snapshot_round_trip() -> None:
 
 
 def test_published_snapshot_derives_the_same_canonical_relationship(tmp_path: Path) -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     canonical = first_relationship(snapshot)
 
     artifact = tmp_path / "current"
@@ -55,7 +55,7 @@ def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monke
         pytest.fail("build, persistence, validation, and reports must not construct pairs")
 
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
-    snapshot, report, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, report = build_snapshot_from_yaml(VALID_EXAMPLE)
     assert report.edge_count == len(snapshot.memberships) == 1
     assert not any(location.startswith("edges[") for location in report.unknown_fields)
     left, right = snapshot.memberships.by_identity["customer_identity"]
@@ -71,7 +71,7 @@ def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monke
 
 
 def test_stored_relationship_artifact_is_refused_with_republication_advice(tmp_path) -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     store = CurrentArtifactStore(tmp_path / "current")
     store.publish(snapshot)
     (store.directory / "edges.json").write_text(json.dumps({"version": snapshot.version, "edges": []}))
@@ -80,7 +80,7 @@ def test_stored_relationship_artifact_is_refused_with_republication_advice(tmp_p
 
 
 def test_sparse_annotations_require_a_resolvable_unique_pair() -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     edge_id = first_relationship(snapshot).edge_id
     for annotations, message in [
         ([{"edge_id": "missing"}], "unknown edge"),

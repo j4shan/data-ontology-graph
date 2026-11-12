@@ -151,7 +151,7 @@ def test_manifest_directory_is_assembled_deterministically(tmp_path: Path) -> No
     yaml_directory, payload = _manifest_directory(tmp_path)
 
     definition = load_intermediary_directory(yaml_directory)
-    snapshot, report, _ = build_snapshot_from_yaml(yaml_directory)
+    snapshot, report = build_snapshot_from_yaml(yaml_directory)
 
     assert [node.node_id for node in definition.nodes] == sorted(
         node["node_id"] for node in payload["nodes"]
@@ -327,7 +327,7 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
 
 def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     definition = load_intermediary_yaml(LENDING)
-    snapshot, report, contradictions = build_snapshot_from_yaml(LENDING)
+    snapshot, report = build_snapshot_from_yaml(LENDING)
 
     assert len(definition.nodes) == 5
     assert sum(len(node.columns) for node in definition.nodes) == 17
@@ -335,7 +335,6 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     assert len(definition.logical_identities) == 5
     # account: 3 definitions, 3 pairs; customer: 2 definitions, 1 pair; region: 3, 3 pairs.
     assert report.edge_count == 7
-    assert contradictions == []
 
     nodes = {node.descriptor.display_name: node for node in snapshot.nodes}
     loan_columns = nodes["loan"].column_map()
@@ -358,7 +357,7 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
 
 
 def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     store = CurrentArtifactStore(tmp_path / "current")
     location = store.publish(snapshot)
     loaded = store.load()
@@ -384,7 +383,7 @@ def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> No
 
 
 def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
-    _, report, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    _, report = build_snapshot_from_yaml(VALID_EXAMPLE)
 
     assert report.unknown_fields == [
         "nodes[dataset_a].entity_definitions[customer_identity:c1+c2+c3].total",
@@ -393,7 +392,7 @@ def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
 
 
 def test_unreviewed_universe_status_is_reported_as_unknown() -> None:
-    _, report, _ = build_snapshot_from_yaml(LENDING)
+    _, report = build_snapshot_from_yaml(LENDING)
     universe_gaps = [
         location for location in report.unknown_fields if location.endswith(".entity_universe")
     ]

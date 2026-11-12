@@ -17,7 +17,7 @@ LENDING = Path(__file__).parent / "fixtures" / "lending" / "catalog.yaml"
 @pytest.fixture
 def lending_socket() -> Iterator[Path]:
     """Serve the lending snapshot on a Unix socket from a background event loop."""
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    snapshot, _ = build_snapshot_from_yaml(LENDING)
     # macOS limits AF_UNIX paths to roughly 104 bytes, so the socket lives under /tmp.
     with tempfile.TemporaryDirectory(prefix="dog-", dir="/tmp") as directory:
         socket_path = Path(directory) / "graph.sock"

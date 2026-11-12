@@ -122,7 +122,7 @@ def test_a_dataset_appears_once() -> None:
 
 
 def _service() -> ServiceSource:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
+    snapshot, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
     return ServiceSource(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
 
 

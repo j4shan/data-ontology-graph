@@ -88,7 +88,7 @@ def _requests(snapshot) -> list[tuple[str, dict]]:
 
 
 def _responses(catalog: str) -> list[dict]:
-    snapshot, _, _ = build_snapshot_from_yaml(FIXTURES / catalog / "catalog.yaml")
+    snapshot, _ = build_snapshot_from_yaml(FIXTURES / catalog / "catalog.yaml")
     dispatcher = JsonRpcDispatcher(GraphReadService(snapshot))
     calls = _requests(snapshot)
     raw = [dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}) for m, p in calls]
@@ -124,7 +124,7 @@ def test_responses_match_pinned_expectations(catalog: str) -> None:
 
 @pytest.mark.parametrize("catalog", CATALOGS)
 def test_requests_derive_no_more_relationships_than_they_list(catalog: str, monkeypatch) -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(FIXTURES / catalog / "catalog.yaml")
+    snapshot, _ = build_snapshot_from_yaml(FIXTURES / catalog / "catalog.yaml")
     dispatcher = JsonRpcDispatcher(GraphReadService(snapshot))
     calls = {"count": 0}
     original = derivation.JoinRelationship

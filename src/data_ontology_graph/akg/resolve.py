@@ -64,7 +64,7 @@ class YamlSource(ServiceSource):
 
     @classmethod
     def load(cls, path: Path | str) -> "YamlSource":
-        snapshot, _, _ = build_snapshot_from_yaml(path)
+        snapshot, _ = build_snapshot_from_yaml(path)
         return cls(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
 
     def snapshot(self) -> dict[str, Any] | None:

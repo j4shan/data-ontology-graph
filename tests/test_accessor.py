@@ -34,7 +34,7 @@ def _node(payload: dict, node_id: str) -> dict:
 
 
 def _service() -> GraphReadService:
-    snapshot, _, _ = build_snapshot_from_yaml(OPEN)
+    snapshot, _ = build_snapshot_from_yaml(OPEN)
     return GraphReadService(snapshot)
 
 
@@ -76,7 +76,7 @@ def test_accessor_rejects_missing_or_blank_required_fields_and_empty_optional_fi
 
 
 def test_open_accessor_catalog_builds_every_provider_without_warnings() -> None:
-    snapshot, report, _ = build_snapshot_from_yaml(OPEN)
+    snapshot, report = build_snapshot_from_yaml(OPEN)
     assert report.node_count == 10 and report.warnings == []
     kinds = {node.accessor.kind for node in snapshot.nodes}
     assert kinds == {
@@ -91,7 +91,7 @@ def test_soft_limit_warns_and_never_rejects(length: int, warned: bool) -> None:
     payload = _payload()
     # `{"endpoint":"…","kind":"k"}` adds 26 characters around the endpoint.
     _node(payload, S3)["accessor"] = {"kind": "k", "endpoint": "e" * (length - 26)}
-    snapshot, report, _ = build_snapshot_from_definition(
+    snapshot, report = build_snapshot_from_definition(
         IntermediaryDefinition.model_validate(payload)
     )
     assert len(snapshot.node_map()[S3].accessor.canonical_json()) == length
@@ -109,7 +109,7 @@ def test_equal_accessors_are_rejected_even_when_labels_differ() -> None:
     with pytest.raises(ValidationError, match="same accessor kind, endpoint, and properties"):
         IntermediaryDefinition.model_validate(payload)
 
-    snapshot, _, _ = build_snapshot_from_yaml(OPEN)
+    snapshot, _ = build_snapshot_from_yaml(OPEN)
     data = snapshot.model_dump(mode="json")
     nodes = {node["node_id"]: node for node in data["nodes"]}
     nodes[PG_EU]["accessor"] = nodes[PG_US]["accessor"]

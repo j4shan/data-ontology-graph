@@ -51,7 +51,7 @@ def _service(tmp_path: Path, description: str | None = None) -> GraphReadService
         region["description"] = description
     source = tmp_path / "catalog.yaml"
     source.write_text(yaml.safe_dump(payload), encoding="utf-8")
-    snapshot, _, _ = build_snapshot_from_yaml(source)
+    snapshot, _ = build_snapshot_from_yaml(source)
     return GraphReadService(snapshot)
 
 

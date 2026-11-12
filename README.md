@@ -70,7 +70,7 @@ and AKG evaluation live in the sibling [Critic](../data-ontology-agent-critic/) 
 ```python
 from data_ontology_graph.builder import build_snapshot_from_yaml
 
-snapshot, report, findings = build_snapshot_from_yaml(
+snapshot, report = build_snapshot_from_yaml(
     "path/to/catalog/yaml"
 )
 ```

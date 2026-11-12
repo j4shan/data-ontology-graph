@@ -31,7 +31,7 @@ def proxy():
 
 @pytest.fixture
 def graph_transport(proxy, monkeypatch):
-    snapshot, _, _ = build_snapshot_from_yaml(ROOT / "tests/fixtures/lending/catalog.yaml")
+    snapshot, _ = build_snapshot_from_yaml(ROOT / "tests/fixtures/lending/catalog.yaml")
     dispatcher = JsonRpcDispatcher(GraphReadService(snapshot))
     calls = []
 

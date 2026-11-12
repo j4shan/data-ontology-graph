@@ -44,7 +44,7 @@ def service_for(names, links, **kwargs):
     multiplicities come from the `unique` claims of its two entity definitions, and every
     entity definition is `total`, conforming, and `complete`, so match existence is `always`.
     """
-    snapshot, _, _ = build_snapshot_from_yaml(CATALOG)
+    snapshot, _ = build_snapshot_from_yaml(CATALOG)
     template = next(node for node in snapshot.nodes if node.node_id == "sqlite:lending.account")
     definition = next(d for d in template.entity_definitions if d.identity_id == "account_identity")
     link_identities = {tuple(link[:2]): f"{link[0]}~{link[1]}" for link in links}

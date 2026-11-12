@@ -25,7 +25,7 @@ LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 
 
 def _service() -> GraphReadService:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    snapshot, _ = build_snapshot_from_yaml(LENDING)
     return GraphReadService(snapshot)
 
 
@@ -204,7 +204,7 @@ def test_search_orders_subjects_by_best_match_then_label() -> None:
 
 
 def test_search_matches_name_fragments_word_by_word() -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    snapshot, _ = build_snapshot_from_yaml(LENDING)
     snapshot.logical_identities[0].name = "Master Production Schedule"
     snapshot.nodes[0].descriptor.display_name = "Master Production Schedule"
     service = GraphReadService(snapshot)
@@ -256,7 +256,7 @@ def test_search_word_matches_only_within_one_name_value() -> None:
 
 
 def test_search_ranks_an_identity_by_its_best_match() -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    snapshot, _ = build_snapshot_from_yaml(LENDING)
     snapshot.logical_identities[0].name = "Master Production Schedule"
     snapshot.logical_identities[0].synonyms = ["production schedule"]
     response = GraphReadService(snapshot).search(
@@ -682,7 +682,7 @@ EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid.yaml"
 
 
 def _example_service() -> GraphReadService:
-    snapshot, _, _ = build_snapshot_from_yaml(EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(EXAMPLE)
     return GraphReadService(snapshot)
 
 

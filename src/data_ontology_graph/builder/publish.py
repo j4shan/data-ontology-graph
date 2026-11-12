@@ -14,7 +14,7 @@ def publish_current_artifact(
     yaml_directory: Path,
     artifact_directory: Path,
 ) -> tuple[Path, ExplicitBuildReport]:
-    snapshot, report, _ = build_snapshot_from_yaml(yaml_directory)
+    snapshot, report = build_snapshot_from_yaml(yaml_directory)
     published = CurrentArtifactStore(artifact_directory).publish(snapshot)
     return published, report
 
