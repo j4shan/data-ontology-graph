@@ -130,19 +130,15 @@ def test_edge_identity_and_directional_cardinality() -> None:
     assert derived_cardinality(relationship, right.node_id) == Cardinality.ONE_TO_N
 
 
-def test_snapshot_requires_registered_endpoint_definitions() -> None:
+def test_snapshot_does_not_accept_stored_relationships() -> None:
     left = _node("events")
     right = _node("customers")
-    relationship = _relationship(left, right)
-    relationship.endpoint_b.node_id = "dataset:missing"
-    relationship.edge_id = edge_id_for(relationship.endpoint_a, relationship.endpoint_b)
-
-    with pytest.raises(ValidationError, match="unknown dataset"):
+    with pytest.raises(ValidationError, match="edges"):
         GraphSnapshot(
             version=snapshot_version(),
             logical_identities=[LogicalIdentity(identity_id="customer", name="Customer")],
             nodes=[left, right],
-            edges=[relationship],
+            edges=[_relationship(left, right)],
         )
 
 

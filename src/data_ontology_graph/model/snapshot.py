@@ -5,10 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
 from data_ontology_graph.model.derivation import RelationshipIndex, RelationshipSequence
 from data_ontology_graph.model.intermediary import LogicalIdentity
-from data_ontology_graph.model.relationship import (
-    JoinAnnotation,
-    JoinRelationship,
-)
+from data_ontology_graph.model.relationship import JoinAnnotation
 
 
 
@@ -22,9 +19,6 @@ class GraphSnapshot(BaseModel):
     )
     logical_identities: list[LogicalIdentity] = Field(default_factory=list)
     nodes: list[DatasetNode]
-    legacy_edges: list[JoinRelationship] | None = Field(
-        default=None, validation_alias="edges", exclude=True, repr=False,
-    )
     annotations: list[JoinAnnotation] = Field(default_factory=list)
     _memberships: RelationshipIndex = PrivateAttr()
 
@@ -36,7 +30,6 @@ class GraphSnapshot(BaseModel):
         duplicates = duplicate_accessor_messages(self.nodes)
         if duplicates:
             raise ValueError("; ".join(duplicates))
-        nodes = {node.node_id: node for node in self.nodes}
         identity_ids = [identity.identity_id for identity in self.logical_identities]
         if len(identity_ids) != len(set(identity_ids)):
             raise ValueError("logical entity ID (identity_id) values must be unique")
@@ -49,26 +42,6 @@ class GraphSnapshot(BaseModel):
                         f"{definition.identity_id}"
                     )
         self._memberships = RelationshipIndex(self.nodes)
-        edge_ids = set()
-        for edge in self.legacy_edges or ():
-            if edge.edge_id in edge_ids:
-                raise ValueError("edge_id values must be unique")
-            edge_ids.add(edge.edge_id)
-            for endpoint in (edge.endpoint_a, edge.endpoint_b):
-                if endpoint.node_id not in nodes:
-                    raise ValueError(
-                        f"edge {edge.edge_id} references unknown dataset {endpoint.node_id}"
-                    )
-                if endpoint.identity_key() not in self._memberships.definitions:
-                    raise ValueError(
-                        f"edge {edge.edge_id} endpoint does not resolve to an entity definition"
-                    )
-            expected = self._memberships.pair(
-                edge.endpoint_a.identity_key(), edge.endpoint_b.identity_key(),
-            )
-            if edge != expected:
-                raise ValueError(f"edge {edge.edge_id} claims disagree with its entity definitions")
-        self.legacy_edges = None
         annotated = set()
         for annotation in self.annotations:
             if annotation.edge_id in annotated:

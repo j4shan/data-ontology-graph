@@ -16,12 +16,11 @@ class SnapshotStore:
 
     def load(self, directory: Path) -> GraphSnapshot:
         nodes_doc = json.loads((directory / "nodes.json").read_text(encoding="utf-8"))
-        edges_path = directory / "edges.json"
-        legacy = {}
-        if edges_path.exists():
-            edges_doc = json.loads(edges_path.read_text(encoding="utf-8"))
-            _require_same_envelope(nodes_doc, edges_doc, "edges.json")
-            legacy["edges"] = edges_doc["edges"]
+        if (directory / "edges.json").exists():
+            raise ValueError(
+                f"{directory} holds edges.json from a stored-relationship release; "
+                "republish the graph from its YAML source to load it"
+            )
         annotations_path = directory / "annotations.json"
         annotations = []
         if annotations_path.exists():
@@ -33,7 +32,6 @@ class SnapshotStore:
                 "version": nodes_doc["version"],
                 "logical_identities": nodes_doc.get("logical_identities", []),
                 "nodes": nodes_doc["nodes"],
-                **legacy,
                 "annotations": annotations,
             }
         )
