@@ -43,7 +43,6 @@ from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.query.neighbourhood import (
     DirectedEdge,
     EdgeGroup,
-    MembershipAdjacency,
     MembershipDirectedEdges,
     directed_edge_from,
     expand,
@@ -101,7 +100,6 @@ class GraphReadIndex:
         }
         self.memberships = snapshot.memberships
         self.definitions = self.memberships.definitions
-        self.adjacency = MembershipAdjacency(self.memberships)
         self.directed_edges = MembershipDirectedEdges(self.memberships)
         self.paths = PathGraph(snapshot.nodes, self.memberships)
         self.annotations = snapshot.annotation_map()
@@ -398,7 +396,7 @@ class GraphReadService:
         for node_id in terminals:
             self._node(node_id)
         view = View.resolve(request.detail, request.fields)
-        result = connecting_tree(self.index.adjacency, terminals)
+        result = connecting_tree(self.index.directed_edges, terminals)
         tree = set(result.edge_ids)
         datasets = [
             self._dataset_values(

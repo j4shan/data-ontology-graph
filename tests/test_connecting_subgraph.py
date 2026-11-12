@@ -18,7 +18,6 @@ from data_ontology_graph.rpc.protocol import INVALID_PARAMS, RESOURCE_NOT_FOUND,
 from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.contracts import ConnectingSubgraphRequest, PathsRequest
 from data_ontology_graph.service.read import GraphReadService
-from data_ontology_graph.service.tables import to_records
 from graph_records import by_id, edges, paths
 from test_json_rpc_service import _rpc_call
 
@@ -318,7 +317,7 @@ def full_mehlhorn(adjacency, terminals):
     queue = list(terminals)
     for current in queue:
         for edge in adjacency.get(current, ()):
-            other = edge.opposite(current).node_id
+            other = edge.target.node_id
             if other not in owner:
                 owner[other], distance[other] = owner[current], distance[current] + 1
                 predecessor[other] = (current, edge)
@@ -326,7 +325,7 @@ def full_mehlhorn(adjacency, terminals):
     candidates = {}
     for current in queue:
         for edge in adjacency.get(current, ()):
-            other = edge.opposite(current).node_id
+            other = edge.target.node_id
             if current < other and owner[current] != owner[other]:
                 pair = tuple(sorted((owner[current], owner[other])))
                 candidate = (distance[current] + 1 + distance[other], edge.edge_id, current, other)
@@ -359,8 +358,8 @@ def test_early_termination_matches_full_mehlhorn_on_random_graphs():
         links = sorted({tuple(sorted(rng.sample(names, 2))) for _ in range(len(names) * 2)})
         service = service_for(names, links)
         terminals = sorted(rng.sample(names, rng.randint(2, min(6, len(names)))))
-        tree = connecting_tree(service.index.adjacency, terminals)
-        expected = full_mehlhorn(service.index.adjacency, terminals)
+        tree = connecting_tree(service.index.directed_edges, terminals)
+        expected = full_mehlhorn(service.index.directed_edges, terminals)
         if expected is None:
             assert tree.status == "disconnected"
         else:
@@ -371,11 +370,12 @@ def test_early_termination_matches_full_mehlhorn_on_random_graphs():
 def test_search_stops_at_the_terminals_neighbourhood():
     names = [f"n{i:03}" for i in range(200)]
     service = service_for(names, list(zip(names, names[1:])))
-    adjacency = CountingAdjacency(service.index.adjacency)
+    adjacency = CountingAdjacency(service.index.directed_edges)
     tree = connecting_tree(adjacency, ["n100", "n101"])
-    assert tree.edge_ids == [service.index.adjacency["n100"][1].edge_id]
+    [between] = [edge for edge in service.index.directed_edges["n100"] if edge.target.node_id == "n101"]
+    assert tree.edge_ids == [between.edge_id]
     assert adjacency.expanded == 2
-    adjacency = CountingAdjacency(service.index.adjacency)
+    adjacency = CountingAdjacency(service.index.directed_edges)
     assert len(connecting_tree(adjacency, [names[0], names[-1]]).edge_ids) == 199
     assert adjacency.expanded <= len(names)
 

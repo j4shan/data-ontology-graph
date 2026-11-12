@@ -7,7 +7,6 @@ two directed edges. A dataset's directed edges are grouped by the entity definit
 from, and limits apply per group, so every entity definition stays visible.
 """
 
-from collections import defaultdict
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
@@ -59,16 +58,6 @@ def directed_edge_from(relationship: JoinRelationship, source_key: tuple) -> Dir
     raise KeyError(source_key)
 
 
-def directed_edges_by_dataset(relationships: Iterable[JoinRelationship]) -> dict[str, tuple[DirectedEdge, ...]]:
-    """Every dataset's directed edges in ``DirectedEdge.sort_key`` order."""
-    listed: dict[str, list[DirectedEdge]] = defaultdict(list)
-    for relationship in relationships:
-        a, b = relationship.endpoint_a, relationship.endpoint_b
-        listed[a.node_id].append(DirectedEdge(relationship, a, b))
-        listed[b.node_id].append(DirectedEdge(relationship, b, a))
-    return {node_id: tuple(sorted(edges, key=DirectedEdge.sort_key)) for node_id, edges in listed.items()}
-
-
 class _DatasetEdges(Sequence[DirectedEdge]):
     """A re-iterable outgoing-edge view; creating it does not derive a relationship."""
 
@@ -106,42 +95,6 @@ class MembershipDirectedEdges(Mapping[str, Sequence[DirectedEdge]]):
         if node_id not in self.memberships.by_dataset:
             raise KeyError(node_id)
         return _DatasetEdges(self.memberships, node_id)
-
-
-class _DatasetRelationships(Sequence[JoinRelationship]):
-    def __init__(self, memberships: RelationshipIndex, node_id: str) -> None:
-        self.memberships = memberships
-        self.node_id = node_id
-
-    def __len__(self) -> int:
-        return self.memberships.degree(self.node_id)
-
-    def __iter__(self) -> Iterator[JoinRelationship]:
-        return iter(sorted(
-            (edge.relationship for edge in _DatasetEdges(self.memberships, self.node_id)),
-            key=lambda relationship: relationship.edge_id,
-        ))
-
-    def __getitem__(self, position: int | slice) -> JoinRelationship | list[JoinRelationship]:
-        return list(self)[position]
-
-
-class MembershipAdjacency(Mapping[str, Sequence[JoinRelationship]]):
-    """Canonical relationship views used by the existing connecting-tree traversal."""
-
-    def __init__(self, memberships: RelationshipIndex) -> None:
-        self.memberships = memberships
-
-    def __len__(self) -> int:
-        return len(self.memberships.by_dataset)
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self.memberships.by_dataset)
-
-    def __getitem__(self, node_id: str) -> Sequence[JoinRelationship]:
-        if node_id not in self.memberships.by_dataset:
-            raise KeyError(node_id)
-        return _DatasetRelationships(self.memberships, node_id)
 
 
 @dataclass

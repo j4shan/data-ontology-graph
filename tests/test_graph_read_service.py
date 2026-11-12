@@ -39,8 +39,6 @@ def test_service_initialization_and_membership_lookup_do_not_construct_pairs(mon
         guard.setattr(derivation, "JoinRelationship", unexpected_pair)
         service = _service()
         assert service.snapshot_info().edge_count == 7
-        assert not service.index.paths.edges
-        assert not service.index.paths._edge_by_pair
         assert service.get_dataset("sqlite:lending.account").node_id == "sqlite:lending.account"
         assert service.get_entity_definitions("account_identity").entity_definitions
         assert service.search(SearchRequest(query="account", kind=["identity"])).groups
@@ -631,7 +629,7 @@ def test_default_bounds_do_not_depend_on_detail() -> None:
 def test_table_and_records_formats_carry_the_same_content() -> None:
     service = _service()
     account, region = "sqlite:lending.account", "sqlite:lending.customer"
-    edge_id = service.index.adjacency[account][0].edge_id
+    edge_id = min(edge.edge_id for edge in service.index.directed_edges[account])
     navigation = [
         lambda f: service.get_edges(account, response_format=f, detail="full"),
         lambda f: service.expand_subgraph(
@@ -803,7 +801,7 @@ def test_column_names_holding_a_delimiter_are_quoted() -> None:
 def test_every_response_presents_a_dataset_as_one_record() -> None:
     service = _service()
     account = "sqlite:lending.account"
-    edge_id = service.index.adjacency[account][0].edge_id
+    edge_id = min(edge.edge_id for edge in service.index.directed_edges[account])
     standard = ["node_id", "qualified_name", "accessor", "grain", "descriptor", "unknown_fields"]
     navigation = service.get_edges(account, response_format="records").datasets[0]
     identity = service.get_entity_definitions("region_identity", response_format="records").datasets[0]

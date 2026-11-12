@@ -21,7 +21,6 @@ from collections.abc import Callable, Iterable
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey
 from data_ontology_graph.model.derivation import RelationshipIndex, derived_multiplicity
 from data_ontology_graph.model.enums import Multiplicity
-from data_ontology_graph.model.relationship import JoinRelationship
 
 SOURCE = -1
 TARGET = -2
@@ -39,9 +38,7 @@ def _arrived(definition: int) -> State:
 
 
 class PathGraph:
-    def __init__(
-        self, nodes: Iterable[DatasetNode], relationships: RelationshipIndex | Iterable[JoinRelationship],
-    ) -> None:
+    def __init__(self, nodes: Iterable[DatasetNode], memberships: RelationshipIndex) -> None:
         self.keys: list[DefinitionKey] = []
         self.on_dataset: dict[str, list[int]] = defaultdict(list)
         for node in sorted(nodes, key=lambda item: item.node_id):
@@ -49,31 +46,15 @@ class PathGraph:
                 self.on_dataset[node.node_id].append(len(self.keys))
                 self.keys.append(definition.key(node.node_id))
         self._positions = {key: position for position, key in enumerate(self.keys)}
-        self._memberships = relationships if isinstance(relationships, RelationshipIndex) else None
-        self.edges: dict[int, list[tuple[int, Multiplicity, str]]] = defaultdict(list)
-        """Each definition's directed edges: (target definition, outgoing multiplicity, edge ID)."""
-        self._edge_by_pair: dict[tuple[int, int], str] = {}
-        if self._memberships is not None:
-            return
-        # Explicit relationship inputs remain useful for algorithm-level tests.
-        for relationship in sorted(relationships, key=lambda item: item.edge_id):
-            a = self._positions[relationship.endpoint_a.identity_key()]
-            b = self._positions[relationship.endpoint_b.identity_key()]
-            self.edges[a].append((b, relationship.a_to_b.multiplicity, relationship.edge_id))
-            self.edges[b].append((a, relationship.b_to_a.multiplicity, relationship.edge_id))
-            self._edge_by_pair[(a, b)] = self._edge_by_pair[(b, a)] = relationship.edge_id
+        self._memberships = memberships
 
     def edge_id(self, source: int, target: int) -> str:
-        if self._memberships is not None:
-            return self._memberships.edge_id(self.keys[source], self.keys[target])
-        return self._edge_by_pair[(source, target)]
+        return self._memberships.edge_id(self.keys[source], self.keys[target])
 
     def successors(self, definition: int) -> Iterable[tuple[int, Multiplicity, str]]:
+        """Directed edges leaving ``definition``: (target definition, multiplicity, edge ID)."""
         index = self._memberships
-        if index is None:
-            return self.edges.get(definition, ())
         source = self.keys[definition]
-        # The previous materialized index ordered each definition's edges by canonical ID.
         return sorted((
             (self._positions[target], derived_multiplicity(index.definitions[source], index.definitions[target]),
              index.edge_id(source, target))
