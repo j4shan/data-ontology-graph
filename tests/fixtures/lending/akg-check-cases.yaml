@@ -1,6 +1,7 @@
 # Lending AKG check cases: one rule per case.
 # Each case changes a valid fixture at a key path (a list of keys and list indexes): delete a
-# value, set a value, or rename a map key. `final: true` checks with the finalize rules.
+# value, set a value, or rename a map key. `final: true` checks with the finalize rules, and an
+# optional `location` is the path the finding must name.
 # In akg-single.json, datasets are loan (0), account (1), and region (2); loan's directed edge to
 # account is edge_groups[0].entity_definitions[0].edges[0], its positions named by edge_fields.
 cases:
@@ -9,6 +10,18 @@ cases:
   expected: missing
   severity: error
   delete: [question]
+- case: dataset accessor without its kind
+  base: akg-single.json
+  expected: missing
+  severity: error
+  location: $.datasets[0].accessor.kind
+  delete: [datasets, 0, accessor, kind]
+- case: dataset accessor without its endpoint
+  base: akg-single.json
+  expected: missing
+  severity: error
+  location: $.datasets[0].accessor.endpoint
+  delete: [datasets, 0, accessor, endpoint]
 - case: datasets written as a map
   base: akg-single.json
   expected: list_type
@@ -43,20 +56,20 @@ cases:
   severity: error
   set:
     path: [datasets, 1, edge_groups, 0, entity_definitions, 0, edges, 0, 7]
-    value: "sqlite:lending.region:region_identity:region_id__sqlite:lending.account:region_identity:region_id"
+    value: "D10-D2"
 - case: usage keyed by an edge the entity definition does not hold
   base: akg-single.json
   expected: usage_key
   severity: error
   set:
     path: [datasets, 0, edge_groups, 0, entity_definitions, 0, usage]
-    value: {"sqlite:lending.account:region_identity:region_id__sqlite:lending.region:region_identity:region_id": {"note": "x"}}
+    value: {"D2-D10": {"note": "x"}}
 - case: keep names neither end of the directed edge
   base: akg-single.json
   expected: not_an_endpoint
   severity: error
   set:
-    path: [datasets, 0, edge_groups, 0, entity_definitions, 0, usage, "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id", keep]
+    path: [datasets, 0, edge_groups, 0, entity_definitions, 0, usage, "D1-D8", keep]
     value: [sqlite:lending.region]
 - case: dangling end in a draft
   base: akg-disjoint.json
@@ -87,7 +100,7 @@ cases:
   severity: warning
   set:
     path: [gaps, region-match, edges]
-    value: [{node_id: sqlite:lending.region, edge_id: "sqlite:lending.account:region_identity:region_id__sqlite:lending.region:region_identity:region_id"}]
+    value: [{definition_id: D10, edge_id: "D2-D10"}]
 - case: unknown key
   base: akg-single.json
   expected: unknown_key

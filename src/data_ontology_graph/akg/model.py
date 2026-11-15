@@ -58,6 +58,7 @@ class Descriptor(OpenModel):
 
 
 class Column(OpenModel):
+    id: str | None = Field(default=None, description="The column's snapshot-local ID.")
     name: str = Field(min_length=1)
     description: str | None = None
     value_description: str | None = None
@@ -65,6 +66,7 @@ class Column(OpenModel):
 
 
 class EntityDefinition(OpenModel):
+    id: str | None = Field(default=None, description="The entity definition's snapshot-local ID.")
     identity_id: str = Field(min_length=1)
     dataset_columns: list[str] = Field(min_length=1)
     entity_universe: EntityUniverse | None = None
@@ -94,6 +96,7 @@ class EdgeUsage(OpenModel):
 class GroupDefinition(OpenModel):
     """One entity definition of an edge group, with its selected directed edges."""
 
+    id: str = Field(min_length=1, description="The entity definition's snapshot-local ID.")
     dataset_columns: list[str] = Field(min_length=1)
     edges: list[list[JsonValue]] = Field(
         description="Directed-edge arrays at the positions the document's `edge_fields` names."
@@ -143,7 +146,9 @@ class Dataset(OpenModel):
 
 
 class EdgeReference(OpenModel):
-    node_id: str = Field(min_length=1, description="The dataset that holds the directed edge.")
+    definition_id: str = Field(
+        min_length=1, description="The `id` of the entity definition the directed edge leaves."
+    )
     edge_id: str = Field(min_length=1)
 
 

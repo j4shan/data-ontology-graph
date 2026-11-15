@@ -67,6 +67,19 @@
           "default": null,
           "title": "Description"
         },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The column's snapshot-local ID.",
+          "title": "Id"
+        },
         "name": {
           "minLength": 1,
           "title": "Name",
@@ -491,20 +504,20 @@
     "EdgeReference": {
       "additionalProperties": true,
       "properties": {
+        "definition_id": {
+          "description": "The `id` of the entity definition the directed edge leaves.",
+          "minLength": 1,
+          "title": "Definition Id",
+          "type": "string"
+        },
         "edge_id": {
           "minLength": 1,
           "title": "Edge Id",
           "type": "string"
-        },
-        "node_id": {
-          "description": "The dataset that holds the directed edge.",
-          "minLength": 1,
-          "title": "Node Id",
-          "type": "string"
         }
       },
       "required": [
-        "node_id",
+        "definition_id",
         "edge_id"
       ],
       "title": "EdgeReference",
@@ -667,6 +680,19 @@
           ],
           "default": null
         },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The entity definition's snapshot-local ID.",
+          "title": "Id"
+        },
         "identity_id": {
           "minLength": 1,
           "title": "Identity Id",
@@ -824,6 +850,12 @@
           "title": "Edges",
           "type": "array"
         },
+        "id": {
+          "description": "The entity definition's snapshot-local ID.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
         "usage": {
           "anyOf": [
             {
@@ -842,6 +874,7 @@
         }
       },
       "required": [
+        "id",
         "dataset_columns",
         "edges"
       ],

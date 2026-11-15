@@ -2,22 +2,20 @@
 import ast
 import importlib.util
 import json
-from pathlib import Path
 import re
 
 import pytest
 
-from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
 from data_ontology_graph.service.read import GraphReadService
+from testkit import ROOT, snapshot_of
 
 
-ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "skills/query-graph-api/scripts/query.py"
 LOAN = "sqlite:lending.loan"
 REGION = "sqlite:lending.region"
 LOAN_ACCOUNT = (
-    "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+    "D1-D8"
 )
 
 
@@ -31,8 +29,7 @@ def proxy():
 
 @pytest.fixture
 def graph_transport(proxy, monkeypatch):
-    snapshot, _ = build_snapshot_from_yaml(ROOT / "tests/fixtures/lending/catalog.yaml")
-    dispatcher = JsonRpcDispatcher(GraphReadService(snapshot))
+    dispatcher = JsonRpcDispatcher(GraphReadService(snapshot_of()))
     calls = []
 
     def call(socket_path, method, params):

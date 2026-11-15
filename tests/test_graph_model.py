@@ -3,15 +3,12 @@ from pydantic import ValidationError
 
 from data_ontology_graph.model.dataset import (
     ColumnMetadata,
-    DatasetAccessor,
-    DatasetDescriptor,
     DatasetGrain,
     DatasetNode,
     EntityDefinition,
     GrainComponent,
 )
 from data_ontology_graph.model.enums import (
-    Cardinality,
     EntityUniverse,
     MatchExistence,
     Multiplicity,
@@ -21,64 +18,17 @@ from data_ontology_graph.model.relationship import (
     JoinEndpoint,
     JoinRelationship,
     RelationshipDirection,
-    derived_cardinality,
-    edge_id_for,
 )
 from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
+from testkit.builders import dataset_node, definition
 
 
 def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> DatasetNode:
-    return DatasetNode(
-        node_id=f"dataset:{name}",
-        descriptor=DatasetDescriptor(
-            qualified_name=f"example.main.{name}",
-            display_name=name,
-        ),
-        accessor=DatasetAccessor(
-            kind="sqlite",
-            endpoint="/srv/sqlite/example.sqlite",
-            properties={"host": "localhost", "schema": "main", "object": name},
-        ),
-        grain=DatasetGrain(
-            components=[GrainComponent(identity_id="customer", dataset_columns=["id"])]
-        ),
-        columns=[ColumnMetadata(name="id")],
-        entity_definitions=[
-            EntityDefinition(
-                identity_id="customer",
-                dataset_columns=["id"],
-                entity_universe=universe,
-                unique=True,
-                total=True,
-                conforms=True,
-            )
-        ],
-    )
-
-
-def _relationship(left: DatasetNode, right: DatasetNode) -> JoinRelationship:
-    endpoint_a = JoinEndpoint(
-        node_id=left.node_id,
-        identity_id="customer",
-        dataset_columns=["id"],
-    )
-    endpoint_b = JoinEndpoint(
-        node_id=right.node_id,
-        identity_id="customer",
-        dataset_columns=["id"],
-    )
-    return JoinRelationship(
-        edge_id=edge_id_for(endpoint_a, endpoint_b),
-        endpoint_a=endpoint_a,
-        endpoint_b=endpoint_b,
-        a_to_b=RelationshipDirection(
-            multiplicity=Multiplicity.MANY_TO_ONE,
-            match_existence=MatchExistence.ALWAYS,
-        ),
-        b_to_a=RelationshipDirection(
-            multiplicity=Multiplicity.ONE_TO_MANY,
-            match_existence=MatchExistence.OPTIONAL,
-        ),
+    """A dataset whose single customer definition is also its grain."""
+    return dataset_node(
+        name,
+        [definition(identity_id="customer", universe=universe, unique=True, conforms=True)],
+        grain=DatasetGrain(components=[GrainComponent(identity_id="customer", dataset_columns=["id"])]),
     )
 
 
@@ -115,31 +65,6 @@ def test_entity_universe_is_scoped_to_each_definition() -> None:
     assert universe.entity_definitions[0].entity_universe == EntityUniverse.COMPLETE
     assert unassessed.entity_definitions[0].unknown_fields() == ["entity_universe"]
     assert subset.entity_definitions[0].unknown_fields() == []
-    assert "entity_universe" not in DatasetNode.model_fields
-
-
-def test_edge_identity_and_directional_cardinality() -> None:
-    left = _node("events")
-    right = _node("customers", universe=EntityUniverse.COMPLETE)
-    relationship = _relationship(left, right)
-
-    assert edge_id_for(relationship.endpoint_a, relationship.endpoint_b) == edge_id_for(
-        relationship.endpoint_b, relationship.endpoint_a
-    )
-    assert derived_cardinality(relationship, left.node_id) == Cardinality.N_TO_ONE
-    assert derived_cardinality(relationship, right.node_id) == Cardinality.ONE_TO_N
-
-
-def test_snapshot_does_not_accept_stored_relationships() -> None:
-    left = _node("events")
-    right = _node("customers")
-    with pytest.raises(ValidationError, match="edges"):
-        GraphSnapshot(
-            version=snapshot_version(),
-            logical_identities=[LogicalIdentity(identity_id="customer", name="Customer")],
-            nodes=[left, right],
-            edges=[_relationship(left, right)],
-        )
 
 
 def test_grain_is_required_and_may_be_explicitly_unknown() -> None:
@@ -179,7 +104,7 @@ def test_canonical_edge_order_swaps_directions_and_relative_unknowns() -> None:
     later = JoinEndpoint(node_id="dataset:z", identity_id="customer", dataset_columns=["id"])
     earlier = JoinEndpoint(node_id="dataset:a", identity_id="customer", dataset_columns=["id"])
     relationship = JoinRelationship(
-        edge_id=edge_id_for(later, earlier),
+        edge_id="D1-D2",
         endpoint_a=later,
         endpoint_b=earlier,
         a_to_b=RelationshipDirection(

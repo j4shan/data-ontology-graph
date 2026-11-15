@@ -1,24 +1,18 @@
 """Open dataset accessors (product/graph-model.md 2.6-2.8; system design 3.2.1-3.2.2)."""
 
 import copy
-import json
-from pathlib import Path
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
-from data_ontology_graph.akg import check_document, has_errors
 from data_ontology_graph.builder import build_snapshot_from_definition, build_snapshot_from_yaml
 from data_ontology_graph.model.dataset import ACCESSOR_SOFT_LIMIT, DatasetAccessor
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.model.snapshot import GraphSnapshot
-from data_ontology_graph.service.contracts import SearchRequest
-from data_ontology_graph.service.read import GraphReadService
+from testkit import FIXTURES, OPEN_ACCESSOR as OPEN
 
 
-FIXTURES = Path(__file__).parent / "fixtures"
-OPEN = FIXTURES / "open_accessor" / "catalog.yaml"
 LENDING = FIXTURES / "lending"
 PG_EU = "pg-eu:crm.public.customer"
 PG_US = "pg-us:crm.public.customer"
@@ -31,11 +25,6 @@ def _payload() -> dict:
 
 def _node(payload: dict, node_id: str) -> dict:
     return next(node for node in payload["nodes"] if node["node_id"] == node_id)
-
-
-def _service() -> GraphReadService:
-    snapshot, _ = build_snapshot_from_yaml(OPEN)
-    return GraphReadService(snapshot)
 
 
 @pytest.mark.parametrize(
@@ -124,8 +113,8 @@ def test_datasets_may_share_an_endpoint_when_properties_differ() -> None:
     assert profiles.endpoint == logins.endpoint and profiles.properties != logins.properties
 
 
-def test_dataset_record_returns_the_accessor_as_written() -> None:
-    service = _service()
+def test_dataset_record_returns_the_accessor_as_written(open_accessor_service) -> None:
+    service = open_accessor_service
     assert service.get_dataset(PG_EU).accessor == {
         "kind": "postgresql",
         "endpoint": "https://acme.atlassian.net/wiki/spaces/DATA/pages/48213/EU+CRM+database+access",
@@ -136,61 +125,3 @@ def test_dataset_record_returns_the_accessor_as_written() -> None:
         "kind": "s3", "endpoint": "s3://acme-raw-us/web/clickstream/", "labels": {},
         "properties": None,
     }
-
-
-def test_detail_levels_add_accessor_fields() -> None:
-    service = _service()
-    accessor_fields = {
-        detail: [
-            name for name in service.get_edges(PG_EU, detail=detail).datasets.header
-            if name.startswith("accessor.")
-        ]
-        for detail in ("essential", "standard", "full")
-    }
-    assert accessor_fields == {
-        "essential": ["accessor.kind"],
-        "standard": ["accessor.kind", "accessor.endpoint", "accessor.labels"],
-        "full": ["accessor.kind", "accessor.endpoint", "accessor.labels", "accessor.properties"],
-    }
-    added = service.get_edges(
-        PG_EU, detail="essential", fields={"dataset": ["accessor.properties"]}
-    )
-    assert "accessor.properties" in added.datasets.header
-
-
-@pytest.mark.parametrize(
-    ("query", "node_id", "value"),
-    [
-        ("crm-eu", PG_EU, "crm-eu"),
-        ("snowflake", "sf-amer:SALES.CORE.ORDERS", "snowflake"),
-        ("chinacloudapi", "adls-cn:supply.shipments",
-         "abfss://supply@acmecnsupply.dfs.core.chinacloudapi.cn/shipments/"),
-        ("login", "mongo-apac:app.customer_logins", "login"),
-    ],
-)
-def test_search_matches_accessor_kind_endpoint_labels_and_nested_properties(
-    query: str, node_id: str, value: str,
-) -> None:
-    response = _service().search(SearchRequest(query=query, kind=["dataset"]))
-    matches = [
-        dict(zip(group.match_row_header, row))
-        for group in response.groups
-        for row in group.match_rows
-    ]
-    assert any(
-        match["key"] == node_id and match["match_field"] == "accessor"
-        and match["matched_value"] == value
-        for match in matches
-    )
-
-
-@pytest.mark.parametrize("missing", ["kind", "endpoint"])
-def test_akg_dataset_keeps_its_path_of_information(missing: str) -> None:
-    payload = json.loads((LENDING / "akg-single.json").read_text(encoding="utf-8"))
-    assert not has_errors(check_document(payload))
-    del payload["datasets"][0]["accessor"][missing]
-    findings = check_document(payload)
-    assert any(
-        finding.severity == "error" and finding.location.endswith(f"accessor.{missing}")
-        for finding in findings
-    )

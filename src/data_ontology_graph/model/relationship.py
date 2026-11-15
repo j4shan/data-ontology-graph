@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import DefinitionKey
-from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
+from data_ontology_graph.model.enums import MatchExistence, Multiplicity
 
 
 RELATIONSHIP_CLAIM_FIELDS: tuple[str, ...] = (
@@ -62,31 +62,7 @@ class JoinRelationship(ClaimModel):
             self.a_to_b, self.b_to_a = self.b_to_a, self.a_to_b
         self.endpoint_a = left
         self.endpoint_b = right
-        expected = edge_id_for(left, right)
-        if self.edge_id != expected:
-            raise ValueError(f"edge_id {self.edge_id!r} does not match canonical {expected!r}")
         return self
-
-    def endpoint(self, node_id: str) -> JoinEndpoint:
-        if self.endpoint_a.node_id == node_id:
-            return self.endpoint_a
-        if self.endpoint_b.node_id == node_id:
-            return self.endpoint_b
-        raise KeyError(node_id)
-
-    def opposite(self, node_id: str) -> JoinEndpoint:
-        if self.endpoint_a.node_id == node_id:
-            return self.endpoint_b
-        if self.endpoint_b.node_id == node_id:
-            return self.endpoint_a
-        raise KeyError(node_id)
-
-    def direction_from(self, node_id: str) -> RelationshipDirection:
-        if self.endpoint_a.node_id == node_id:
-            return self.a_to_b
-        if self.endpoint_b.node_id == node_id:
-            return self.b_to_a
-        raise KeyError(node_id)
 
     def unknown_fields_from(self, node_id: str) -> list[str]:
         """Unknown direction fields relative to a traversal that starts at ``node_id``."""
@@ -115,26 +91,3 @@ def canonical_endpoints(
     if endpoint_a.identity_key() <= endpoint_b.identity_key():
         return endpoint_a, endpoint_b
     return endpoint_b, endpoint_a
-
-
-def edge_id_for(endpoint_a: JoinEndpoint, endpoint_b: JoinEndpoint) -> str:
-    left, right = canonical_endpoints(endpoint_a, endpoint_b)
-    return f"{endpoint_token(left)}__{endpoint_token(right)}"
-
-
-def endpoint_token(endpoint: JoinEndpoint) -> str:
-    return (
-        f"{endpoint.node_id}:{endpoint.identity_id}:"
-        f"{'+'.join(endpoint.dataset_columns)}"
-    )
-
-
-def derived_cardinality(relationship: JoinRelationship, from_node_id: str) -> Cardinality:
-    explicit = relationship.direction_from(from_node_id).multiplicity
-    return {
-        Multiplicity.ONE_TO_ONE: Cardinality.ONE_TO_ONE,
-        Multiplicity.MANY_TO_ONE: Cardinality.N_TO_ONE,
-        Multiplicity.ONE_TO_MANY: Cardinality.ONE_TO_N,
-        Multiplicity.MANY_TO_MANY: Cardinality.M_TO_N,
-        Multiplicity.UNKNOWN: Cardinality.UNKNOWN,
-    }[explicit]

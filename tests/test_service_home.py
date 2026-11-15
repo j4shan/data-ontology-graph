@@ -1,15 +1,15 @@
 import importlib.util
 import json
 import plistlib
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from data_ontology_graph import home as core_home
+from testkit import ROOT
+from testkit.launchctl import FakeLaunchctl
 
 
-ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills" / "query-graph-api" / "scripts"
 LABEL = "com.data-ontology-graph.service"
 
@@ -51,25 +51,6 @@ def test_default_socket_path_fits_the_socket_limit() -> None:
     assert len(str(Path(core_home.DEFAULT_HOME).expanduser() / "graph.sock").encode()) <= 100
 
 
-class FakeRun:
-    def __init__(self, loaded: bool = False, fail: str | None = None) -> None:
-        self.loaded = loaded
-        self.fail = fail
-        self.calls: list[list[str]] = []
-
-    def __call__(self, command: list[str], check: bool, **_: object) -> subprocess.CompletedProcess:
-        self.calls.append(command)
-        operation = command[1]
-        if operation == self.fail:
-            raise subprocess.CalledProcessError(5, command, stderr="Operation not permitted")
-        if operation == "bootstrap":
-            self.loaded = True
-        elif operation == "bootout":
-            self.loaded = False
-        code = 0 if operation != "print" or self.loaded else 113
-        return subprocess.CompletedProcess(command, code)
-
-
 @pytest.fixture
 def service(tmp_path: Path, monkeypatch, lending_socket: Path):
     """The bundled service script against a home whose plist names the test socket."""
@@ -98,7 +79,7 @@ def _run(module, capsys, *args: str) -> tuple[int, dict]:
 def test_status_and_start_report_a_running_service_without_launchctl_changes(
     service, capsys
 ) -> None:
-    fake = FakeRun(loaded=True)
+    fake = FakeLaunchctl(loaded=True)
     service.run = fake
     assert _run(service, capsys, "status") == (0, {"state": "running", "socket": _socket(service)})
     assert _run(service, capsys, "start")[1]["state"] == "running"
@@ -106,7 +87,7 @@ def test_status_and_start_report_a_running_service_without_launchctl_changes(
 
 
 def test_start_loads_the_job_then_waits_for_the_service(service, capsys, monkeypatch) -> None:
-    fake = FakeRun()
+    fake = FakeLaunchctl()
     service.run = fake
     answers = iter([False, False, True])
     monkeypatch.setattr(service, "answers", lambda _: next(answers))
@@ -116,7 +97,7 @@ def test_start_loads_the_job_then_waits_for_the_service(service, capsys, monkeyp
 
 
 def test_start_reports_not_ready_with_the_log(service, capsys, monkeypatch) -> None:
-    service.run = FakeRun()
+    service.run = FakeLaunchctl()
     monkeypatch.setattr(service, "answers", lambda _: False)
     code, outcome = _run(service, capsys, "start", "--wait", "0.3")
     assert (code, outcome["state"]) == (1, "not_ready")
@@ -124,16 +105,16 @@ def test_start_reports_not_ready_with_the_log(service, capsys, monkeypatch) -> N
 
 
 def test_stop_unloads_only_a_loaded_job(service, capsys) -> None:
-    loaded = FakeRun(loaded=True)
+    loaded = FakeLaunchctl(loaded=True)
     service.run = loaded
     assert _run(service, capsys, "stop") == (0, {"state": "stopped"})
     assert loaded.calls[-1][1] == "bootout"
-    service.run = FakeRun()
+    service.run = FakeLaunchctl()
     assert _run(service, capsys, "stop") == (0, {"state": "not_running"})
 
 
 def test_blocked_launchctl_is_reported_with_a_message(service, capsys, monkeypatch) -> None:
-    service.run = FakeRun(fail="bootstrap")
+    service.run = FakeLaunchctl(fail="bootstrap")
     monkeypatch.setattr(service, "answers", lambda _: False)
     code, outcome = _run(service, capsys, "start")
     assert (code, outcome["state"]) == (1, "blocked")
@@ -143,7 +124,7 @@ def test_blocked_launchctl_is_reported_with_a_message(service, capsys, monkeypat
 def test_missing_setup_is_reported_with_a_message(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.setenv("DOG_HOME", str(tmp_path / "empty"))
     module = _load("service")
-    module.run = FakeRun()
+    module.run = FakeLaunchctl()
     code, outcome = _run(module, capsys, "start")
     assert (code, outcome["state"]) == (1, "not_set_up")
     assert "service.plist" in outcome["message"]

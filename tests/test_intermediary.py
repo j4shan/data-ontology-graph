@@ -14,17 +14,11 @@ from data_ontology_graph.builder.intermediary import (
     intermediary_directory_json_schema,
     intermediary_json_schema,
 )
-from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
-from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
-from graph_records import first_relationship, relationship_between
+from testkit import INVALID_EXAMPLE, LENDING, SCHEMAS, STATED, VALID_EXAMPLE
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "resources" / "schema" / "intermediary.schema.json"
-DIRECTORY_SCHEMA = ROOT / "resources" / "schema" / "intermediary-directory.schema.json"
-VALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid.yaml"
-INVALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-invalid.yaml"
-LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
+SCHEMA = SCHEMAS / "intermediary.schema.json"
+DIRECTORY_SCHEMA = SCHEMAS / "intermediary-directory.schema.json"
 
 
 def _write_yaml(path: Path, payload: object) -> None:
@@ -82,6 +76,10 @@ def test_source_controlled_schema_matches_validator_model() -> None:
 
 def test_examples_show_acceptance_and_actionable_rejection() -> None:
     assert validate_intermediary_yaml(VALID_EXAMPLE).valid is True
+    # The valid example also shows a cross-entity relationship.
+    assert [relationship.endpoints for relationship in load_intermediary_yaml(VALID_EXAMPLE).entity_relationships] == [
+        ("customer_identity", "customer_identity")
+    ]
 
     report = validate_intermediary_yaml(INVALID_EXAMPLE)
     assert report.valid is False
@@ -109,15 +107,15 @@ def test_yaml_syntax_finding_includes_line_and_column(tmp_path: Path) -> None:
     assert report.findings[0].column is not None
 
 
-def test_relationships_are_not_authored(tmp_path: Path) -> None:
+def test_unknown_top_level_keys_are_rejected(tmp_path: Path) -> None:
     payload = yaml.safe_load(VALID_EXAMPLE.read_text(encoding="utf-8"))
-    payload["edges"] = []
-    invalid = tmp_path / "authored-edges.yaml"
+    payload["notes"] = []
+    invalid = tmp_path / "unknown-key.yaml"
     invalid.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
     report = validate_intermediary_yaml(invalid)
     assert report.valid is False
-    assert report.findings[0].location == "$.edges"
+    assert report.findings[0].location == "$.notes"
     assert report.findings[0].rule == "extra_forbidden"
 
 
@@ -160,11 +158,6 @@ def test_manifest_directory_is_assembled_deterministically(tmp_path: Path) -> No
     assert report.entity_definition_count == 2
 
 
-def test_standalone_single_file_catalog_remains_supported() -> None:
-    assert validate_intermediary_yaml(VALID_EXAMPLE).valid is True
-    assert load_intermediary_yaml(VALID_EXAMPLE).schema_version == "5"
-
-
 def test_directory_requires_valid_sibling_manifest(tmp_path: Path) -> None:
     yaml_directory = tmp_path / "yaml"
     yaml_directory.mkdir()
@@ -177,7 +170,7 @@ def test_directory_requires_valid_sibling_manifest(tmp_path: Path) -> None:
     assert report.findings[0].line is not None
 
 
-def test_manifest_requires_version_four_and_all_collection_owners(tmp_path: Path) -> None:
+def test_manifest_requires_the_schema_version_and_all_collection_owners(tmp_path: Path) -> None:
     yaml_directory = tmp_path / "yaml"
     yaml_directory.mkdir()
     _write_yaml(
@@ -303,7 +296,7 @@ def test_collection_file_rejects_malformed_yaml(tmp_path: Path) -> None:
     assert report.findings[0].rule == "yaml_syntax"
 
 
-def test_collection_files_require_matching_version_four(tmp_path: Path) -> None:
+def test_collection_files_require_the_manifest_schema_version(tmp_path: Path) -> None:
     yaml_directory, payload = _manifest_directory(tmp_path)
     _write_yaml(
         yaml_directory / "nodes-a.yaml",
@@ -325,69 +318,12 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
     assert any(finding.rule == "duplicate_definition" for finding in report.findings)
 
 
-def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
-    definition = load_intermediary_yaml(LENDING)
-    snapshot, report = build_snapshot_from_yaml(LENDING)
-
-    assert len(definition.nodes) == 5
-    assert sum(len(node.columns) for node in definition.nodes) == 17
-    assert all(column.description for node in definition.nodes for column in node.columns)
-    assert len(definition.logical_identities) == 5
-    # Ten entity definitions across the five logical entities.
-    assert report.entity_definition_count == 10
-
-    nodes = {node.descriptor.display_name: node for node in snapshot.nodes}
-    loan_columns = nodes["loan"].column_map()
-    account_columns = nodes["account"].column_map()
-    assert loan_columns["term"].value_description == "unit: month"
-    assert "monthly statements" in account_columns["statement_cycle"].value_description
-
-    account_to_region = relationship_between(snapshot, "sqlite:lending.account", "sqlite:lending.region")
-    direction = account_to_region.direction_from("sqlite:lending.account")
-    assert direction.multiplicity == Multiplicity.MANY_TO_ONE
-    assert direction.match_existence == MatchExistence.UNKNOWN
-
-    holder_to_loan = relationship_between(snapshot, "sqlite:lending.account_holder", "sqlite:lending.loan")
-    direction = holder_to_loan.direction_from("sqlite:lending.account_holder")
-    assert direction.multiplicity == Multiplicity.MANY_TO_MANY
-    assert direction.match_existence == MatchExistence.OPTIONAL
-    assert holder_to_loan.direction_from("sqlite:lending.loan").match_existence == (
-        MatchExistence.ALWAYS
-    )
-
-
-def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
-    store = CurrentArtifactStore(tmp_path / "current")
-    location = store.publish(snapshot)
-    loaded = store.load()
-
-    assert loaded.model_dump(mode="json") == snapshot.model_dump(mode="json")
-    persisted_nodes = (location / "nodes.json").read_text(encoding="utf-8")
-    assert not (location / "edges.json").exists()
-    assert "edges" not in snapshot.model_dump()
-    assert "foreign_key_declarations" not in persisted_nodes
-    assert "logical_entity_key" not in persisted_nodes
-    assert "table_name" not in persisted_nodes
-    assert "data_source" not in persisted_nodes
-    definition = loaded.nodes[0].entity_definitions[0]
-    assert definition.dataset_columns == ["c1", "c2", "c3"]
-    assert definition.entity_expression == ["[c1, xxhash64(c2, c3)]"]
-    assert definition.entity_metadata["expression_context"] == "Spark SQL"
-    assert definition.entity_universe == EntityUniverse.PARTIAL
-    assert loaded.nodes[0].grain is not None
-    assert len(loaded.nodes[0].grain.components) == 1
-    edge_payload = first_relationship(loaded).model_dump(mode="json")
-    assert "entity_expression" not in yaml.safe_dump(edge_payload)
-    assert "expression_context" not in yaml.safe_dump(edge_payload)
-
-
 def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
     _, report = build_snapshot_from_yaml(VALID_EXAMPLE)
 
     assert report.unknown_fields == [
-        "nodes[dataset_a].entity_definitions[customer_identity:c1+c2+c3].total",
-        "nodes[dataset_b].grain",
+        'nodes["dataset_a"].entity_definitions[["customer_identity",["c1","c2","c3"]]].total',
+        'nodes["dataset_b"].grain',
     ]
 
 
@@ -398,9 +334,6 @@ def test_unreviewed_universe_status_is_reported_as_unknown() -> None:
     ]
     assert len(universe_gaps) == 2
     assert not any("lending.region].entity_definitions" in item for item in universe_gaps)
-
-
-STATED = ROOT / "tests" / "fixtures" / "stated_relationships" / "catalog.yaml"
 
 
 def _stated_payload() -> dict:
@@ -487,10 +420,3 @@ def test_cross_entity_relationship_collection_must_be_a_listed_list(tmp_path: Pa
     manifest["entity_relationships"] = "relationships.yaml"
     _write_yaml(manifest_path, manifest)
     assert "list_type" in _rules(yaml_directory)
-
-
-def test_valid_example_shows_a_cross_entity_relationship() -> None:
-    definition = load_intermediary_yaml(VALID_EXAMPLE)
-    assert [relationship.endpoints for relationship in definition.entity_relationships] == [
-        ("customer_identity", "customer_identity")
-    ]

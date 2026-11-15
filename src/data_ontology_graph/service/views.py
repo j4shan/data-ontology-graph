@@ -33,16 +33,16 @@ EDGE_FIELDS = (
 RESPONSE_ONLY = ("distance", "edge_count")
 """Dataset fields that describe a navigation response, not the dataset."""
 DEFINITION_FIELDS = (
-    "identity_id", "dataset_columns", "entity_universe", "unique", "total", "conforms",
+    "id", "identity_id", "dataset_columns", "entity_universe", "unique", "total", "conforms",
     "entity_expression", "entity_metadata", "description", "effective_description",
     "description_source", "unknown_fields",
 )
-COLUMN_FIELDS = ("name", "description", "value_description", "synonyms")
+COLUMN_FIELDS = ("id", "name", "description", "value_description", "synonyms")
 
 _BASIC = {
     "dataset": ("node_id", "qualified_name"),
     "edge": ("edge", "edge_id"),
-    "entity_definition": ("identity_id", "dataset_columns"),
+    "entity_definition": ("id", "identity_id", "dataset_columns"),
 }
 _LEVELS: dict[str, dict[Detail, tuple[str, ...]]] = {
     "dataset": {
@@ -70,14 +70,14 @@ _ORDER: tuple[Detail, ...] = ("essential", "standard", "full")
 _QUOTED = (",", "[", "]", '"', "->")
 
 
+def _quoted(name: str) -> str:
+    return json.dumps(name, ensure_ascii=False) if any(mark in name for mark in _QUOTED) else name
+
+
 def definition_label(node_id: str, columns: Sequence[str]) -> str:
-    """``node_id[col,...]``, quoting a column name that holds a delimiter, as in ``t["a,b"]``."""
-    names = (
-        json.dumps(column, ensure_ascii=False) if any(mark in column for mark in _QUOTED)
-        else column
-        for column in columns
-    )
-    return f"{node_id}[{','.join(names)}]"
+    """``node_id[col,...]``, quoting a node ID or column name that holds a delimiter, as in
+    ``t["a,b"]`` or ``"a[b]"[id]`` (system design 2.4.1)."""
+    return f"{_quoted(node_id)}[{','.join(_quoted(column) for column in columns)}]"
 
 
 def split_edge_label(label: str) -> tuple[tuple[str, list[str]], tuple[str, list[str]]]:
@@ -86,10 +86,16 @@ def split_edge_label(label: str) -> tuple[tuple[str, list[str]], tuple[str, list
     decoder = json.JSONDecoder()
     index = 0
     for expected_end in (" -> ", ""):
-        bracket = label.find("[", index)
-        if bracket < 0:
-            raise ValueError(f"not a directed edge: {label!r}")
-        node_id, index = label[index:bracket], bracket + 1
+        if label.startswith('"', index):
+            node_id, index = decoder.raw_decode(label, index)
+            if not label.startswith("[", index):
+                raise ValueError(f"not a directed edge: {label!r}")
+            index += 1
+        else:
+            bracket = label.find("[", index)
+            if bracket < 0:
+                raise ValueError(f"not a directed edge: {label!r}")
+            node_id, index = label[index:bracket], bracket + 1
         columns: list[str] = []
         while True:
             if label.startswith('"', index):

@@ -48,6 +48,7 @@
       "unknown_fields": [],
       "columns": [
         {
+          "id": "C14",
           "name": "loan_id",
           "description": "the id of the loan",
           "value_description": "",
@@ -56,6 +57,7 @@
       ],
       "entity_definitions": [
         {
+          "id": "D9",
           "identity_id": "loan_identity",
           "dataset_columns": [
             "loan_id"
@@ -79,6 +81,7 @@
           ]
         },
         {
+          "id": "D8",
           "identity_id": "account_identity",
           "dataset_columns": [
             "account_id"
@@ -112,6 +115,7 @@
           "identity_id": "account_identity",
           "entity_definitions": [
             {
+              "id": "D8",
               "dataset_columns": [
                 "account_id"
               ],
@@ -124,7 +128,7 @@
                   "optional",
                   "the account that repays the loan",
                   "the id of the account",
-                  "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+                  "D1-D8"
                 ]
               ]
             }
@@ -168,6 +172,7 @@
       "unknown_fields": [],
       "columns": [
         {
+          "id": "C1",
           "name": "account_id",
           "description": "the id of the account",
           "value_description": "",
@@ -178,6 +183,7 @@
       ],
       "entity_definitions": [
         {
+          "id": "D1",
           "identity_id": "account_identity",
           "dataset_columns": [
             "account_id"
@@ -198,6 +204,7 @@
           "unknown_fields": []
         },
         {
+          "id": "D2",
           "identity_id": "region_identity",
           "dataset_columns": [
             "region_id"
@@ -264,6 +271,7 @@
       "unknown_fields": [],
       "columns": [
         {
+          "id": "C9",
           "name": "customer_id",
           "description": "the id of the customer",
           "value_description": "",
@@ -274,6 +282,7 @@
       ],
       "entity_definitions": [
         {
+          "id": "D6",
           "identity_id": "customer_identity",
           "dataset_columns": [
             "customer_id"
@@ -294,6 +303,7 @@
           "unknown_fields": []
         },
         {
+          "id": "D7",
           "identity_id": "region_identity",
           "dataset_columns": [
             "region_id"
@@ -327,6 +337,7 @@
           "identity_id": "region_identity",
           "entity_definitions": [
             {
+              "id": "D7",
               "dataset_columns": [
                 "region_id"
               ],
@@ -339,7 +350,7 @@
                   "optional",
                   "home region of the customer",
                   "the id of the region",
-                  "sqlite:lending.customer:region_identity:region_id__sqlite:lending.region:region_identity:region_id"
+                  "D7-D10"
                 ]
               ]
             }
@@ -382,6 +393,7 @@
       "unknown_fields": [],
       "columns": [
         {
+          "id": "C17",
           "name": "region_name",
           "description": "the region name",
           "value_description": "",
@@ -390,6 +402,7 @@
       ],
       "entity_definitions": [
         {
+          "id": "D10",
           "identity_id": "region_identity",
           "dataset_columns": [
             "region_id"

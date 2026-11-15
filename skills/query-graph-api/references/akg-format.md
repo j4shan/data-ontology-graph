@@ -15,6 +15,9 @@ The AKG has no format version; its schema follows the graph API version.
 `graph.snapshot`, when recorded, holds the service's `api_version` and `version` as returned
 by `graph.snapshot_info`.
 The snapshot block is optional; its schema requires nonempty strings for both fields.
+With `--socket`, resolution reports a recorded `graph.snapshot.version` or `api_version` that
+differs from the service's as a mismatch. With `--yaml`, which rebuilds the snapshot, it
+compares only `api_version`.
 
 ## Selected graph knowledge
 
@@ -24,6 +27,7 @@ include `accessor.labels`, `accessor.properties`, `grain`, `descriptor`, `unknow
 `columns`, and `entity_definitions`. Copy their values from API responses, keeping the columns
 and properties relevant to the objective. Omit response-only `distance`, `edge_count`, and
 entity-definition navigation counts and truncation flags.
+Dataset-level `columns` and `entity_definitions` may retain their snapshot-local `id`.
 
 Selected directed edges belong to the dataset they leave, inside its `edge_groups`:
 
@@ -32,6 +36,7 @@ datasets[]
   edge_groups[]
     identity_id
     entity_definitions[]
+      id
       dataset_columns
       edges[]
       usage: {edge_id: edge reasoning}
@@ -51,6 +56,10 @@ An essential-detail edge lacks standard fields; obtain them before including it.
 
 Keep both endpoint datasets for every selected edge. Preserve the returned `edge_id`, edge
 label, and claims exactly; never invent relationships to connect selected datasets.
+Each edge-group entity definition retains its required `id`. The `edge_id` and definition `id`
+are opaque and valid only in the snapshot that issued them.
+The `edge_key` finding reports an `edge_id` that is not a canonical `D<i>-D<j>` naming the
+holding entity definition's `id`.
 
 ## Analytical reasoning
 
@@ -65,7 +74,8 @@ Put reasoning in dataset `usage`, edge-definition `usage`, `comparisons`, and `g
   nonempty `shared_columns` (`node_id`, `column`), and `comparison` (`coverage`, `difference`,
   `co_occurrence`).
 - `gaps`: keyed by an agent-chosen ID. Each gap requires `description` and may name `datasets`
-  and selected directed `edges` (`node_id`, `edge_id`).
+  and selected directed `edges` (`definition_id`, `edge_id`). `definition_id` is the `id` of the
+  entity definition the directed edge leaves.
 
 Unknown keys are permitted by the schema. They do not authorize changing graph facts.
 For a dataset-only selection, `edge_groups` may be absent; keep the document's `edge_fields`.

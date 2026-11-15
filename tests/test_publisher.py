@@ -8,10 +8,9 @@ import yaml
 from data_ontology_graph.builder import IntermediaryValidationError
 from data_ontology_graph.builder.publish import publish_current_artifact
 from data_ontology_graph.store.snapshot_store import CurrentArtifactStore, SnapshotStore
+from testkit import VALID_EXAMPLE, snapshot_of
 
 
-ROOT = Path(__file__).resolve().parents[1]
-VALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid.yaml"
 
 
 def _yaml_directory(tmp_path: Path) -> Path:
@@ -128,48 +127,12 @@ def test_loader_rejects_mixed_build_envelopes(tmp_path: Path) -> None:
         SnapshotStore(tmp_path).load(artifact)
 
 
-def test_republication_replaces_a_stored_relationship_artifact(tmp_path) -> None:
-    from data_ontology_graph.builder import build_snapshot_from_yaml
-    from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
-
-    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
-    snapshot, _ = build_snapshot_from_yaml(example)
-    store = CurrentArtifactStore(tmp_path / "current")
-    store.publish(snapshot)
-    (store.directory / "edges.json").write_text(json.dumps({"version": snapshot.version, "edges": []}))
-    with pytest.raises(ValueError, match="republish"):
-        store.load()
-    store.publish(snapshot)
-    assert not (store.directory / "edges.json").exists()
-    assert store.load().version == snapshot.version
-
-
-def test_publication_still_refuses_an_unrelated_directory(tmp_path) -> None:
-    from data_ontology_graph.builder import build_snapshot_from_yaml
-    from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
-
-    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
-    snapshot, _ = build_snapshot_from_yaml(example)
-    target = tmp_path / "current"
-    target.mkdir()
-    (target / "edges.json").write_text("{}")
-    (target / "notes.txt").write_text("not an artifact")
-    with pytest.raises(RuntimeError, match="not a loadable artifact"):
-        CurrentArtifactStore(target).publish(snapshot)
-    assert (target / "notes.txt").exists()
-
-
 def test_replacing_an_artifact_warns_about_unrelated_files_it_removes(tmp_path) -> None:
-    from data_ontology_graph.builder import build_snapshot_from_yaml
-
-    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
-    snapshot, _ = build_snapshot_from_yaml(example)
+    snapshot = snapshot_of(VALID_EXAMPLE)
     target = tmp_path / "current"
-    target.mkdir()
-    for name in ("nodes.json", "edges.json"):
-        (target / name).write_text("not JSON")
-    (target / "notes.txt").write_text("unrelated")
     store = CurrentArtifactStore(target)
+    store.publish(snapshot)
+    (target / "notes.txt").write_text("unrelated")
     store.publish(snapshot)
     assert not (target / "notes.txt").exists()
     assert len(store.warnings) == 1 and store.warnings[0].endswith("not artifact files: notes.txt")

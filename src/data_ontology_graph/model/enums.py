@@ -4,14 +4,6 @@ from enum import Enum
 UNKNOWN_TOKEN = "unknown"
 
 
-class Cardinality(str, Enum):
-    ONE_TO_ONE = "1:1"
-    N_TO_ONE = "N:1"
-    ONE_TO_N = "1:N"
-    M_TO_N = "M:N"
-    UNKNOWN = UNKNOWN_TOKEN
-
-
 class Multiplicity(str, Enum):
     ONE_TO_ONE = "1:1"
     ONE_TO_MANY = "1:many"

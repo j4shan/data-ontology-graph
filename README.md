@@ -44,7 +44,9 @@ and validates the result before ingestion. The logical-entity registry and each 
 definitions establish logical-entity membership: a definition identifies the dataset columns
 that realize a registered logical entity. Definitions of the same logical entity can form a
 relationship, including two definitions on one dataset. The graph groups definitions by logical
-entity and derives a requested pair's canonical edge ID from its endpoints. Multiplicity, match
+entity and gives each entity definition a snapshot-local `D<n>` ID. A relationship's `edge_id`
+combines its endpoint definition IDs in ascending order, for example `D1-D8`. The ID is opaque
+and valid only in the snapshot that issued it. Multiplicity, match
 existence, and unknown claims follow from the definitions' `unique`, `total`, `conforms`, and
 `entity_universe` properties. Sparse annotations accompany selected relationships. Build and
 compact-artifact load do not enumerate every possible pair. The governed JSON Schemas are under
@@ -142,12 +144,10 @@ data-ontology-graph-launchd setup
 
 New artifacts contain `nodes.json` for the registry and dataset definitions,
 `annotations.json` for sparse relationship annotations, and `entity_relationships.json` for
-cross-entity relationships between logical entities. They do not contain `edges.json`:
-relationships are derived from membership when requested. An artifact that still holds
-`edges.json` is refused at load; republish it by running the same publish command against its
-finalized YAML directory. Publication replaces the current artifact atomically; it warns about
-any file in the replaced directory that is not an artifact file, which the replacement removes. Reload the
-service after publishing.
+cross-entity relationships between logical entities. Relationships between entity definitions
+are derived from membership when requested, not stored. Publication replaces the current artifact
+atomically; it warns about any file in the replaced directory that is not an artifact file, which
+the replacement removes. Reload the service after publishing.
 
 The service runs only on demand. Nothing starts it at login, because the job's property list sits
 in the service home rather than in `~/Library/LaunchAgents`. Start and stop it as needed; while it
@@ -175,8 +175,7 @@ relationships at a logical entity with ranked stated paths between two logical e
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
 Membership-backed indexes serve these methods without constructing all pairs at startup. The
-graph API is version `5`. `graph.get_entity_definitions` replaces `graph.get_identity` and
-discovers datasets containing a primary logical entity. An optional `entity_universe` filters
+graph API is version `5`. `graph.get_entity_definitions` discovers datasets containing a primary logical entity. An optional `entity_universe` filters
 the primary definitions; up to four distinct `target_identity_ids` can require additional
 entities on every selected dataset. The result reports exact matching dataset and primary
 definition counts. With `view: "auto"`, more than `dataset_threshold` matching datasets
@@ -193,9 +192,11 @@ the detailed view and follow `next_cursor` until it is null. Keep the same sourc
 refining targets: `identity_id` and `from_dataset_columns` choose how the seed connects, whereas
 `target_identity_ids` choose which connected datasets remain. Other navigation methods retain
 their contracts and can still produce tenant shortcuts. The YAML schema is unchanged.
-`graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
-records the UTC build time. Detailed `get_edges` and `get_entity_definitions` cursors also bind
-to the snapshot content.
+Every API response carries a `snapshot` with the graph API `api_version` and snapshot `version`,
+including `graph.get_dataset` and `graph.get_relationship`. The version records the UTC build
+time. Callers holding snapshot-local IDs can detect a different snapshot by its `version`;
+the service does not detect IDs from another snapshot. Detailed `get_edges` and
+`get_entity_definitions` cursors also bind to the snapshot content.
 After a software upgrade, republish from the YAML intermediary with
 `data-ontology-graph-publish` so the service loads a current artifact.
 
