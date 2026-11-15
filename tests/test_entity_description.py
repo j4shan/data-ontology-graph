@@ -6,10 +6,10 @@ import yaml
 from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.model.dataset import effective_description
 from data_ontology_graph.service.read import GraphReadService
-from graph_records import dataset_edges
+from testkit import LENDING
+from testkit.records import dataset_edges
 
 
-LENDING = Path(__file__).resolve().parent / "fixtures" / "lending" / "catalog.yaml"
 COLUMNS = {"region_id": "region of the opening branch", "plant_id": "", "item_id": "the item"}
 
 

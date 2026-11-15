@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import DefinitionKey
-from data_ontology_graph.model.enums import Cardinality, MatchExistence, Multiplicity
+from data_ontology_graph.model.enums import MatchExistence, Multiplicity
 
 
 RELATIONSHIP_CLAIM_FIELDS: tuple[str, ...] = (
@@ -67,27 +67,6 @@ class JoinRelationship(ClaimModel):
             raise ValueError(f"edge_id {self.edge_id!r} does not match canonical {expected!r}")
         return self
 
-    def endpoint(self, node_id: str) -> JoinEndpoint:
-        if self.endpoint_a.node_id == node_id:
-            return self.endpoint_a
-        if self.endpoint_b.node_id == node_id:
-            return self.endpoint_b
-        raise KeyError(node_id)
-
-    def opposite(self, node_id: str) -> JoinEndpoint:
-        if self.endpoint_a.node_id == node_id:
-            return self.endpoint_b
-        if self.endpoint_b.node_id == node_id:
-            return self.endpoint_a
-        raise KeyError(node_id)
-
-    def direction_from(self, node_id: str) -> RelationshipDirection:
-        if self.endpoint_a.node_id == node_id:
-            return self.a_to_b
-        if self.endpoint_b.node_id == node_id:
-            return self.b_to_a
-        raise KeyError(node_id)
-
     def unknown_fields_from(self, node_id: str) -> list[str]:
         """Unknown direction fields relative to a traversal that starts at ``node_id``."""
         if self.endpoint_a.node_id == node_id:
@@ -127,14 +106,3 @@ def endpoint_token(endpoint: JoinEndpoint) -> str:
         f"{endpoint.node_id}:{endpoint.identity_id}:"
         f"{'+'.join(endpoint.dataset_columns)}"
     )
-
-
-def derived_cardinality(relationship: JoinRelationship, from_node_id: str) -> Cardinality:
-    explicit = relationship.direction_from(from_node_id).multiplicity
-    return {
-        Multiplicity.ONE_TO_ONE: Cardinality.ONE_TO_ONE,
-        Multiplicity.MANY_TO_ONE: Cardinality.N_TO_ONE,
-        Multiplicity.ONE_TO_MANY: Cardinality.ONE_TO_N,
-        Multiplicity.MANY_TO_MANY: Cardinality.M_TO_N,
-        Multiplicity.UNKNOWN: Cardinality.UNKNOWN,
-    }[explicit]

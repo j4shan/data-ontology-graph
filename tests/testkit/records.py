@@ -11,19 +11,6 @@ def first_relationship(snapshot):
     return index.pair(keys[0], keys[1])
 
 
-def relationship_between(snapshot, left_node_id, right_node_id):
-    """The one relationship whose endpoints lie on the two named datasets."""
-    index = snapshot.memberships
-    found = [
-        index.pair(left, right)
-        for keys in index.by_identity.values()
-        for left in keys if left.node_id == left_node_id
-        for right in keys if right.node_id == right_node_id and right != left
-    ]
-    assert len(found) == 1, (left_node_id, right_node_id, found)
-    return found[0]
-
-
 def definition(side):
     """``(node_id, columns)`` from ``node_id[col,...]``, unquoting quoted column names."""
     node_id, _, inner = side.partition("[")

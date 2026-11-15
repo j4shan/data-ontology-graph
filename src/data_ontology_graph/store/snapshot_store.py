@@ -17,11 +17,6 @@ class SnapshotStore:
 
     def load(self, directory: Path) -> GraphSnapshot:
         nodes_doc = json.loads((directory / "nodes.json").read_text(encoding="utf-8"))
-        if (directory / "edges.json").exists():
-            raise ValueError(
-                f"{directory} holds edges.json from a stored-relationship release; "
-                "republish the graph from its YAML source to load it"
-            )
         annotations_path = directory / "annotations.json"
         annotations = []
         if annotations_path.exists():
@@ -48,8 +43,8 @@ class SnapshotStore:
         )
 
 
-ARTIFACT_FILES = frozenset({"nodes.json", "annotations.json", "entity_relationships.json", "edges.json"})
-"""File names a current or stored-relationship artifact may hold."""
+ARTIFACT_FILES = frozenset({"nodes.json", "annotations.json", "entity_relationships.json"})
+"""File names a current artifact holds."""
 
 
 class CurrentArtifactStore:
@@ -70,7 +65,7 @@ class CurrentArtifactStore:
         if target.exists() and not target.is_dir():
             raise RuntimeError(f"current artifact path is not a directory: {target}")
         self.warnings = []
-        if target.exists() and not _is_stored_relationship_artifact(target):
+        if target.exists():
             try:
                 self.load()
             except Exception as error:
@@ -153,11 +148,6 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
         json.dumps(relationships_doc, indent=2),
         encoding="utf-8",
     )
-
-
-def _is_stored_relationship_artifact(directory: Path) -> bool:
-    """An artifact from the stored-relationship release, which republication replaces (2.5.6)."""
-    return (directory / "nodes.json").is_file() and (directory / "edges.json").is_file()
 
 
 def _require_same_envelope(reference: dict, candidate: dict, filename: str) -> None:

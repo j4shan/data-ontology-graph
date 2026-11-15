@@ -4,49 +4,38 @@ from pathlib import Path
 import pytest
 
 from data_ontology_graph.builder import build_snapshot_from_yaml
-from data_ontology_graph.model.relationship import (
-    JoinAnnotation,
-)
+from data_ontology_graph.model.enums import EntityUniverse
+from data_ontology_graph.model.relationship import JoinAnnotation
 from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
-from graph_records import first_relationship
+from testkit import STATED, VALID_EXAMPLE, snapshot_of
+from testkit.records import first_relationship
 
 
-ROOT = Path(__file__).resolve().parents[1]
-VALID_EXAMPLE = ROOT / "resources" / "schema" / "examples" / "intermediary-valid.yaml"
-
-
-def test_snapshot_round_trip() -> None:
-    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
-    edge_id = first_relationship(snapshot).edge_id
+def test_snapshot_round_trip(tmp_path: Path) -> None:
+    snapshot = snapshot_of(VALID_EXAMPLE)
+    canonical = first_relationship(snapshot)
     snapshot.annotations = [
-        JoinAnnotation(edge_id=edge_id, description="customer relationship", tags=["core"])
+        JoinAnnotation(edge_id=canonical.edge_id, description="customer relationship", tags=["core"])
     ]
-
-    from tempfile import TemporaryDirectory
-
-    with TemporaryDirectory() as directory:
-        store = CurrentArtifactStore(Path(directory) / "current")
-        store.publish(snapshot)
-        loaded = store.load()
+    store = CurrentArtifactStore(tmp_path / "current")
+    store.publish(snapshot)
+    loaded = store.load()
 
     assert loaded.model_dump(mode="json") == snapshot.model_dump(mode="json")
     assert loaded.annotations[0].tags == ["core"]
     assert loaded.nodes[0].descriptor.display_name == "Dataset A"
+    definition = loaded.nodes[0].entity_definitions[0]
+    assert definition.dataset_columns == ["c1", "c2", "c3"]
+    assert definition.entity_expression == ["[c1, xxhash64(c2, c3)]"]
+    assert definition.entity_metadata["expression_context"] == "Spark SQL"
+    assert definition.entity_universe == EntityUniverse.PARTIAL
+    assert len(loaded.nodes[0].grain.components) == 1
+    # The relationship derived after loading is the canonical one, and carries no expression.
+    derived = first_relationship(loaded)
+    assert (derived.endpoint_a.node_id, derived.endpoint_b.node_id) == ("dataset_a", "dataset_b")
+    assert derived.model_dump(mode="json") == canonical.model_dump(mode="json")
+    assert "expression" not in json.dumps(derived.model_dump(mode="json"))
 
-
-def test_published_snapshot_derives_the_same_canonical_relationship(tmp_path: Path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
-    canonical = first_relationship(snapshot)
-
-    artifact = tmp_path / "current"
-    store = CurrentArtifactStore(artifact)
-    store.publish(snapshot)
-    assert not (artifact / "edges.json").exists()
-    loaded = first_relationship(store.load())
-
-    assert loaded.endpoint_a.node_id == "dataset_a"
-    assert loaded.endpoint_b.node_id == "dataset_b"
-    assert loaded.model_dump(mode="json") == canonical.model_dump(mode="json")
 
 def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monkeypatch) -> None:
     from data_ontology_graph.model import derivation
@@ -57,7 +46,6 @@ def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monke
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
     snapshot, report = build_snapshot_from_yaml(VALID_EXAMPLE)
     assert report.entity_definition_count == 2
-    assert not any(location.startswith("edges[") for location in report.unknown_fields)
     left, right = snapshot.memberships.by_identity["customer_identity"]
     edge_id = snapshot.memberships.edge_id(left, right)
     snapshot.annotations = [JoinAnnotation(edge_id=edge_id, description="selected pair")]
@@ -66,23 +54,13 @@ def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monke
     loaded = store.load()
     assert loaded.annotations[0].edge_id == edge_id
     assert loaded.memberships.entity_definition_count == 2
-    assert "edges" not in loaded.model_dump()
     assert set(path.name for path in store.directory.iterdir()) == {
         "nodes.json", "annotations.json", "entity_relationships.json"
     }
 
 
-def test_stored_relationship_artifact_is_refused_with_republication_advice(tmp_path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
-    store = CurrentArtifactStore(tmp_path / "current")
-    store.publish(snapshot)
-    (store.directory / "edges.json").write_text(json.dumps({"version": snapshot.version, "edges": []}))
-    with pytest.raises(ValueError, match="republish the graph from its YAML source"):
-        store.load()
-
-
 def test_sparse_annotations_require_a_resolvable_unique_pair() -> None:
-    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot = snapshot_of(VALID_EXAMPLE)
     edge_id = first_relationship(snapshot).edge_id
     for annotations, message in [
         ([{"edge_id": "missing"}], "unknown edge"),
@@ -92,11 +70,8 @@ def test_sparse_annotations_require_a_resolvable_unique_pair() -> None:
             type(snapshot).model_validate({**snapshot.model_dump(), "annotations": annotations})
 
 
-STATED = ROOT / "tests" / "fixtures" / "stated_relationships" / "catalog.yaml"
-
-
 def test_cross_entity_relationships_round_trip_and_rebuild_the_index(tmp_path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(STATED)
+    snapshot = snapshot_of(STATED)
     store = CurrentArtifactStore(tmp_path / "current")
     store.publish(snapshot)
     loaded = store.load()
@@ -111,7 +86,7 @@ def test_cross_entity_relationships_round_trip_and_rebuild_the_index(tmp_path) -
 
 
 def test_artifact_without_cross_entity_relationship_file_has_none(tmp_path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(STATED)
+    snapshot = snapshot_of(STATED)
     store = CurrentArtifactStore(tmp_path / "current")
     store.publish(snapshot)
     (store.directory / "entity_relationships.json").unlink()
@@ -119,7 +94,7 @@ def test_artifact_without_cross_entity_relationship_file_has_none(tmp_path) -> N
 
 
 def test_cross_entity_relationship_file_must_match_the_snapshot_version(tmp_path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(STATED)
+    snapshot = snapshot_of(STATED)
     store = CurrentArtifactStore(tmp_path / "current")
     store.publish(snapshot)
     path = store.directory / "entity_relationships.json"

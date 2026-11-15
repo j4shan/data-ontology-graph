@@ -1,11 +1,9 @@
 import plistlib
-import subprocess
 import sys
 from pathlib import Path
 
 import pytest
 
-from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.rpc.launchd import (
     launchctl_command,
     launchd_payload,
@@ -14,29 +12,11 @@ from data_ontology_graph.rpc.launchd import (
     write_launchd_plist,
 )
 from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+from testkit import snapshot_of
+from testkit.launchctl import FakeLaunchctl
 
 
-ROOT = Path(__file__).resolve().parents[1]
-LENDING = ROOT / "tests" / "fixtures" / "lending" / "catalog.yaml"
 LABEL = "com.data-ontology-graph.service"
-
-
-class FakeLaunchctl:
-    """Records launchctl calls; `print` succeeds only while the job is loaded."""
-
-    def __init__(self, loaded: bool = False) -> None:
-        self.loaded = loaded
-        self.calls: list[list[str]] = []
-
-    def __call__(self, command: list[str], check: bool, **_: object) -> subprocess.CompletedProcess:
-        self.calls.append(command)
-        operation = command[1]
-        if operation == "bootstrap":
-            self.loaded = True
-        elif operation == "bootout":
-            self.loaded = False
-        code = 0 if operation != "print" or self.loaded else 113
-        return subprocess.CompletedProcess(command, code)
 
 
 @pytest.fixture
@@ -48,8 +28,7 @@ def home(tmp_path: Path, monkeypatch) -> Path:
 
 
 def _publish(artifact: Path) -> None:
-    snapshot, _ = build_snapshot_from_yaml(LENDING)
-    CurrentArtifactStore(artifact).publish(snapshot)
+    CurrentArtifactStore(artifact).publish(snapshot_of())
 
 
 def test_launchd_payload_pins_snapshot_and_socket(tmp_path: Path) -> None:

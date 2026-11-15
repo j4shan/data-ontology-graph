@@ -16,7 +16,6 @@ from data_ontology_graph.model.entity_relationship import (
     EntityRelationshipIndex,
 )
 from data_ontology_graph.model.enums import (
-    Cardinality,
     EntityUniverse,
     MatchExistence,
     Multiplicity,
@@ -35,14 +34,12 @@ from data_ontology_graph.model.relationship import (
     JoinRelationship,
     RelationshipDirection,
     canonical_endpoints,
-    derived_cardinality,
     edge_id_for,
 )
 from data_ontology_graph.model.snapshot import GraphSnapshot
 
 __all__ = [
     "ACCESSOR_SOFT_LIMIT",
-    "Cardinality",
     "ClaimModel",
     "ColumnMetadata",
     "DatasetAccessor",
@@ -70,7 +67,6 @@ __all__ = [
     "MembershipIndex",
     "Unknown",
     "canonical_endpoints",
-    "derived_cardinality",
     "edge_id_for",
     "is_unknown",
 ]

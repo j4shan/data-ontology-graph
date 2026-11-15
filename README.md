@@ -142,12 +142,10 @@ data-ontology-graph-launchd setup
 
 New artifacts contain `nodes.json` for the registry and dataset definitions,
 `annotations.json` for sparse relationship annotations, and `entity_relationships.json` for
-cross-entity relationships between logical entities. They do not contain `edges.json`:
-relationships are derived from membership when requested. An artifact that still holds
-`edges.json` is refused at load; republish it by running the same publish command against its
-finalized YAML directory. Publication replaces the current artifact atomically; it warns about
-any file in the replaced directory that is not an artifact file, which the replacement removes. Reload the
-service after publishing.
+cross-entity relationships between logical entities. Relationships between entity definitions
+are derived from membership when requested, not stored. Publication replaces the current artifact
+atomically; it warns about any file in the replaced directory that is not an artifact file, which
+the replacement removes. Reload the service after publishing.
 
 The service runs only on demand. Nothing starts it at login, because the job's property list sits
 in the service home rather than in `~/Library/LaunchAgents`. Start and stop it as needed; while it
@@ -175,8 +173,7 @@ relationships at a logical entity with ranked stated paths between two logical e
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
 Membership-backed indexes serve these methods without constructing all pairs at startup. The
-graph API is version `5`. `graph.get_entity_definitions` replaces `graph.get_identity` and
-discovers datasets containing a primary logical entity. An optional `entity_universe` filters
+graph API is version `5`. `graph.get_entity_definitions` discovers datasets containing a primary logical entity. An optional `entity_universe` filters
 the primary definitions; up to four distinct `target_identity_ids` can require additional
 entities on every selected dataset. The result reports exact matching dataset and primary
 definition counts. With `view: "auto"`, more than `dataset_threshold` matching datasets

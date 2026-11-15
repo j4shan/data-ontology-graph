@@ -1,8 +1,7 @@
 import ast
 import sys
-from pathlib import Path
+from testkit import ROOT
 
-ROOT = Path(__file__).resolve().parents[1]
 SKILL = ROOT / "skills" / "query-graph-api"
 SCRIPTS = sorted((SKILL / "scripts").glob("*.py"))
 BUNDLED = {script.stem for script in SCRIPTS}

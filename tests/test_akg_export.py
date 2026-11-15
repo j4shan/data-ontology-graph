@@ -5,9 +5,10 @@ import pytest
 
 from data_ontology_graph.akg.cli import main
 from data_ontology_graph.akg.export import export_markdown
+from testkit import FIXTURES
 
 
-LENDING = Path(__file__).resolve().parent / "fixtures" / "lending"
+LENDING = FIXTURES / "lending"
 FIXTURES = ["akg-single", "akg-disjoint", "akg-data-gap"]
 
 

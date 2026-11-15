@@ -59,8 +59,7 @@ Snapshot = {
 `api_version` names the API contract described here. It is the string `"5"`.
 `entity_definition_count` is the number of entity definitions in the snapshot, and
 `entity_relationship_count` the number of cross-entity relationships.
-`graph.get_entity_definitions` provides filtered discovery and replaces
-`graph.get_identity`; the old name is no longer a registered method.
+`graph.get_entity_definitions` provides filtered discovery.
 `version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).
 Detailed `get_edges` and `get_entity_definitions` cursors bind to snapshot content as well as
 the displayed build time.

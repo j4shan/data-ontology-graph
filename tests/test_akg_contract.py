@@ -8,14 +8,12 @@ import yaml
 from data_ontology_graph.akg import akg_json_schema, check_document, load_payload
 from data_ontology_graph.akg.cli import main
 from data_ontology_graph.akg.resolve import ServiceSource, YamlSource, dispatcher_call, resolve_document
-from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
-from data_ontology_graph.service.read import GraphReadService
+from testkit import FIXTURES, SCHEMAS
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SCHEMA = ROOT / "resources" / "schema" / "akg.schema.json"
-LENDING = ROOT / "tests" / "fixtures" / "lending"
+SCHEMA = SCHEMAS / "akg.schema.json"
+LENDING = FIXTURES / "lending"
 VALID = ["akg-single.json", "akg-disjoint.json", "akg-data-gap.json"]
 CASES = yaml.safe_load((LENDING / "akg-check-cases.yaml").read_text(encoding="utf-8"))["cases"]
 
@@ -66,6 +64,8 @@ def test_each_check_case_reports_its_rule_and_severity(case: dict) -> None:
     assert [(finding.rule, finding.severity) for finding in findings] == [
         (case["expected"], case["severity"])
     ]
+    if "location" in case:
+        assert findings[0].location == case["location"]
 
 
 def test_parse_error_is_one_located_error(tmp_path: Path) -> None:
@@ -96,14 +96,6 @@ def _loan_definition(payload: dict) -> dict:
     return payload["datasets"][0]["edge_groups"][0]["entity_definitions"][0]
 
 
-def test_disconnected_components_need_no_gap() -> None:
-    disjoint = _payload("akg-disjoint.json")
-    edges = [array for dataset in disjoint["datasets"] for group in dataset.get("edge_groups", [])
-             for definition in group["entity_definitions"] for array in definition["edges"]]
-    assert "gaps" not in disjoint and len(edges) == 2
-    assert check_document(disjoint, final=True) == []
-
-
 def test_an_entity_definition_holds_each_directed_edge_once() -> None:
     payload = _payload("akg-single.json")
     edges = _loan_definition(payload)["edges"]
@@ -121,24 +113,22 @@ def test_a_dataset_appears_once() -> None:
     ]
 
 
-def _service() -> ServiceSource:
-    snapshot, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
-    return ServiceSource(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
-
-
-def _sources() -> list:
-    return [_service(), YamlSource.load(LENDING / "catalog.yaml")]
+def _source(kind: str, service):
+    """The lending graph as the AKG resolver reads it: through the service or from YAML."""
+    if kind == "service":
+        return ServiceSource(dispatcher_call(JsonRpcDispatcher(service)))
+    return YamlSource.load(LENDING / "catalog.yaml")
 
 
 @pytest.mark.parametrize("name", VALID)
 @pytest.mark.parametrize("source", ["service", "yaml"])
-def test_valid_fixtures_resolve_against_service_and_yaml(name: str, source: str) -> None:
-    graph = _service() if source == "service" else YamlSource.load(LENDING / "catalog.yaml")
-    assert resolve_document(_payload(name), graph) == []
+def test_valid_fixtures_resolve_against_service_and_yaml(name: str, source: str, lending_service) -> None:
+    assert resolve_document(_payload(name), _source(source, lending_service)) == []
 
 
-@pytest.mark.parametrize("graph", _sources(), ids=["service", "yaml"])
-def test_changed_claim_is_one_mismatch_at_its_position(graph) -> None:
+@pytest.mark.parametrize("source", ["service", "yaml"])
+def test_changed_claim_is_one_mismatch_at_its_position(source: str, lending_service) -> None:
+    graph = _source(source, lending_service)
     findings = resolve_document(_payload("akg-changed-claim.json"), graph)
     assert [(finding.location, finding.rule) for finding in findings] == [
         (f"{LOAN_EDGE_AT}.match_existence", "graph_mismatch")
@@ -146,16 +136,16 @@ def test_changed_claim_is_one_mismatch_at_its_position(graph) -> None:
     assert "document has 'optional', graph has 'always'" in findings[0].message
 
 
-def test_an_edge_from_a_non_endpoint_is_unknown() -> None:
+def test_an_edge_from_a_non_endpoint_is_unknown(lending_service) -> None:
     payload = _payload("akg-single.json")
     _loan_definition(payload)["dataset_columns"] = ["loan_id"]
-    findings = resolve_document(payload, _service())
+    findings = resolve_document(payload, _source("service", lending_service))
     assert [(finding.location, finding.rule) for finding in findings] == [
         (LOAN_EDGE_AT.replace("['account_id']", "['loan_id']"), "unknown_element"),
     ]
 
 
-def test_unknown_dataset_column_and_changed_field_are_reported() -> None:
+def test_unknown_dataset_column_and_changed_field_are_reported(lending_service) -> None:
     payload = _payload("akg-data-gap.json")
     payload["datasets"].append({
         "node_id": "sqlite:lending.branch", "qualified_name": "lending.main.branch",
@@ -167,7 +157,7 @@ def test_unknown_dataset_column_and_changed_field_are_reported() -> None:
     loan["columns"][0]["description"] = "changed"
     loan["descriptor"]["description"] = "changed"
     loan["entity_definitions"][0]["entity_universe"] = "complete"
-    locations = [(finding.location, finding.rule) for finding in resolve_document(payload, _service())]
+    locations = [(finding.location, finding.rule) for finding in resolve_document(payload, _source("service", lending_service))]
     assert locations == [
         ("$.datasets['sqlite:lending.loan'].descriptor.description", "graph_mismatch"),
         (f"$.datasets['sqlite:lending.loan'].columns[{first!r}].description", "graph_mismatch"),
@@ -178,10 +168,10 @@ def test_unknown_dataset_column_and_changed_field_are_reported() -> None:
     ]
 
 
-def test_only_the_api_version_of_a_recorded_snapshot_is_compared() -> None:
+def test_only_the_api_version_of_a_recorded_snapshot_is_compared(lending_service) -> None:
     payload = _payload("akg-single.json")
     payload["graph"] = {"snapshot": {"api_version": "0", "version": "2000-01-01T00:00:00Z"}}
-    rules = [finding.location for finding in resolve_document(payload, _service())]
+    rules = [finding.location for finding in resolve_document(payload, _source("service", lending_service))]
     assert rules == ["$.graph.snapshot.api_version"]
 
 

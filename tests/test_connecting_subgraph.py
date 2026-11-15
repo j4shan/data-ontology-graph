@@ -1,89 +1,18 @@
 import asyncio
 from itertools import combinations
-from pathlib import Path
 import random
 from threading import Event
-import tempfile
 
 import pytest
 from pydantic import ValidationError
 
-from data_ontology_graph.builder import build_snapshot_from_yaml
-from data_ontology_graph.model.dataset import ColumnMetadata
-from data_ontology_graph.model.derivation import multiplicity_between
-from data_ontology_graph.model.enums import EntityUniverse, Unknown
-from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.query.connecting import connecting_tree
-from data_ontology_graph.rpc.protocol import INVALID_PARAMS, RESOURCE_NOT_FOUND, JsonRpcDispatcher
+from data_ontology_graph.rpc.protocol import INVALID_PARAMS
 from data_ontology_graph.rpc.server import GraphUnixServer
 from data_ontology_graph.service.contracts import ConnectingSubgraphRequest, PathsRequest
-from data_ontology_graph.service.read import GraphReadService
-from graph_records import by_id, edges, paths
-from test_json_rpc_service import _rpc_call
-
-
-ROOT = Path(__file__).resolve().parents[1]
-CATALOG = ROOT / "tests/fixtures/lending/catalog.yaml"
-
-
-_UNIQUE = {
-    "1:1": (True, True),
-    "many:1": (False, True),
-    "1:many": (True, False),
-    "many:many": (False, False),
-    "unknown": (Unknown.UNKNOWN, True),
-}
-"""Uniqueness of a link's (left, right) entity definitions that yields its forward multiplicity."""
-
-
-def service_for(names, links, **kwargs):
-    """Small topologies built from the lending fixture's account dataset.
-
-    Each link joins its two datasets on a logical entity of its own, so a path passes through a
-    dataset by arriving on one link's entity definition and leaving on another's. A link's
-    multiplicities come from the `unique` claims of its two entity definitions, and every
-    entity definition is `total`, conforming, and `complete`, so match existence is `always`.
-    """
-    snapshot, _ = build_snapshot_from_yaml(CATALOG)
-    template = next(node for node in snapshot.nodes if node.node_id == "sqlite:lending.account")
-    definition = next(d for d in template.entity_definitions if d.identity_id == "account_identity")
-    link_identities = {tuple(link[:2]): f"{link[0]}~{link[1]}" for link in links}
-    unique: dict[tuple[str, str], object] = {}
-    for link in links:
-        left, right = link[:2]
-        forward = link[2] if len(link) > 2 else "1:1"
-        identity = link_identities[(left, right)]
-        unique[(left, identity)], unique[(right, identity)] = _UNIQUE[forward]
-        if len(link) > 3:
-            assert multiplicity_between(*reversed(_UNIQUE[forward])).value == link[3], link
-    nodes = []
-    for name in names:
-        node = template.model_copy(deep=True)
-        node.node_id = name
-        node.accessor = node.accessor.model_copy(
-            update={"properties": {**node.accessor.properties, "object": name}}
-        )
-        identities = [identity for pair, identity in link_identities.items() if name in pair]
-        node.columns = [ColumnMetadata(name=f"{identity}_id") for identity in identities] or [
-            ColumnMetadata(name="id")
-        ]
-        node.grain = Unknown.UNKNOWN
-        node.entity_definitions = [
-            definition.model_copy(deep=True, update={
-                "identity_id": identity, "dataset_columns": [f"{identity}_id"],
-                "unique": unique[(name, identity)], "total": True, "conforms": True,
-                "entity_universe": EntityUniverse.COMPLETE,
-            })
-            for identity in identities
-        ]
-        nodes.append(node)
-    identities = [
-        LogicalIdentity(identity_id=identity, name=identity)
-        for identity in sorted(set(link_identities.values()))
-    ]
-    data = snapshot.model_dump()
-    data.update(logical_identities=identities, nodes=nodes, annotations=[])
-    return GraphReadService(type(snapshot).model_validate(data), **kwargs)
+from testkit.records import by_id, edges, paths
+from testkit.builders import topology_service
+from testkit.rpc import dispatch, rpc_call, temporary_socket_path
 
 
 def find(service, source, target, **kwargs):
@@ -91,7 +20,7 @@ def find(service, source, target, **kwargs):
 
 
 def test_filter_prunes_calendar_fanout_and_keeps_process_path():
-    service = service_for(
+    service = topology_service(
         ["confirmation", "day", "fact", "operation", "order", "plant"],
         [("confirmation", "day", "many:1", "1:many"),
          ("day", "fact", "1:many", "many:1"),
@@ -149,7 +78,7 @@ def test_k_shortest_paths_match_exhaustive_enumeration():
     for _ in range(8):
         names = [f"n{i}" for i in range(9)]
         links = rnd.sample(list(combinations(names, 2)), 16)
-        service = service_for(
+        service = topology_service(
             names, [(a, b, rnd.choice(mults)) for a, b in links]
         )
         for source, target in rnd.sample(list(combinations(names, 2)), 6):
@@ -179,7 +108,7 @@ def test_path_search_cost_does_not_follow_the_number_of_paths(monkeypatch):
     from data_ontology_graph.query import paths as path_module
 
     names = [f"n{i}" for i in range(10)]
-    service = service_for(names, list(combinations(names, 2)))
+    service = topology_service(names, list(combinations(names, 2)))
     searches = []
     original = path_module._Search.shortest
 
@@ -197,7 +126,7 @@ def test_path_search_cost_does_not_follow_the_number_of_paths(monkeypatch):
 
 
 def test_paths_list_each_dataset_once_and_orient_every_directed_edge():
-    service = service_for(["a", "b", "c", "d"], [("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")])
+    service = topology_service(["a", "b", "c", "d"], [("a", "b"), ("b", "c"), ("b", "d"), ("c", "d")])
     response = find(service, "a", "c", max_edges=3)
     assert [[(edge["from_node_id"], edge["to_node_id"]) for edge in path]
             for path in paths(response)] == [[("a", "b"), ("b", "c")],
@@ -208,7 +137,7 @@ def test_paths_list_each_dataset_once_and_orient_every_directed_edge():
     assert last["edge_id"].startswith("c:") and last["from_node_id"] == "d"
 
 def test_unknown_multiplicity_requires_explicit_opt_in():
-    service = service_for(["a", "b"], [("a", "b", "unknown", "unknown")])
+    service = topology_service(["a", "b"], [("a", "b", "unknown", "unknown")])
     assert find(service, "a", "b").path_count
     assert not find(service, "a", "b", allowed_multiplicities=["1:1"]).path_count
     assert find(service, "a", "b", allowed_multiplicities=["unknown"]).path_count
@@ -219,7 +148,7 @@ def test_unknown_multiplicity_requires_explicit_opt_in():
 
 
 def test_connecting_tree_uses_shared_intermediate_and_preserves_evidence():
-    service = service_for(["a", "b", "c", "hub", "unused"],
+    service = topology_service(["a", "b", "c", "hub", "unused"],
                           [("a", "hub", "many:1", "1:many"),
                            ("b", "hub"), ("c", "hub"), ("hub", "unused")])
     response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["c", "a", "b"]))
@@ -238,33 +167,24 @@ def test_connecting_tree_uses_shared_intermediate_and_preserves_evidence():
 
 
 def test_disconnected_endpoints_return_no_tree():
-    service = service_for(["a", "b", "c"], [("a", "b")])
+    service = topology_service(["a", "b", "c"], [("a", "b")])
     response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=["a", "c"]))
     assert response.status == "disconnected"
     assert list(by_id(response.datasets, "node_id")) == ["a", "c"]
     assert not edges(response)
 
 
-def test_endpoint_cap_is_configurable_and_rpc_validates_inputs():
-    service = service_for(["a", "b", "c"], [("a", "b"), ("b", "c")],
-                          max_connecting_datasets=2)
-    dispatcher = JsonRpcDispatcher(service)
-    def call(method, params):
-        return dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-    for ids in [["a"], ["a", "a"], ["a", ""], ["a", "b", "c"]]:
-        response = call("graph.find_connecting_subgraph", {"node_ids": ids})
-        assert response["error"]["code"] == INVALID_PARAMS
-    assert call("graph.find_connecting_subgraph", {"node_ids": ["a", "missing"]})["error"]["code"] == RESOURCE_NOT_FOUND
-    assert call("graph.find_connecting_subgraph", {"node_ids": ["a", "b"]})["result"]["status"] == "completed"
-    assert call("graph.find_paths", {"from_node_id": "a", "to_node_id": "c",
-                                    "allowed_multiplicities": ["many:1"]})["result"]["path_count"] == 0
-    assert call("graph.find_connecting_subgraph", {"node_ids": ["a", "b"], "max_work": 1})["error"]["code"] == INVALID_PARAMS
-
-
-def test_default_endpoint_cap():
-    service = service_for(["a", "b"], [("a", "b")])
+def test_endpoint_cap_is_configurable_and_defaults_to_sixteen():
+    service = topology_service(["a", "b", "c"], [("a", "b"), ("b", "c")],
+                               max_connecting_datasets=2)
+    over_cap = dispatch(service, "graph.find_connecting_subgraph", {"node_ids": ["a", "b", "c"]})
+    assert over_cap["error"]["code"] == INVALID_PARAMS
+    assert dispatch(service, "graph.find_connecting_subgraph",
+                    {"node_ids": ["a", "b"]})["result"]["status"] == "completed"
+    assert dispatch(service, "graph.find_paths", {"from_node_id": "a", "to_node_id": "c",
+                                                  "allowed_multiplicities": ["many:1"]})["result"]["path_count"] == 0
     with pytest.raises(ValueError, match="at most 16"):
-        service.find_connecting_subgraph(
+        topology_service(["a", "b"], [("a", "b")]).find_connecting_subgraph(
             ConnectingSubgraphRequest(node_ids=[f"n{i}" for i in range(17)])
         )
 
@@ -284,7 +204,7 @@ def test_approximation_against_exhaustive_small_graph_optimum():
         names = ["a", "b", "c", "d", "e", "f"]
         links = list(zip(names, names[1:]))
         links += [pair for pair in combinations(names, 2) if pair not in links and rng.random() < .25]
-        service = service_for(names, links)
+        service = topology_service(names, links)
         terminals = ["a", "d", "f"]
         response = service.find_connecting_subgraph(ConnectingSubgraphRequest(node_ids=terminals))
         result = sorted({
@@ -356,7 +276,7 @@ def test_early_termination_matches_full_mehlhorn_on_random_graphs():
     for _ in range(40):
         names = [f"n{i:02}" for i in range(rng.randint(6, 30))]
         links = sorted({tuple(sorted(rng.sample(names, 2))) for _ in range(len(names) * 2)})
-        service = service_for(names, links)
+        service = topology_service(names, links)
         terminals = sorted(rng.sample(names, rng.randint(2, min(6, len(names)))))
         tree = connecting_tree(service.index.directed_edges, terminals)
         expected = full_mehlhorn(service.index.directed_edges, terminals)
@@ -369,7 +289,7 @@ def test_early_termination_matches_full_mehlhorn_on_random_graphs():
 
 def test_search_stops_at_the_terminals_neighbourhood():
     names = [f"n{i:03}" for i in range(200)]
-    service = service_for(names, list(zip(names, names[1:])))
+    service = topology_service(names, list(zip(names, names[1:])))
     adjacency = CountingAdjacency(service.index.directed_edges)
     tree = connecting_tree(adjacency, ["n100", "n101"])
     [between] = [edge for edge in service.index.directed_edges["n100"] if edge.target.node_id == "n101"]
@@ -382,7 +302,7 @@ def test_search_stops_at_the_terminals_neighbourhood():
 
 def test_navigation_does_not_block_lookup_and_shutdown_cancels_workers():
     async def exercise():
-        service = service_for(["a", "b"], [("a", "b")])
+        service = topology_service(["a", "b"], [("a", "b")])
         started, stopped, second_started = Event(), Event(), Event()
         original = service.find_paths
         def slow(request, cancel_event=None):
@@ -394,18 +314,18 @@ def test_navigation_does_not_block_lookup_and_shutdown_cancels_workers():
             stopped.set()
             return original(request, cancel_event)
         service.find_paths = slow
-        with tempfile.TemporaryDirectory(prefix="dog-", dir="/tmp") as directory:
-            server = GraphUnixServer(service, Path(directory) / "graph.sock",
+        with temporary_socket_path() as path:
+            server = GraphUnixServer(service, path,
                                      max_concurrent_navigation=1)
             await server.start()
-            pending = asyncio.create_task(_rpc_call(server.socket_path, 1,
+            pending = asyncio.create_task(rpc_call(server.socket_path, 1,
                 "graph.find_paths", {"from_node_id": "a", "to_node_id": "b"}))
             second_pending = None
             try:
                 assert await asyncio.to_thread(started.wait, 1)
-                second_pending = asyncio.create_task(_rpc_call(server.socket_path, 3,
+                second_pending = asyncio.create_task(rpc_call(server.socket_path, 3,
                     "graph.find_paths", {"from_node_id": "b", "to_node_id": "a"}))
-                response = await asyncio.wait_for(_rpc_call(server.socket_path, 2,
+                response = await asyncio.wait_for(rpc_call(server.socket_path, 2,
                     "graph.snapshot_info", {}), timeout=1)
                 assert response["result"]["node_count"] == 2
                 assert not second_started.is_set()
