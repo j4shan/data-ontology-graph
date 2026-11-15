@@ -6,6 +6,7 @@ from threading import Event
 import pytest
 from pydantic import ValidationError
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.rpc.protocol import INVALID_PARAMS
 from data_ontology_graph.rpc.server import GraphUnixServer
@@ -134,7 +135,8 @@ def test_paths_list_each_dataset_once_and_orient_every_directed_edge():
     assert list(by_id(response.datasets, "node_id")) == ["a", "b", "c", "d"]
     # The c-d edge is stored canonically with c first and traversed from d.
     last = paths(response)[1][-1]
-    assert last["edge_id"].startswith("c:") and last["from_node_id"] == "d"
+    assert service.get_relationship(last["edge_id"]).endpoint_a["node_id"] == "c"
+    assert last["from_node_id"] == "d"
 
 def test_unknown_multiplicity_requires_explicit_opt_in():
     service = topology_service(["a", "b"], [("a", "b", "unknown", "unknown")])
@@ -248,7 +250,8 @@ def full_mehlhorn(adjacency, terminals):
             other = edge.target.node_id
             if current < other and owner[current] != owner[other]:
                 pair = tuple(sorted((owner[current], owner[other])))
-                candidate = (distance[current] + 1 + distance[other], edge.edge_id, current, other)
+                candidate = (distance[current] + 1 + distance[other], ids.order(edge.edge_id), current, other,
+                             edge.edge_id)
                 candidates[pair] = min(candidates.get(pair, candidate), candidate)
     parent = {t: t for t in terminals}
     def root(node):
@@ -256,7 +259,7 @@ def full_mehlhorn(adjacency, terminals):
             node = parent[node]
         return node
     nodes, edge_ids = set(terminals), set()
-    for pair, (_, edge_id, left, right) in sorted(candidates.items(), key=lambda item: item[1]):
+    for pair, (_, _, left, right, edge_id) in sorted(candidates.items(), key=lambda item: item[1]):
         if root(pair[0]) == root(pair[1]):
             continue
         parent[root(pair[0])] = root(pair[1])
@@ -268,7 +271,7 @@ def full_mehlhorn(adjacency, terminals):
                 edge_ids.add(edge.edge_id)
     if len({root(t) for t in terminals}) > 1:
         return None
-    return sorted(nodes), sorted(edge_ids)
+    return sorted(nodes), sorted(edge_ids, key=ids.order)
 
 
 def test_early_termination_matches_full_mehlhorn_on_random_graphs():

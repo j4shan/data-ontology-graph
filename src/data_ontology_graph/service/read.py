@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from threading import Event
 from typing import Any
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition, effective_description
 from data_ontology_graph.model.intermediary import LogicalIdentity
@@ -219,7 +220,8 @@ class GraphReadService:
             definitions.append({
                 "node_id": key.node_id,
                 **_definition_payload(
-                    self._node(key.node_id), self.index.definitions[key], column_descriptions[key.node_id],
+                    self.index.memberships.definition_id(key), self._node(key.node_id),
+                    self.index.definitions[key], column_descriptions[key.node_id],
                 ),
             })
         datasets = []
@@ -239,7 +241,7 @@ class GraphReadService:
 
     def get_dataset(self, node_id: str) -> DatasetDetail:
         self._node(node_id)
-        return DatasetDetail(**self._dataset_record(node_id, "full"))
+        return DatasetDetail(snapshot=self.snapshot_info(), **self._dataset_record(node_id, "full"))
 
     def get_relationship(
         self,
@@ -260,6 +262,7 @@ class GraphReadService:
         record = objects.add_relationship(relationship)
         view = View.resolve("standard", None)
         return RelationshipDetail(
+            snapshot=self.snapshot_info(),
             **record,
             from_node_id=request.from_node_id,
             from_dataset_columns=list(edge.source.dataset_columns) if edge else None,
@@ -415,6 +418,7 @@ class GraphReadService:
             relationship_count=len(related),
             entity_relationships=[
                 RelatedLogicalEntity(
+                    id=self.index.entity_relationships.relationship_id(request.identity_id, other),
                     identity_id=other,
                     name=self.index.identities[other].name,
                     descriptions=list(relationship.descriptions),
@@ -593,11 +597,20 @@ class GraphReadService:
             "accessor.properties": accessor["properties"],
         }
         if "columns" in view.dataset:
-            values["columns"] = [column.model_dump(mode="json") for column in node.columns]
+            values["columns"] = [
+                {"id": self.index.snapshot.column_id(node_id, column.name), **column.model_dump(mode="json")}
+                for column in node.columns
+            ]
         if "entity_definitions" in view.dataset:
             descriptions = {column.name: column.description for column in node.columns}
             values["entity_definitions"] = [
-                pick(_definition_payload(node, definition, descriptions), view.entity_definition)
+                pick(
+                    _definition_payload(
+                        self.index.memberships.definition_id(definition.key(node_id)),
+                        node, definition, descriptions,
+                    ),
+                    view.entity_definition,
+                )
                 for definition in node.entity_definitions
             ]
         return values
@@ -607,6 +620,7 @@ class GraphReadService:
         by_identity: dict[str, list[dict[str, Any]]] = {}
         for group in groups:
             by_identity.setdefault(group.source.identity_id, []).append({
+                "id": self.index.memberships.definition_id(group.source.identity_key()),
                 "dataset_columns": group.source.dataset_columns,
                 "edge_count": group.edge_count,
                 "truncated": group.truncated,
@@ -645,12 +659,12 @@ class GraphReadService:
         if "columns" in view.dataset:
             tables["columns"] = to_table(
                 [{"node_id": r["node_id"], **c} for r in datasets for c in r["columns"]],
-                ["node_id", *COLUMN_FIELDS],
+                _id_first(COLUMN_FIELDS),
             )
         if "entity_definitions" in view.dataset:
             tables["entity_definitions"] = to_table(
                 [{"node_id": r["node_id"], **d} for r in datasets for d in r["entity_definitions"]],
-                ["node_id", *view.entity_definition],
+                _id_first(view.entity_definition),
             )
         return {**common, **tables}
 
@@ -690,7 +704,7 @@ class _GraphObjects:
         return record
 
     def relationships(self) -> Any:
-        records = [record for _, record in sorted(self._relationships.items())]
+        records = [record for _, record in sorted(self._relationships.items(), key=lambda item: ids.order(item[0]))]
         return collection(records, RELATIONSHIP_HEADER, self.response_format)
 
     def datasets(self) -> Any:
@@ -703,7 +717,8 @@ class _GraphObjects:
             {
                 "node_id": node_id,
                 **_definition_payload(
-                    self.service._node(node_id), self.service.index.definitions[key]
+                    self.service.index.memberships.definition_id(key),
+                    self.service._node(node_id), self.service.index.definitions[key],
                 ),
             }
             for node_id in sorted(self._definitions)
@@ -717,14 +732,23 @@ def _claim_payload(subject: ClaimModel) -> dict[str, Any]:
     return {**subject.model_dump(mode="json"), "unknown_fields": subject.unknown_fields()}
 
 
+def _id_first(fields: tuple[str, ...]) -> list[str]:
+    """A table header for records keyed by ``node_id``: ``id`` first, then ``node_id`` (2.4.9)."""
+    return ["id", "node_id", *(field for field in fields if field != "id")]
+
+
 def _definition_payload(
-    node: DatasetNode, definition: EntityDefinition, column_descriptions: Mapping[str, str] | None = None,
+    definition_id: str,
+    node: DatasetNode,
+    definition: EntityDefinition,
+    column_descriptions: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """An entity definition with its effective description and where that text comes from."""
     effective = definition.effective_description(node.columns) if column_descriptions is None else effective_description(
         definition.description, definition.dataset_columns, definition.entity_expression, column_descriptions,
     )
     return {
+        "id": definition_id,
         **_claim_payload(definition),
         "effective_description": effective[0] if effective else None,
         "description_source": effective[1] if effective else None,

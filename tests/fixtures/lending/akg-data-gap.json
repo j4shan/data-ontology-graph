@@ -48,6 +48,7 @@
       "unknown_fields": [],
       "columns": [
         {
+          "id": "C13",
           "name": "amount",
           "description": "approved loan amount",
           "value_description": "",
@@ -56,6 +57,7 @@
       ],
       "entity_definitions": [
         {
+          "id": "D9",
           "identity_id": "loan_identity",
           "dataset_columns": [
             "loan_id"
@@ -79,6 +81,7 @@
           ]
         },
         {
+          "id": "D8",
           "identity_id": "account_identity",
           "dataset_columns": [
             "account_id"
@@ -143,6 +146,7 @@
       "unknown_fields": [],
       "columns": [
         {
+          "id": "C17",
           "name": "region_name",
           "description": "the region name",
           "value_description": "",
@@ -151,6 +155,7 @@
       ],
       "entity_definitions": [
         {
+          "id": "D10",
           "identity_id": "region_identity",
           "dataset_columns": [
             "region_id"

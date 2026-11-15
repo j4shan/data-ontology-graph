@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -9,6 +8,7 @@ from typing import Iterable
 
 import marisa_trie
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.model.snapshot import GraphSnapshot
 from data_ontology_graph.service.contracts import SearchGroup, SearchKind
 
@@ -101,6 +101,8 @@ _WORD_MATCH_FIELDS: frozenset[tuple[SearchKind, SearchField]] = frozenset(
 class _Subject:
     kind: SearchKind
     key: str
+    order: int | str
+    """Tie-break within the kind: an ID's ordinal, compared numerically, or an authored ID."""
     sort_label: str
     row: list[str | list[str] | None]
     values: tuple[tuple[SearchField, str], ...]
@@ -176,6 +178,7 @@ class LexicalSearchIndex:
         def add_subject(
             kind: SearchKind,
             key: str,
+            order: int | str,
             label: str,
             row: list[str | list[str] | None],
             fields: Iterable[tuple[SearchField, str]],
@@ -193,6 +196,7 @@ class LexicalSearchIndex:
                 _Subject(
                     kind=kind,
                     key=key,
+                    order=order,
                     sort_label=normalize_term(label),
                     row=row,
                     values=tuple(values),
@@ -203,6 +207,7 @@ class LexicalSearchIndex:
         for identity in sorted(snapshot.logical_identities, key=lambda item: item.identity_id):
             add_subject(
                 "identity",
+                identity.identity_id,
                 identity.identity_id,
                 identity.name,
                 [identity.identity_id, identity.name],
@@ -228,6 +233,7 @@ class LexicalSearchIndex:
             add_subject(
                 "dataset",
                 node.node_id,
+                node.node_id,
                 node.descriptor.display_name,
                 [node.node_id, node.descriptor.qualified_name, node.unknown_fields()],
                 [
@@ -245,11 +251,8 @@ class LexicalSearchIndex:
             )
 
             for definition in node.entity_definitions:
-                key = _definition_key(
-                    node.node_id,
-                    definition.identity_id,
-                    definition.dataset_columns,
-                )
+                definition_key = definition.key(node.node_id)
+                key = snapshot.memberships.definition_id(definition_key)
                 metadata_fields = [
                     (SearchField.ENTITY_METADATA, value)
                     for value in _string_values(definition.entity_metadata)
@@ -260,6 +263,7 @@ class LexicalSearchIndex:
                 add_subject(
                     "entity_definition",
                     key,
+                    snapshot.memberships.ordinals[definition_key],
                     expression or definition.identity_id,
                     [
                         key,
@@ -284,10 +288,11 @@ class LexicalSearchIndex:
                 )
 
             for column in node.columns:
-                key = f"{node.node_id}|column|{column.name}"
+                key = snapshot.column_id(node.node_id, column.name)
                 add_subject(
                     "column",
                     key,
+                    ids.ordinal_of(ids.COLUMN, key),
                     column.name,
                     [key, node.node_id, column.name],
                     [
@@ -302,11 +307,11 @@ class LexicalSearchIndex:
                 )
 
         for relationship in snapshot.entity_relationships:
-            # A JSON array keeps the pair unambiguous: logical entity IDs may contain any character.
-            key = json.dumps(list(relationship.endpoints), ensure_ascii=False, separators=(",", ":"))
+            key = snapshot.entity_relationship_index.relationship_id(*relationship.endpoints)
             add_subject(
                 "entity_relationship",
                 key,
+                ids.ordinal_of(ids.ENTITY_RELATIONSHIP, key),
                 " ".join(relationship.endpoints),
                 [key, list(relationship.endpoints)],
                 [
@@ -371,7 +376,7 @@ class LexicalSearchIndex:
                 key=lambda item: (
                     item[0],
                     self._subjects[item[1]].sort_label,
-                    self._subjects[item[1]].key,
+                    self._subjects[item[1]].order,
                 ),
             )
             truncated = len(ordered) > limit
@@ -459,10 +464,6 @@ def _group(
         match_row_header=MATCH_ROW_HEADER,
         match_rows=match_rows,
     )
-
-
-def _definition_key(node_id: str, identity_id: str, dataset_columns: list[str]) -> str:
-    return f"{node_id}|{identity_id}|{'+'.join(dataset_columns)}"
 
 
 def _string_values(value: object) -> list[str]:

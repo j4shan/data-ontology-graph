@@ -62,9 +62,6 @@ class JoinRelationship(ClaimModel):
             self.a_to_b, self.b_to_a = self.b_to_a, self.a_to_b
         self.endpoint_a = left
         self.endpoint_b = right
-        expected = edge_id_for(left, right)
-        if self.edge_id != expected:
-            raise ValueError(f"edge_id {self.edge_id!r} does not match canonical {expected!r}")
         return self
 
     def unknown_fields_from(self, node_id: str) -> list[str]:
@@ -94,15 +91,3 @@ def canonical_endpoints(
     if endpoint_a.identity_key() <= endpoint_b.identity_key():
         return endpoint_a, endpoint_b
     return endpoint_b, endpoint_a
-
-
-def edge_id_for(endpoint_a: JoinEndpoint, endpoint_b: JoinEndpoint) -> str:
-    left, right = canonical_endpoints(endpoint_a, endpoint_b)
-    return f"{endpoint_token(left)}__{endpoint_token(right)}"
-
-
-def endpoint_token(endpoint: JoinEndpoint) -> str:
-    return (
-        f"{endpoint.node_id}:{endpoint.identity_id}:"
-        f"{'+'.join(endpoint.dataset_columns)}"
-    )

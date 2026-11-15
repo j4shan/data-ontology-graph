@@ -24,9 +24,7 @@ def test_detail_levels_and_added_fields_shape_every_dataset_and_directed_edge(le
     first = essential.edge_groups[0]["entity_definitions"][0]["edges"][0]
     assert first == [
         "sqlite:lending.account[account_id] -> sqlite:lending.account_holder[account_id]",
-        "1:many", "always",
-        "sqlite:lending.account:account_identity:account_id__"
-        "sqlite:lending.account_holder:account_identity:account_id",
+        "1:many", "always", "D1-D3",
     ]
     assert service.get_edges(account).edge_fields == [
         "edge", "multiplicity", "match_existence", "reverse_multiplicity",
@@ -47,7 +45,7 @@ def test_detail_levels_and_added_fields_shape_every_dataset_and_directed_edge(le
     assert added.fields == {"edge": ["reverse_multiplicity"], "entity_definition": ["unique"]}
     assert added.edge_fields == ["edge", "multiplicity", "match_existence",
                                  "reverse_multiplicity", "edge_id"]
-    assert added.entity_definitions.header == ["node_id", "identity_id", "dataset_columns", "unique"]
+    assert added.entity_definitions.header == ["id", "node_id", "identity_id", "dataset_columns", "unique"]
 
     with pytest.raises(ValueError, match="unknown edge fields"):
         service.get_edges(account, fields={"edge": ["display_name"]})
@@ -63,6 +61,17 @@ def test_column_names_holding_a_delimiter_are_quoted() -> None:
         assert decode(["edge"], [label])["to_dataset_columns"] == columns
 
 
+def test_node_ids_holding_a_delimiter_are_quoted() -> None:
+    """A free-text node ID cannot break the label's parse (system design 2.4.1)."""
+    assert definition_label("a[b]", ["id"]) == '"a[b]"[id]'
+    assert definition_label("sqlite:lending.account", ["id"]) == "sqlite:lending.account[id]"
+    for start, end in (("a[b]", "c"), ("x -> y", 'q"'), ("p,q", "r]")):
+        label = f'{definition_label(start, ["k"])} -> {definition_label(end, ["m", "n"])}'
+        edge = decode(["edge"], [label])
+        assert (edge["from_node_id"], edge["to_node_id"]) == (start, end)
+        assert (edge["from_dataset_columns"], edge["to_dataset_columns"]) == (["k"], ["m", "n"])
+
+
 def test_every_response_presents_a_dataset_as_one_record(lending_service) -> None:
     service = lending_service
     account = "sqlite:lending.account"
@@ -75,7 +84,7 @@ def test_every_response_presents_a_dataset_as_one_record(lending_service) -> Non
                                 "grain", "descriptor", "unknown_fields", "edge_groups"]
     assert list(identity) == list(relationship) == standard
     assert identity["descriptor"] == relationship["descriptor"] == {"description": identity["descriptor"]["description"]}
-    full = service.get_dataset(account).model_dump(mode="json")
+    full = service.get_dataset(account).model_dump(mode="json", exclude={"snapshot"})
     full_navigation = service.get_edges(account, response_format="records", detail="full").datasets[0]
     assert full == {key: value for key, value in full_navigation.items()
                     if key not in ("distance", "edge_count", "edge_groups")}

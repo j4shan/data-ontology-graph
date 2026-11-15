@@ -1,17 +1,15 @@
 """Logical-entity memberships and relationships derived only when consumed."""
 
-from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Mapping
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
 from data_ontology_graph.model.relationship import (
     JoinEndpoint,
     JoinRelationship,
     RelationshipDirection,
-    edge_id_for,
-    endpoint_token,
 )
 
 
@@ -68,7 +66,9 @@ class MembershipIndex:
     """Logical-entity memberships, one entry per entity definition.
 
     A relationship is derived fresh from two entity definitions when requested (graph-model 3.1).
-    The index neither stores nor lists relationships, and caches none.
+    The index neither stores nor lists relationships, and caches none. Each definition is
+    numbered from 1 in ascending key order, and a relationship's ``edge_id`` joins its
+    endpoints' IDs (system design 3.3.1, 3.6.1).
     """
 
     def __init__(self, nodes: Mapping[str, DatasetNode]) -> None:
@@ -76,63 +76,18 @@ class MembershipIndex:
         """Dataset nodes by ``node_id``; each holds its entity definitions."""
         self.definitions: dict[DefinitionKey, EntityDefinition] = {}
         by_identity: dict[str, list[DefinitionKey]] = defaultdict(list)
-        self._by_token: dict[str, list[DefinitionKey]] = defaultdict(list)
         for node in nodes.values():
             for definition in node.entity_definitions:
                 key = definition.key(node.node_id)
                 if key in self.definitions:
                     raise ValueError("entity definitions must be unique by identity_id and dataset_columns")
                 self.definitions[key] = definition
-                self._by_token[endpoint_token(self.endpoint(key))].append(key)
                 by_identity[definition.identity_id].append(key)
         self.by_identity = {identity: sorted(keys) for identity, keys in by_identity.items()}
-        ambiguous = self._ambiguous_relationship_ids()
-        if ambiguous:
-            raise ValueError("; ".join(ambiguous))
-
-    def _ambiguous_relationship_ids(self) -> list[str]:
-        """Messages for relationship IDs that two different pairs would share (system design 3.4.2).
-
-        A relationship ID joins two unescaped endpoint references with ``__``. It is ambiguous
-        when two definitions share one reference and their logical entity has a third definition,
-        or when a reference containing ``__`` splits into another valid pair. Only references are
-        compared, so no relationship pair is enumerated.
-        """
-        messages: list[str] = []
-        for token, keys in sorted(self._by_token.items()):
-            if len(keys) > 1 and len(self.by_identity[keys[0].identity_id]) > 2:
-                messages.append(
-                    f"entity definitions {sorted(list(key.dataset_columns) for key in keys)} on "
-                    f"{keys[0].node_id} share the relationship endpoint reference {token!r}"
-                )
-        tokens = sorted(self._by_token)
-        for combined in tokens:
-            position = combined.find("__")
-            while position >= 0:
-                head, middle = combined[:position], combined[position + 2:]
-                if head in self._by_token:
-                    prefix = middle + "__"
-                    index = bisect_left(tokens, prefix)
-                    while index < len(tokens) and tokens[index].startswith(prefix):
-                        tail = tokens[index][len(prefix):]
-                        for message in self._split_collisions(head, tokens[index], combined, tail):
-                            messages.append(message)
-                        index += 1
-                position = combined.find("__", position + 1)
-        return messages
-
-    def _split_collisions(self, a: str, b: str, c: str, d: str) -> list[str]:
-        """Pairs (a, b) and (c, d) whose IDs ``a__b`` and ``c__d`` are the same string."""
-        def valid(left: DefinitionKey, right: DefinitionKey) -> bool:
-            return left < right and left.identity_id == right.identity_id
-
-        return [
-            f"relationship ID {a + '__' + b!r} would identify two different relationships"
-            for left in self._by_token.get(a, ()) for right in self._by_token.get(b, ())
-            if valid(left, right)
-            for other_left in self._by_token.get(c, ()) for other_right in self._by_token.get(d, ())
-            if valid(other_left, other_right)
-        ]
+        self._keys: list[DefinitionKey] = sorted(self.definitions)
+        self.ordinals: dict[DefinitionKey, int] = {
+            key: position for position, key in enumerate(self._keys, start=1)
+        }
 
     @property
     def entity_definition_count(self) -> int:
@@ -144,6 +99,10 @@ class MembershipIndex:
         return JoinEndpoint(
             node_id=key.node_id, identity_id=key.identity_id, dataset_columns=list(key.dataset_columns),
         )
+
+    def definition_id(self, key: DefinitionKey) -> str:
+        """The snapshot-local ID of the entity definition ``key`` (system design 3.6.1)."""
+        return ids.format_id(ids.DEFINITION, self.ordinals[key])
 
     def definition_keys(self, node_id: str) -> list[DefinitionKey]:
         """The dataset's entity definitions in ascending key order; KeyError for an unknown dataset."""
@@ -157,33 +116,30 @@ class MembershipIndex:
             for definition in self.nodes[node_id].entity_definitions
         )
 
-    def edge_id(self, left: DefinitionKey, right: DefinitionKey) -> str:
+    def edge_order(self, left: DefinitionKey, right: DefinitionKey) -> tuple[int, int]:
+        """The relationship's endpoint ordinals in ascending order, its sort key."""
         if left == right or left.identity_id != right.identity_id:
             raise ValueError("a relationship requires two distinct definitions of the same logical entity")
-        return edge_id_for(self.endpoint(left), self.endpoint(right))
+        low, high = sorted((self.ordinals[left], self.ordinals[right]))
+        return low, high
+
+    def edge_id(self, left: DefinitionKey, right: DefinitionKey) -> str:
+        return ids.edge_id(*self.edge_order(left, right))
 
     def resolve(self, edge_id: str) -> tuple[DefinitionKey, DefinitionKey]:
-        """Resolve an existing ID without assuming its unescaped delimiters occur only once."""
-        found = None
-        offset = 0
-        while (position := edge_id.find("__", offset)) >= 0:
-            for left in self._by_token.get(edge_id[:position], ()):
-                for right in self._by_token.get(edge_id[position + 2:], ()):
-                    if left < right and left.identity_id == right.identity_id:
-                        if found is not None:
-                            raise ValueError(f"ambiguous relationship ID {edge_id!r}")
-                        found = (left, right)
-            offset = position + 1
-        if found is None:
+        """The canonical endpoint pair an ``edge_id`` names; KeyError when it names none."""
+        ordinals = ids.edge_ordinals(edge_id)
+        if ordinals is None or ordinals[1] > len(self._keys):
             raise KeyError(edge_id)
-        return found
+        left, right = (self._keys[ordinal - 1] for ordinal in ordinals)
+        if left.identity_id != right.identity_id:
+            raise KeyError(edge_id)
+        return left, right
 
     def pair(self, left: DefinitionKey, right: DefinitionKey) -> JoinRelationship:
-        edge_id = self.edge_id(left, right)
-        # The legacy ID format is unescaped: never silently select one colliding pair.
-        a, b = self.resolve(edge_id)
+        a, b = sorted((left, right))
         return JoinRelationship(
-            edge_id=edge_id,
+            edge_id=self.edge_id(a, b),
             endpoint_a=self.endpoint(a), endpoint_b=self.endpoint(b),
             a_to_b=derived_direction(self.definitions[a], self.definitions[b]),
             b_to_a=derived_direction(self.definitions[b], self.definitions[a]),
@@ -192,4 +148,3 @@ class MembershipIndex:
     def relationship(self, edge_id: str) -> JoinRelationship:
         """The relationship an existing ``edge_id`` names; KeyError when it names none."""
         return self.pair(*self.resolve(edge_id))
-

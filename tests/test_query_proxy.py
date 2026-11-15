@@ -15,7 +15,7 @@ SCRIPT = ROOT / "skills/query-graph-api/scripts/query.py"
 LOAN = "sqlite:lending.loan"
 REGION = "sqlite:lending.region"
 LOAN_ACCOUNT = (
-    "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+    "D1-D8"
 )
 
 

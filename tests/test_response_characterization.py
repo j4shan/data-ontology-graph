@@ -7,11 +7,12 @@ only when a response change is intended.
 
 import json
 import os
+import re
 from itertools import combinations
 
 import pytest
 
-from data_ontology_graph.model import derivation
+from data_ontology_graph.model import derivation, ids
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
 from data_ontology_graph.service.read import GraphReadService
 from testkit import FIXTURES, snapshot_of
@@ -47,7 +48,7 @@ def _edge_ids(value, found: set[str]) -> None:
     elif isinstance(value, list):
         for item in value:
             _edge_ids(item, found)
-    elif isinstance(value, str) and "__" in value and " -> " not in value:
+    elif isinstance(value, str) and ids.edge_ordinals(value) is not None:
         found.add(value)
 
 
@@ -155,8 +156,8 @@ def test_requests_derive_no_more_relationships_than_they_list(catalog: str, monk
             continue  # breadth-first traversal derives beyond what it lists (assessment E1)
         calls["count"] = 0
         response = dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
-        # Every listed relationship or directed edge names its edge_id, which holds "__".
-        listed = json.dumps(response).count("__")
+        # Every listed relationship or directed edge names its edge_id, `D<i>-D<j>`.
+        listed = len(re.findall(r'"D[1-9][0-9]*-D[1-9][0-9]*"', json.dumps(response)))
         assert calls["count"] <= listed, (method, params, calls["count"], listed)
 
 

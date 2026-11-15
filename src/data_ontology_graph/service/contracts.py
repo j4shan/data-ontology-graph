@@ -188,6 +188,7 @@ class EntityRelationshipPathsRequest(ContractModel):
 class RelatedLogicalEntity(ContractModel):
     """The other logical entity of a cross-entity relationship and its descriptions."""
 
+    id: str
     identity_id: str
     name: str
     descriptions: list[str]
@@ -267,6 +268,7 @@ class AggregatedEntityDefinitionsResponse(EntityDefinitionsSelection):
 class DatasetDetail(ContractModel):
     """The navigation dataset record with every field (system design 2.4.4)."""
 
+    snapshot: SnapshotInfo
     node_id: str
     qualified_name: str
     accessor: dict[str, Any]
@@ -278,6 +280,7 @@ class DatasetDetail(ContractModel):
 
 
 class RelationshipDetail(ContractModel):
+    snapshot: SnapshotInfo
     edge_id: str
     identity_id: str
     endpoint_a: dict[str, Any]

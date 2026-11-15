@@ -70,7 +70,7 @@ RELATIONSHIP_HEADER = [
     "unknown_fields", "annotation",
 ]
 DEFINITION_HEADER = [
-    "node_id", "identity_id", "dataset_columns", "entity_universe", "unique", "total",
+    "id", "node_id", "identity_id", "dataset_columns", "entity_universe", "unique", "total",
     "conforms", "entity_expression", "entity_metadata", "description", "effective_description",
     "description_source", "unknown_fields",
 ]

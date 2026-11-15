@@ -1,7 +1,7 @@
 """Read graph responses as records in tests."""
-import json
 
 from data_ontology_graph.service.tables import to_records
+from data_ontology_graph.service.views import split_edge_label
 
 
 def first_relationship(snapshot):
@@ -11,28 +11,10 @@ def first_relationship(snapshot):
     return index.pair(keys[0], keys[1])
 
 
-def definition(side):
-    """``(node_id, columns)`` from ``node_id[col,...]``, unquoting quoted column names."""
-    node_id, _, inner = side.partition("[")
-    inner = inner[:-1]
-    columns, index = [], 0
-    while index < len(inner):
-        if inner[index] == '"':
-            name, end = json.JSONDecoder().raw_decode(inner, index)
-        else:
-            end = inner.find(",", index)
-            end = len(inner) if end < 0 else end
-            name = inner[index:end]
-        columns.append(name)
-        index = end + 1
-    return node_id, columns
-
-
 def decode(fields, array, identity_id=None):
     """A directed-edge array as a record keyed by ``fields``, with its two entity definitions."""
     record = dict(zip(fields, array))
-    start, end = record["edge"].split(" -> ")
-    (from_node_id, from_columns), (to_node_id, to_columns) = definition(start), definition(end)
+    (from_node_id, from_columns), (to_node_id, to_columns) = split_edge_label(record["edge"])
     record.update(from_node_id=from_node_id, from_dataset_columns=from_columns,
                   to_node_id=to_node_id, to_dataset_columns=to_columns)
     if identity_id is not None:

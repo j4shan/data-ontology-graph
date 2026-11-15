@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
 from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.model.entity_relationship import (
@@ -29,6 +30,7 @@ class GraphSnapshot(BaseModel):
     _nodes_by_id: dict[str, DatasetNode] = PrivateAttr()
     _memberships: MembershipIndex = PrivateAttr()
     _entity_relationships: EntityRelationshipIndex = PrivateAttr()
+    _column_ordinals: dict[tuple[str, str], int] = PrivateAttr()
 
     @model_validator(mode="after")
     def validate_graph(self) -> "GraphSnapshot":
@@ -62,6 +64,13 @@ class GraphSnapshot(BaseModel):
         self._entity_relationships = EntityRelationshipIndex(self.entity_relationships)
         self._nodes_by_id = {node.node_id: node for node in sorted(self.nodes, key=lambda item: item.node_id)}
         self._memberships = MembershipIndex(self._nodes_by_id)
+        self._column_ordinals = {
+            key: position
+            for position, key in enumerate(
+                sorted((node.node_id, column.name) for node in self.nodes for column in node.columns),
+                start=1,
+            )
+        }
         annotated = set()
         for annotation in self.annotations:
             if annotation.edge_id in annotated:
@@ -86,6 +95,10 @@ class GraphSnapshot(BaseModel):
     def nodes_by_id(self) -> dict[str, DatasetNode]:
         """Dataset nodes by ``node_id``, built once at load."""
         return self._nodes_by_id
+
+    def column_id(self, node_id: str, name: str) -> str:
+        """The snapshot-local ID of a dataset's column (system design 3.6.1)."""
+        return ids.format_id(ids.COLUMN, self._column_ordinals[(node_id, name)])
 
     def annotation_map(self) -> dict[str, JoinAnnotation]:
         return {annotation.edge_id: annotation for annotation in self.annotations}

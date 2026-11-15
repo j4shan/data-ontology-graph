@@ -175,28 +175,47 @@ def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
     assert index.relationship(edge.edge_id) == edge
 
 
-def test_index_rejects_definitions_that_share_an_endpoint_reference() -> None:
-    # The ID format joins columns with '+', so ["x", "y"] and ["x+y"] share the reference
-    # dataset:a:device:x+y, and each pairs with b under one relationship ID.
-    with pytest.raises(ValueError, match="share the relationship endpoint reference 'dataset:a:device:x\\+y'"):
-        _index([
-            dataset_node("a", [definition(["x", "y"]), definition(["x+y"])]),
-            dataset_node("b", [definition()]),
-        ])
+@pytest.mark.parametrize("nodes", [
+    # columns ["x", "y"] and ["x+y"], each paired with b
+    [dataset_node("a", [definition(["x", "y"]), definition(["x+y"])]), dataset_node("b", [definition()])],
+    # (a, x:y)-(b, x:y) and (a:x, y)-(b:x, y), each on ["id"]
+    [
+        dataset_node("a", [definition(identity_id="x:y")]), dataset_node("b", [definition(identity_id="x:y")]),
+        dataset_node("a:x", [definition(identity_id="y")]), dataset_node("b:x", [definition(identity_id="y")]),
+    ],
+    # a column holding the old pair separator and a dataset prefix
+    [
+        dataset_node("p", [definition(["id"]), definition(["id__dataset:q:device:k"])]),
+        dataset_node("q", [definition(["k__dataset:r:device:id"])]),
+        dataset_node("r", [definition(["id"])]),
+    ],
+], ids=["plus-in-column", "colon-in-ids", "separator-in-column"])
+def test_free_text_names_never_make_two_relationships_share_an_id(nodes) -> None:
+    """IDs compose definition ordinals, so no name can make two pairs collide (system design 3.6)."""
+    index = _index(nodes)
+    pairs = [pair for keys in index.by_identity.values() for pair in combinations(keys, 2)]
+    edge_ids = [index.edge_id(*pair) for pair in pairs]
+    assert len(set(edge_ids)) == len(pairs)
+    assert [index.resolve(edge_id) for edge_id in edge_ids] == pairs
 
 
-def test_two_definitions_sharing_a_reference_alone_have_one_unambiguous_relationship() -> None:
-    index = _index([dataset_node("a", [definition(["x", "y"]), definition(["x+y"])])])
-    left, right = index.by_identity["device"]
-    assert index.resolve(index.edge_id(left, right)) == (left, right)
+def test_definition_ids_follow_ascending_key_order() -> None:
+    index = _index([
+        dataset_node("b", [definition(["k"])]),
+        dataset_node("a", [definition(["z"]), definition(["y"], identity_id="account")]),
+    ])
+    assert [index.definition_id(key) for key in sorted(index.definitions)] == ["D1", "D2", "D3"]
+    assert index.edge_id(*index.by_identity["device"]) == "D2-D3"
 
 
-def test_index_rejects_references_whose_delimiter_splits_into_another_pair() -> None:
-    # dataset:p:device:id__dataset:q:device:k__dataset:r:device:id reads as either
-    # (p:id, q:k__...) or (p:id__..., r:id).
-    with pytest.raises(ValueError, match="would identify two different relationships"):
-        _index([
-            dataset_node("p", [definition(["id"]), definition(["id__dataset:q:device:k"])]),
-            dataset_node("q", [definition(["k__dataset:r:device:id"])]),
-            dataset_node("r", [definition(["id"])]),
-        ])
+@pytest.mark.parametrize("edge_id", [
+    "D3-D2", "D2-D2", "D02-D3", "D0-D2", "D2-D9", "D1-D2", "d2-d3", "D2_D3", "", "C2-C3",
+])
+def test_ids_that_name_no_canonical_pair_resolve_to_nothing(edge_id: str) -> None:
+    # D1 is the account definition on a; D2 and D3 are device definitions.
+    index = _index([
+        dataset_node("b", [definition(["k"])]),
+        dataset_node("a", [definition(["z"]), definition(["y"], identity_id="account")]),
+    ])
+    with pytest.raises(KeyError):
+        index.resolve(edge_id)

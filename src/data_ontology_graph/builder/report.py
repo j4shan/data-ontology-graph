@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
@@ -19,12 +20,17 @@ def unknown_field_locations(definition: IntermediaryDefinition) -> list[str]:
     """Locate unknown input claims without enumerating implicit relationships."""
     locations: list[str] = []
     for node in sorted(definition.nodes, key=lambda item: item.node_id):
-        node_location = f"nodes[{node.node_id}]"
+        # JSON keeps free-text node IDs, logical entity IDs, and column names unambiguous.
+        node_location = f"nodes[{_json(node.node_id)}]"
         locations.extend(_locations(node, node_location))
         for entity in node.entity_definitions:
-            key = f"{entity.identity_id}:{'+'.join(entity.dataset_columns)}"
+            key = _json([entity.identity_id, entity.dataset_columns])
             locations.extend(_locations(entity, f"{node_location}.entity_definitions[{key}]"))
     return locations
+
+
+def _json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _locations(subject: ClaimModel, location: str) -> list[str]:

@@ -10,6 +10,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from data_ontology_graph.model import ids
+
 
 class EntityRelationship(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -77,10 +79,22 @@ class EntityRelationshipIndex:
             for identity_id, related in sorted(adjacency.items())
         }
         self.relationship_count = count
+        self._ordinals = {
+            pair: position
+            for position, pair in enumerate(
+                sorted({tuple(sorted((left, right))) for left, related in self.adjacency.items()
+                        for right in related}),
+                start=1,
+            )
+        }
 
     def related(self, identity_id: str) -> dict[str, EntityRelationship]:
         """Related logical entities of ``identity_id`` in ascending ID order."""
         return self.adjacency.get(identity_id, {})
+
+    def relationship_id(self, left: str, right: str) -> str:
+        """The snapshot-local ID of the cross-entity relationship between two logical entities."""
+        return ids.format_id(ids.ENTITY_RELATIONSHIP, self._ordinals[tuple(sorted((left, right)))])
 
     def between(self, left: str, right: str) -> EntityRelationship | None:
         return self.adjacency.get(left, {}).get(right)

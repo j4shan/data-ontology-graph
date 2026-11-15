@@ -148,8 +148,10 @@ def test_search_orders_subjects_by_best_match_then_label(lending_service) -> Non
             labels = {row[0]: row[1] or row[0] for row in group.subject_rows}
             if group.kind == "column":
                 labels = {row[0]: row[2] for row in group.subject_rows}
+            # Composite subjects tie-break on their ID's ordinal, compared numerically.
             sort_keys = [
-                (best[key], normalize_term(labels[key]), key)
+                (best[key], normalize_term(labels[key]),
+                 int(key[1:]) if group.kind in ("column", "entity_definition", "entity_relationship") else key)
                 for key in (row[0] for row in group.subject_rows)
             ]
             assert sort_keys == sorted(sort_keys)
@@ -295,7 +297,7 @@ def test_search_matches_cross_entity_relationship_descriptions(stated_service) -
     (group,) = response.groups
     assert group.kind == "entity_relationship"
     assert group.subject_row_header == ["key", "endpoints"]
-    key = '["calendar_day_identity","order_identity"]'
+    key = "X1"
     assert group.subject_rows == [[key, ["calendar_day_identity", "order_identity"]]]
     assert group.match_rows == [[
         key, "exact", "description", "shipped",
@@ -327,7 +329,8 @@ def test_search_keys_stay_distinct_when_logical_entity_ids_contain_delimiters() 
     )
     (group,) = GraphReadService(colliding).search(SearchRequest(query="alpha", kind=["entity_relationship"])).groups
     keys = [row[0] for row in group.subject_rows]
-    assert keys == ['["a","b|c"]', '["a|b","c"]']
-    assert {row[0]: row[4] for row in group.match_rows} == {
-        '["a","b|c"]': "alpha link", '["a|b","c"]': "alpha other",
+    assert keys == ["X1", "X2"]
+    assert {(row[0], tuple(row[1])) for row in group.subject_rows} == {
+        ("X1", ("a", "b|c")), ("X2", ("a|b", "c")),
     }
+    assert {row[0]: row[4] for row in group.match_rows} == {"X1": "alpha link", "X2": "alpha other"}

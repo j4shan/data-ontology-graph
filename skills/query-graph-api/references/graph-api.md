@@ -63,6 +63,16 @@ Snapshot = {
 `version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).
 Detailed `get_edges` and `get_entity_definitions` cursors bind to snapshot content as well as
 the displayed build time.
+Every response carries `snapshot`, including `graph.get_dataset` and `graph.get_relationship`.
+Entity definition, column, and cross-entity relationship IDs are valid only in the snapshot
+that issued them. A caller holding these IDs can detect a different snapshot by its `version`;
+the service does not detect IDs from another snapshot.
+
+Entity definitions, columns, and cross-entity relationships have IDs `D<n>`, `C<n>`, and
+`X<n>`, respectively. Each decimal ordinal starts at 1 and follows the ascending order of
+the object's natural key. Identical content yields identical IDs; any content change may
+renumber them. These IDs are opaque. Contributor-authored `node_id` and `identity_id` remain
+unchanged.
 
 ### Dataset and entity metadata
 
@@ -78,9 +88,9 @@ Dataset = {
   unknown_fields?: string[], columns?: Column[], entity_definitions?: Definition[],
   distance?: integer, edge_count?: integer, edge_groups?: EdgeGroup[]
 }
-Column = {name: string, description: string, value_description: string, synonyms: string[]}
+Column = {id: string, name: string, description: string, value_description: string, synonyms: string[]}
 Definition = {
-  identity_id: string, dataset_columns: string[],
+  id: string, identity_id: string, dataset_columns: string[],
   entity_universe?: "complete" | "partial" | "unknown",
   unique?: boolean | "unknown", total?: boolean | "unknown", conforms?: boolean | "unknown",
   entity_expression?: string[], entity_metadata?: object, description?: string,
@@ -92,8 +102,8 @@ Definition = {
 `get_dataset` returns every metadata field, without navigation-only `distance`, `edge_count`,
 or `edge_groups`. Dataset collections from `get_entity_definitions` and `get_relationship`
 also omit `distance`, `edge_count`, and `edge_groups`. Other methods select dataset fields by
-detail. Standalone definition collections add `node_id`; nested definitions take it from
-their dataset.
+detail. Standalone definition collections put `id` before `node_id`; nested definitions take
+`node_id` from their dataset.
 
 - `qualified_name` identifies the deployed dataset in source terminology. `node_id` is its
   graph key. Display names need not be unique.
@@ -138,14 +148,14 @@ Navigation = {
 }
 EdgeGroup = {identity_id: string, entity_definitions: GroupDefinition[]}
 GroupDefinition = {
-  dataset_columns: string[], edge_count: integer, truncated: boolean, edges: any[][]
+  id: string, dataset_columns: string[], edge_count: integer, truncated: boolean, edges: any[][]
 }
 ```
 
 In records format, `columns`, `entity_definitions`, and `edge_groups` nest in each dataset;
 their separate top-level collections are omitted. Edge arrays and edge-group contents are the
-same in both formats. In table format, column and definition rows are keyed by `node_id`;
-each top-level edge group includes its owning `node_id`.
+same in both formats. In table format, column and definition headers start with `id`, then
+`node_id`; each top-level edge group includes its owning `node_id`.
 
 Only expanded datasets have edge groups. A definition with no relationships may have no
 edge-group entry. A boundary dataset's missing edge groups do not mean it has no relationships:
@@ -165,9 +175,12 @@ enclosing group, and `get_relationship` holds it at the top level. Caller-added 
 may also include it in grouped edge arrays.
 
 `edge` is `start_node_id[col1,col2] -> end_node_id[col1,col2]`. Columns are in the returned
-definition order. Names containing a comma, square bracket, double quote, or `->` use JSON
-string quoting, for example `bank.t["a,b"]`. An edge ID identifies the underlying relationship;
-its direction comes from the label and owning entity definition. A self-relationship yields
+definition order. Node IDs and column names containing `,`, `[`, `]`, `"`, or `->` use JSON
+string quoting; for example, node `a[b]` with column `id` appears as `"a[b]"[id]`.
+The relationship's `edge_id` is `D<i>-D<j>`, the IDs of its two endpoint entity definitions
+with `i < j` (for example, `D1-D8`). It is an opaque snapshot-local ID: compare it, never parse
+it. Its direction comes from the `edge` label and owning entity definition. Endpoint details
+are also available from `graph.get_relationship`. A self-relationship yields
 two directed edges on the same dataset, distinguished by their starting columns.
 
 | Field | Type and meaning |
@@ -212,10 +225,10 @@ The complete caller-added field catalog is:
 | --- | --- |
 | `dataset` | `node_id`, `qualified_name`, `distance`, `edge_count`, `accessor.kind`, `accessor.endpoint`, `accessor.labels`, `grain`, `descriptor.description`, `unknown_fields`, `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. |
 | `edge` | `edge`, `identity_id`, `multiplicity`, `match_existence`, `reverse_multiplicity`, `reverse_match_existence`, `from_description`, `to_description`, `annotation`, `edge_id`. |
-| `entity_definition` | `identity_id`, `dataset_columns`, `entity_universe`, `unique`, `total`, `conforms`, `entity_expression`, `entity_metadata`, `description`, `effective_description`, `description_source`, `unknown_fields`. |
+| `entity_definition` | `id`, `identity_id`, `dataset_columns`, `entity_universe`, `unique`, `total`, `conforms`, `entity_expression`, `entity_metadata`, `description`, `effective_description`, `description_source`, `unknown_fields`. |
 
 Requesting entity-definition fields also includes the definitions collection. Its identifying
-`identity_id` and `dataset_columns` are always present; full detail includes every definition
+`id`, `identity_id`, and `dataset_columns` are always present; full detail includes every definition
 field. Adding dataset `entity_definitions` alone at a lower level returns identifying fields.
 `distance` is omitted for paths and connecting subgraphs even if requested.
 
@@ -256,12 +269,12 @@ Join a group's subject and match rows on `key`. Subject headers by kind are:
 | `identity` | `key`, `name`. |
 
 Groups appear in the order `column`, `dataset`, `entity_definition`, `entity_relationship`,
-`identity`. A cross-entity relationship matches by its descriptions, and its `key` is its
-endpoint pair encoded as a JSON array, such as `["calendar_day_identity","order_identity"]`.
+`identity`. A cross-entity relationship matches by its descriptions.
 
 The match header is `key`, `match_type`, `match_field`, `matched_term`, `matched_value`.
-Each matching field value has one match row. Dataset and identity keys are their canonical IDs;
-other subject keys identify search rows and should not be substituted for dataset IDs.
+Each matching field value has one match row. A dataset's key is its `node_id`, and an identity's
+key is its logical entity ID. Column, entity definition, and cross-entity relationship keys are
+their snapshot-local IDs (`C<n>`, `D<n>`, and `X<n>`). These keys do not substitute for dataset IDs.
 
 Search normalizes Unicode, case, camel-case boundaries, punctuation, and whitespace. It
 indexes names, IDs, descriptions, synonyms, dataset tags, accessor fields (`kind`, `endpoint`,
@@ -274,13 +287,15 @@ compare normalized stored terms (whole values and individual words). Phrase and 
 matching apply only to dataset qualified/display names and logical-entity names: query words
 prefix consecutive words or words in any order within one value, respectively. Other fields
 match a multi-word query only as a whole-value prefix or exact value. Subjects sort by best
-match type, normalized label, then key. This lexical ordering does not decide semantic relevance.
+match type, normalized label, then ID ordinal compared numerically for snapshot-local IDs
+(or the authored ID for datasets and identities). This ordering does not decide semantic relevance.
 The top-level `truncated` is true when any group's limit omitted eligible subjects.
 
 ### `graph.get_dataset`
 
-Parameters: required nonempty string `node_id`. Returns one full `Dataset` record. It does
-not accept `detail`, `fields`, or `response_format`.
+Parameters: required nonempty string `node_id`. Returns one full `Dataset` record with
+`snapshot: Snapshot` at the top level. It does not accept `detail`, `fields`, or
+`response_format`.
 
 ### `graph.get_entity_definitions`
 
@@ -382,7 +397,7 @@ Returns:
 
 ```text
 {
-  edge_id: string, identity_id: string,
+  snapshot: Snapshot, edge_id: string, identity_id: string,
   endpoint_a: {node_id: string, dataset_columns: string[]},
   endpoint_b: {node_id: string, dataset_columns: string[]},
   a_to_b: {multiplicity: string, match_existence: string},
@@ -420,13 +435,14 @@ Returns:
 {
   snapshot: Snapshot, identity_id: string, name: string, limit: integer,
   relationship_count: integer,
-  entity_relationships: [{identity_id: string, name: string, descriptions: string[]}],
+  entity_relationships: [{id: string, identity_id: string, name: string, descriptions: string[]}],
   truncated: boolean, next_cursor: string | null
 }
 ```
 
-Each item names the other logical entity of one cross-entity relationship, ordered by its ID,
-with that relationship's descriptions. A relationship of a logical entity with itself appears
+Each item gives the cross-entity relationship's `id`, the other logical entity's `identity_id`
+and `name`, and the relationship's descriptions. Items are ordered by the other logical entity's
+ID. A relationship of a logical entity with itself appears
 once. `relationship_count` counts every cross-entity relationship at the logical entity;
 `truncated` reports whether this page omits some, and `next_cursor` is null on the last page.
 An empty list means no cross-entity relationship is stated for that logical entity; it does not

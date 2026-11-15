@@ -44,7 +44,9 @@ and validates the result before ingestion. The logical-entity registry and each 
 definitions establish logical-entity membership: a definition identifies the dataset columns
 that realize a registered logical entity. Definitions of the same logical entity can form a
 relationship, including two definitions on one dataset. The graph groups definitions by logical
-entity and derives a requested pair's canonical edge ID from its endpoints. Multiplicity, match
+entity and gives each entity definition a snapshot-local `D<n>` ID. A relationship's `edge_id`
+combines its endpoint definition IDs in ascending order, for example `D1-D8`. The ID is opaque
+and valid only in the snapshot that issued it. Multiplicity, match
 existence, and unknown claims follow from the definitions' `unique`, `total`, `conforms`, and
 `entity_universe` properties. Sparse annotations accompany selected relationships. Build and
 compact-artifact load do not enumerate every possible pair. The governed JSON Schemas are under
@@ -190,9 +192,11 @@ the detailed view and follow `next_cursor` until it is null. Keep the same sourc
 refining targets: `identity_id` and `from_dataset_columns` choose how the seed connects, whereas
 `target_identity_ids` choose which connected datasets remain. Other navigation methods retain
 their contracts and can still produce tenant shortcuts. The YAML schema is unchanged.
-`graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
-records the UTC build time. Detailed `get_edges` and `get_entity_definitions` cursors also bind
-to the snapshot content.
+Every API response carries a `snapshot` with the graph API `api_version` and snapshot `version`,
+including `graph.get_dataset` and `graph.get_relationship`. The version records the UTC build
+time. Callers holding snapshot-local IDs can detect a different snapshot by its `version`;
+the service does not detect IDs from another snapshot. Detailed `get_edges` and
+`get_entity_definitions` cursors also bind to the snapshot content.
 After a software upgrade, republish from the YAML intermediary with
 `data-ontology-graph-publish` so the service loads a current artifact.
 

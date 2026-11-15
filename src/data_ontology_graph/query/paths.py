@@ -18,6 +18,7 @@ import heapq
 from collections import defaultdict, deque
 from collections.abc import Callable, Iterable
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.model.dataset import DefinitionKey
 from data_ontology_graph.model.derivation import MembershipIndex, derived_multiplicity
 from data_ontology_graph.model.enums import Multiplicity
@@ -60,7 +61,7 @@ class PathGraph:
             (self._positions[target], derived_multiplicity(index.definitions[source], index.definitions[target]),
              index.edge_id(source, target))
             for target in index.by_identity[source.identity_id] if target != source
-        ), key=lambda edge: edge[2])
+        ), key=lambda edge: ids.order(edge[2]))
 
     def k_shortest(
         self,
@@ -105,8 +106,12 @@ class PathGraph:
         paths = sorted(found[:k], key=lambda path: (_edge_count(path), self._edge_ids(path)))
         return [_edge_pairs(path) for path in paths], len(found) > k
 
-    def _edge_ids(self, path: list[State]) -> tuple[tuple[str, DefinitionKey], ...]:
-        return tuple((self.edge_id(a, b), self.keys[a]) for a, b in _edge_pairs(path))
+    def _edge_ids(self, path: list[State]) -> tuple[tuple[tuple[int, int], DefinitionKey], ...]:
+        """Each directed edge's ``edge_id`` ordinals, compared numerically, and start definition."""
+        return tuple(
+            (self._memberships.edge_order(self.keys[a], self.keys[b]), self.keys[a])
+            for a, b in _edge_pairs(path)
+        )
 
 
 class _Search:

@@ -34,7 +34,6 @@ from data_ontology_graph.model.relationship import (
     JoinRelationship,
     RelationshipDirection,
     canonical_endpoints,
-    edge_id_for,
 )
 from data_ontology_graph.model.snapshot import GraphSnapshot
 
@@ -67,6 +66,5 @@ __all__ = [
     "MembershipIndex",
     "Unknown",
     "canonical_endpoints",
-    "edge_id_for",
     "is_unknown",
 ]

@@ -322,8 +322,8 @@ def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
     _, report = build_snapshot_from_yaml(VALID_EXAMPLE)
 
     assert report.unknown_fields == [
-        "nodes[dataset_a].entity_definitions[customer_identity:c1+c2+c3].total",
-        "nodes[dataset_b].grain",
+        'nodes["dataset_a"].entity_definitions[["customer_identity",["c1","c2","c3"]]].total',
+        'nodes["dataset_b"].grain',
     ]
 
 

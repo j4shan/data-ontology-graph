@@ -11,6 +11,7 @@ from data_ontology_graph.service.contracts import (
     PathsRequest,
     SubgraphRequest,
 )
+from data_ontology_graph.model.dataset import DefinitionKey
 from data_ontology_graph.service.tables import to_records
 from testkit.builders import same_dataset_service
 from testkit.records import by_id, dataset_edges, decode, paths
@@ -173,7 +174,11 @@ def test_directed_edges_nest_in_their_datasets_and_every_target_is_returned(lend
 def test_a_same_dataset_relationship_gives_one_directed_edge_from_each_endpoint(tmp_path: Path) -> None:
     service = same_dataset_service(tmp_path)
     link = "net.device_link"
-    edge_id = "net.device_link:device:device_a__net.device_link:device:device_b"
+    memberships = service.index.memberships
+    edge_id = memberships.edge_id(
+        DefinitionKey("net.device_link", "device", ("device_a",)),
+        DefinitionKey("net.device_link", "device", ("device_b",)),
+    )
     own = [edge for edge in edge_records(service.get_edges(link)) if edge["edge_id"] == edge_id]
     assert [(edge["from_dataset_columns"], edge["to_dataset_columns"]) for edge in own] == [
         (["device_a"], ["device_b"]), (["device_b"], ["device_a"]),
@@ -253,7 +258,8 @@ def test_subgraph_expansion_caps_listed_directed_edges_with_limit(lending_servic
 
 def test_traversal_reports_unknown_claims_relative_to_direction(example_service) -> None:
     service = example_service
-    edge_id = "dataset_a:customer_identity:c1+c2+c3__dataset_b:customer_identity:d1+d2"
+    [listed] = edge_records(service.get_edges("dataset_a"))
+    edge_id = listed["edge_id"]
 
     relationship = service.get_relationship(edge_id)
     assert relationship.unknown_fields == ["a_to_b.match_existence"]

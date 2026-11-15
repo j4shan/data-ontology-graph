@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from collections.abc import Iterable, Mapping
 from typing import Literal
 
+from data_ontology_graph.model import ids
 from data_ontology_graph.query.neighbourhood import DirectedEdge
 
 
@@ -41,7 +42,7 @@ class ConnectingTree:
     edge_ids: list[str]
 
 
-Candidate = tuple[int, str, str, str, DirectedEdge]
+Candidate = tuple[int, tuple[int, int], str, str, DirectedEdge]
 
 
 def connecting_tree(
@@ -61,7 +62,7 @@ def connecting_tree(
         following = []
         for current in frontier:
             # Edge-ID order keeps region growth and boundary choice deterministic.
-            for edge in sorted(edges.get(current, ()), key=lambda item: item.edge_id):
+            for edge in sorted(edges.get(current, ()), key=lambda item: ids.order(item.edge_id)):
                 other = edge.target.node_id
                 if other not in owner:
                     owner[other] = owner[current]
@@ -72,7 +73,7 @@ def connecting_tree(
                     left, right = sorted((current, other))
                     pair = tuple(sorted((owner[current], owner[other])))
                     candidate = (distance[current] + 1 + distance[other],
-                                 edge.edge_id, left, right, edge)
+                                 ids.order(edge.edge_id), left, right, edge)
                     previous = candidates.get(pair)
                     if previous is None or candidate[:4] < previous[:4]:
                         candidates[pair] = candidate
@@ -93,14 +94,14 @@ def connecting_tree(
     # to both terminals, the union is already a tree with only terminal leaves.
     nodes = set(terminals)
     edge_ids = set()
-    for _, edge_id, left, right, _ in boundaries:
-        edge_ids.add(edge_id)
+    for _, _, left, right, boundary in boundaries:
+        edge_ids.add(boundary.edge_id)
         for current in (left, right):
             while current not in nodes:
                 nodes.add(current)
                 current, parent_edge = predecessor[current]
                 edge_ids.add(parent_edge.edge_id)
-    return ConnectingTree("completed", sorted(nodes), sorted(edge_ids))
+    return ConnectingTree("completed", sorted(nodes), sorted(edge_ids, key=ids.order))
 
 
 def _spanning_boundaries(

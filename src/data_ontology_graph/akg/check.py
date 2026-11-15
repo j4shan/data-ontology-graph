@@ -17,7 +17,7 @@ from yaml import YAMLError
 
 from data_ontology_graph.akg.model import AkgDocument, Dataset
 from data_ontology_graph.builder.intermediary import _format_location
-from data_ontology_graph.model.relationship import JoinEndpoint, edge_id_for
+from data_ontology_graph.model import ids
 from data_ontology_graph.service.views import EDGE_FIELDS as API_EDGE_FIELDS, split_edge_label
 
 
@@ -153,7 +153,7 @@ def _references(document: AkgDocument, dangling: Severity) -> list[AkgFinding]:
                 edge_ids = _check_definition(
                     node_id, group.identity_id, definition, fields, findings, require_dataset,
                 )
-                held.setdefault(node_id, set()).update(edge_ids)
+                held.setdefault(definition.id, set()).update(edge_ids)
 
     for key, comparison in (document.comparisons or {}).items():
         location = f"$.comparisons[{key!r}]"
@@ -169,15 +169,15 @@ def _references(document: AkgDocument, dangling: Severity) -> list[AkgFinding]:
         for index, node_id in enumerate(gap.datasets or []):
             require_dataset(node_id, f"{location}.datasets[{index}]")
         for index, reference in enumerate(gap.edges or []):
-            if reference.edge_id not in held.get(reference.node_id, set()):
+            if reference.edge_id not in held.get(reference.definition_id, set()):
                 findings.append(
                     AkgFinding(
                         location=f"{location}.edges[{index}]",
                         rule="dangling_reference",
                         severity=dangling,
                         message=(
-                            f"names directed edge {reference.edge_id!r} of dataset "
-                            f"{reference.node_id!r}, which is not in the document"
+                            f"names directed edge {reference.edge_id!r} leaving entity definition "
+                            f"{reference.definition_id!r}, which is not in the document"
                         ),
                     )
                 )
@@ -215,9 +215,12 @@ def _check_definition(node_id, identity_id, definition, fields, findings, requir
                        f"starts at {start_node}{start_columns}, not at the entity definition "
                        "that holds it")
             )
-        canonical = _edge_id(identity_id, (start_node, start_columns), (end_node, end_columns))
-        if canonical != edge_id:
-            findings.append(_error(location, "edge_key", f"canonical edge ID is {canonical!r}"))
+        ordinals = ids.edge_ordinals(edge_id) if isinstance(edge_id, str) else None
+        if ordinals is None or ids.ordinal_of(ids.DEFINITION, definition.id) not in ordinals:
+            findings.append(
+                _error(location, "edge_key",
+                       f"is not a relationship ID `D<i>-D<j>` naming entity definition {definition.id!r}")
+            )
         if edge_id in seen:
             findings.append(
                 _error(location, "duplicate_edge", "the entity definition already holds this edge")
@@ -243,16 +246,6 @@ def _check_definition(node_id, identity_id, definition, fields, findings, requir
                            f"{kept!r} is neither the start nor the end of this directed edge")
                 )
     return seen
-
-
-def _edge_id(identity_id: str, start: tuple[str, list[str]], end: tuple[str, list[str]]) -> str | None:
-    try:
-        return edge_id_for(
-            JoinEndpoint(node_id=start[0], identity_id=identity_id, dataset_columns=start[1]),
-            JoinEndpoint(node_id=end[0], identity_id=identity_id, dataset_columns=end[1]),
-        )
-    except ValidationError:
-        return None
 
 
 def _unknown_keys(value: Any, location: str) -> list[AkgFinding]:

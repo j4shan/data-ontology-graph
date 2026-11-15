@@ -16,6 +16,7 @@ from data_ontology_graph.akg.check import AkgFinding, dataset_location, edge_loc
 from data_ontology_graph.builder import build_snapshot_from_yaml
 from data_ontology_graph.rpc import client
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
+from data_ontology_graph.service.contracts import API_VERSION
 from data_ontology_graph.service.read import GraphReadService
 
 
@@ -68,7 +69,9 @@ class YamlSource(ServiceSource):
         return cls(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
 
     def snapshot(self) -> dict[str, Any] | None:
-        return None
+        """Only the API version: a rebuilt snapshot has a new version but reproduces the IDs of
+        unchanged content (system design 2.6.3, 3.6.1)."""
+        return {"api_version": API_VERSION}
 
 
 def dispatcher_call(dispatcher: JsonRpcDispatcher) -> GraphCall:
@@ -95,12 +98,13 @@ def resolve_document(payload: dict[str, Any], source: GraphSource) -> list[AkgFi
     recorded = (payload.get("graph") or {}).get("snapshot")
     served = source.snapshot()
     if recorded and served:
-        # The snapshot version records which data the AKG was read from; a later refresh is
-        # not a mismatch, so only the API version is compared.
-        if recorded.get("api_version") != served.get("api_version"):
-            findings.append(_mismatch(
-                "$.graph.snapshot.api_version", recorded.get("api_version"), served.get("api_version")
-            ))
+        # Snapshot-local IDs are valid only in the snapshot that assigned them, so a served
+        # snapshot with another version is reported; the caller decides what to do with it.
+        for field in ("api_version", "version"):
+            if field in served and recorded.get(field) != served[field]:
+                findings.append(_mismatch(
+                    f"$.graph.snapshot.{field}", recorded.get(field), served[field]
+                ))
 
     fields = payload["edge_fields"]
     for dataset in payload["datasets"]:

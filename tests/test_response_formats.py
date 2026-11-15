@@ -14,7 +14,7 @@ from testkit.rpc import dispatch
 ACCOUNT, CUSTOMER, REGION = "sqlite:lending.account", "sqlite:lending.customer", "sqlite:lending.region"
 NESTED = ("edge_groups", "columns", "entity_definitions")
 LOAN_ACCOUNT = (
-    "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+    "D1-D8"
 )
 
 CASES = {

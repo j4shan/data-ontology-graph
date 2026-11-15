@@ -85,7 +85,7 @@ def test_yaml_documents_load_like_json(tmp_path: Path) -> None:
     assert findings == [] and check_document(payload) == []
 
 
-LOAN_EDGE = "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+LOAN_EDGE = "D1-D8"
 LOAN_EDGE_AT = (
     "$.datasets['sqlite:lending.loan'].edge_groups['account_identity']"
     f".entity_definitions[['account_id']].edges[{LOAN_EDGE!r}]"
@@ -168,11 +168,17 @@ def test_unknown_dataset_column_and_changed_field_are_reported(lending_service) 
     ]
 
 
-def test_only_the_api_version_of_a_recorded_snapshot_is_compared(lending_service) -> None:
+@pytest.mark.parametrize(("source", "expected"), [
+    ("service", ["$.graph.snapshot.api_version", "$.graph.snapshot.version"]),
+    ("yaml", ["$.graph.snapshot.api_version"]),
+])
+def test_socket_resolution_reports_another_snapshot_version(source, expected, lending_service) -> None:
+    """IDs are snapshot-local: a served snapshot with another version is reported; YAML
+    resolution rebuilds the snapshot, so only the API version is compared (2.6.3)."""
     payload = _payload("akg-single.json")
     payload["graph"] = {"snapshot": {"api_version": "0", "version": "2000-01-01T00:00:00Z"}}
-    rules = [finding.location for finding in resolve_document(payload, _source("service", lending_service))]
-    assert rules == ["$.graph.snapshot.api_version"]
+    rules = [finding.location for finding in resolve_document(payload, _source(source, lending_service))]
+    assert rules == expected
 
 
 def test_cli_check_and_finalize(lending_socket: Path, tmp_path: Path, capsys) -> None:

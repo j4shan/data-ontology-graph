@@ -17,7 +17,7 @@ from testkit.rpc import dispatch, rpc_call, temporary_socket_path
 
 ACCOUNT = "sqlite:lending.account"
 LOAN_ACCOUNT = (
-    "sqlite:lending.account:account_identity:account_id__sqlite:lending.loan:account_identity:account_id"
+    "D1-D8"
 )
 SERVICES = {"lending": service_of, "fanout": fanout_service, "stated": lambda: service_of(STATED)}
 

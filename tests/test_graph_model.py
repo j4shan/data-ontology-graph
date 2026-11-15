@@ -18,7 +18,6 @@ from data_ontology_graph.model.relationship import (
     JoinEndpoint,
     JoinRelationship,
     RelationshipDirection,
-    edge_id_for,
 )
 from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
 from testkit.builders import dataset_node, definition
@@ -104,9 +103,8 @@ def test_unknown_fields_cover_typed_claims_only() -> None:
 def test_canonical_edge_order_swaps_directions_and_relative_unknowns() -> None:
     later = JoinEndpoint(node_id="dataset:z", identity_id="customer", dataset_columns=["id"])
     earlier = JoinEndpoint(node_id="dataset:a", identity_id="customer", dataset_columns=["id"])
-    assert edge_id_for(later, earlier) == edge_id_for(earlier, later)
     relationship = JoinRelationship(
-        edge_id=edge_id_for(later, earlier),
+        edge_id="D1-D2",
         endpoint_a=later,
         endpoint_b=earlier,
         a_to_b=RelationshipDirection(
