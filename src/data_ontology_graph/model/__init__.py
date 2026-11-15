@@ -11,6 +11,10 @@ from data_ontology_graph.model.dataset import (
     EntityDefinition,
     GrainComponent,
 )
+from data_ontology_graph.model.entity_relationship import (
+    EntityRelationship,
+    EntityRelationshipIndex,
+)
 from data_ontology_graph.model.enums import (
     Cardinality,
     EntityUniverse,
@@ -47,6 +51,8 @@ __all__ = [
     "DatasetNode",
     "DefinitionKey",
     "EntityDefinition",
+    "EntityRelationship",
+    "EntityRelationshipIndex",
     "EntityUniverse",
     "GrainComponent",
     "GraphSnapshot",

@@ -25,6 +25,7 @@ class SnapshotInfo(ContractModel):
     node_count: int
     entity_definition_count: int
     identity_count: int
+    entity_relationship_count: int
 
 
 class EntityDefinitionRef(ContractModel):
@@ -33,7 +34,7 @@ class EntityDefinitionRef(ContractModel):
     dataset_columns: list[str]
 
 
-SearchKind = Literal["identity", "dataset", "entity_definition", "column"]
+SearchKind = Literal["identity", "dataset", "entity_definition", "entity_relationship", "column"]
 
 
 SearchCell = str | list[str] | None
@@ -163,6 +164,63 @@ class PathsRequest(NavigationRequest):
     allowed_multiplicities: list[Multiplicity] | None = Field(
         default=None, min_length=1, max_length=5,
     )
+
+
+class EntityRelationshipsRequest(ContractModel):
+    identity_id: str = Field(min_length=1)
+    limit: int = Field(default=200, ge=1, le=1000)
+    cursor: str | None = None
+
+
+class EntityRelationshipPathsRequest(ContractModel):
+    from_identity_id: str = Field(min_length=1)
+    to_identity_id: str = Field(min_length=1)
+    max_steps: int = Field(default=4, ge=1, le=10)
+    k: int = Field(default=6, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def distinct_endpoints(self) -> "EntityRelationshipPathsRequest":
+        if self.from_identity_id == self.to_identity_id:
+            raise ValueError("from_identity_id and to_identity_id must differ")
+        return self
+
+
+class RelatedLogicalEntity(ContractModel):
+    """The other logical entity of a cross-entity relationship and its descriptions."""
+
+    identity_id: str
+    name: str
+    descriptions: list[str]
+
+
+class EntityRelationshipsResponse(ContractModel):
+    snapshot: SnapshotInfo
+    identity_id: str
+    name: str
+    limit: int
+    relationship_count: int
+    entity_relationships: list[RelatedLogicalEntity]
+    truncated: bool
+    next_cursor: str | None = None
+
+
+class EntityRelationshipStep(ContractModel):
+    """One step of a stated path, read in the path's direction."""
+
+    from_identity_id: str
+    to_identity_id: str
+    descriptions: list[str]
+
+
+class EntityRelationshipPathsResponse(ContractModel):
+    snapshot: SnapshotInfo
+    from_identity_id: str
+    to_identity_id: str
+    max_steps: int
+    k: int
+    path_count: int
+    paths: list[list[EntityRelationshipStep]]
+    truncated: bool
 
 
 class ConnectingSubgraphRequest(NavigationRequest):

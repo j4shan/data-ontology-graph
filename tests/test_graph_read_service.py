@@ -73,7 +73,8 @@ def _matches(response):
 
 def test_snapshot_info_names_the_api_version_and_the_snapshot_build_second() -> None:
     info = _service().snapshot_info().model_dump()
-    assert set(info) == {"api_version", "version", "node_count", "entity_definition_count", "identity_count"}
+    assert set(info) == {"api_version", "version", "node_count", "entity_definition_count", "identity_count",
+                         "entity_relationship_count"}
     assert info["api_version"] == "5"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["version"])
 
@@ -139,6 +140,7 @@ def test_search_rows_follow_their_headers() -> None:
             "dataset_columns",
             "unknown_fields",
         ],
+        ["key", "endpoints"],
         ["key", "name"],
     ]
     for group in response.groups:

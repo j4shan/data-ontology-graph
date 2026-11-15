@@ -139,7 +139,7 @@ class GraphUnixServer:
     async def _dispatch_one(self, payload: object) -> object:
         navigation = isinstance(payload, dict) and payload.get("method") in {
             "graph.get_edges", "graph.find_paths", "graph.expand_subgraph", "graph.find_connecting_subgraph",
-            "graph.get_entity_definitions",
+            "graph.get_entity_definitions", "graph.find_entity_relationship_paths",
         }
         if navigation:
             async with self._navigation_slots:

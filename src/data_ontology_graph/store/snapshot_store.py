@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 from data_ontology_graph.model.dataset import DatasetNode
+from data_ontology_graph.model.entity_relationship import EntityRelationship
 from data_ontology_graph.model.relationship import JoinAnnotation
 from data_ontology_graph.model.snapshot import GraphSnapshot
 
@@ -27,12 +28,22 @@ class SnapshotStore:
             annotations_doc = json.loads(annotations_path.read_text(encoding="utf-8"))
             _require_same_envelope(nodes_doc, annotations_doc, "annotations.json")
             annotations = [JoinAnnotation.model_validate(item) for item in annotations_doc["annotations"]]
+        relationships_path = directory / "entity_relationships.json"
+        entity_relationships = []
+        if relationships_path.exists():
+            relationships_doc = json.loads(relationships_path.read_text(encoding="utf-8"))
+            _require_same_envelope(nodes_doc, relationships_doc, "entity_relationships.json")
+            entity_relationships = [
+                EntityRelationship.model_validate(item)
+                for item in relationships_doc["entity_relationships"]
+            ]
         return GraphSnapshot.model_validate(
             {
                 "version": nodes_doc["version"],
                 "logical_identities": nodes_doc.get("logical_identities", []),
                 "nodes": nodes_doc["nodes"],
                 "annotations": annotations,
+                "entity_relationships": entity_relationships,
             }
         )
 
@@ -115,6 +126,16 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
     (directory / "nodes.json").write_text(json.dumps(nodes_doc, indent=2), encoding="utf-8")
     (directory / "annotations.json").write_text(
         json.dumps(annotations_doc, indent=2),
+        encoding="utf-8",
+    )
+    relationships_doc = {
+        **envelope,
+        "entity_relationships": [
+            relationship.model_dump(mode="json") for relationship in snapshot.entity_relationships
+        ],
+    }
+    (directory / "entity_relationships.json").write_text(
+        json.dumps(relationships_doc, indent=2),
         encoding="utf-8",
     )
 

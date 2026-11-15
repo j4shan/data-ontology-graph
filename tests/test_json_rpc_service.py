@@ -220,6 +220,12 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions() -> No
                 assert {item["identity_id"] for item in result["entity_definitions"]} == {
                     "region_identity", "account_identity",
                 }
+                stated = await _rpc_call(
+                    socket_path, 5, "graph.find_entity_relationship_paths",
+                    {"from_identity_id": "region_identity", "to_identity_id": "account_identity"},
+                )
+                assert stated["result"]["path_count"] == 0
+                assert stated["result"]["snapshot"]["entity_relationship_count"] == 0
             finally:
                 await server.close()
             assert not socket_path.exists()

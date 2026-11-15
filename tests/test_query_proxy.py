@@ -100,6 +100,7 @@ def test_four_traversals_keep_service_shapes_and_accumulate_history(
     ("get_dataset", {"node_id": LOAN}),
     ("get_entity_definitions", {"identity_id": "loan_identity"}),
     ("get_relationship", {"edge_id": LOAN_ACCOUNT, "from_node_id": LOAN}),
+    ("get_entity_relationships", {"identity_id": "loan_identity"}),
     ("snapshot_info", {}),
 ])
 def test_discovery_and_lookup_calls_do_not_enter_traversal_file(
@@ -111,6 +112,20 @@ def test_discovery_and_lookup_calls_do_not_enter_traversal_file(
     assert len(graph_transport) == 1
     assert context.with_suffix(".traversals.md").read_bytes() == b""
     assert json.loads(context.read_text()) == {"question": "Find loans", "logical_entities": []}
+
+
+def test_stated_path_search_is_recorded_as_a_traversal(proxy, graph_transport, capsys, tmp_path):
+    context = tmp_path / "question.json"
+    params = {"from_identity_id": "loan_identity", "to_identity_id": "region_identity"}
+    status, output = run(proxy, capsys, context, "find_entity_relationship_paths", params,
+                         "--question", "Which regions do loans belong to?")
+    assert status == 0, output
+    assert output["result"]["path_count"] == 0
+    assert read_traversals(context) == [(
+        "graph.find_entity_relationship_paths",
+        {"request": {"method": "graph.find_entity_relationship_paths", "params": params},
+         "response": output},
+    )]
 
 
 def test_service_error_is_preserved_and_recorded_as_a_traversal(

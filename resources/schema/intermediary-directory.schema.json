@@ -2,6 +2,20 @@
   "additionalProperties": false,
   "description": "Inventory of collection-owned files for one finalized YAML directory.",
   "properties": {
+    "entity_relationships": {
+      "anyOf": [
+        {
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Relative path of the only cross-entity relationship collection file (`entity_relationships`); absent means there are none.",
+      "title": "Cross-Entity Relationships"
+    },
     "logical_identities": {
       "description": "Relative path of the only logical-entities collection file (`logical_identities`).",
       "minLength": 1,

@@ -58,6 +58,7 @@ def test_publisher_replaces_one_current_artifact(tmp_path: Path) -> None:
     assert report.node_count == 2
     assert {path.name for path in artifact.iterdir()} == {
         "annotations.json",
+        "entity_relationships.json",
         "nodes.json",
     }
     assert CurrentArtifactStore(artifact).load().nodes

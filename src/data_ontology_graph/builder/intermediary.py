@@ -15,7 +15,7 @@ from data_ontology_graph.model.intermediary import (
 
 
 _YAML_SUFFIXES = {".yaml", ".yml"}
-_COLLECTION_KEYS = {"logical_identities", "nodes"}
+_COLLECTION_KEYS = {"entity_relationships", "logical_identities", "nodes"}
 _MANIFEST_FILENAME = "directory-manifest.yaml"
 
 
@@ -113,6 +113,7 @@ def load_intermediary_directory(path: Path | str) -> IntermediaryDefinition:
         update={
             "logical_identities": dict(sorted(definition.logical_identities.items())),
             "nodes": sorted(definition.nodes, key=lambda node: node.node_id),
+            "entity_relationships": definition.runtime_entity_relationships(),
         }
     )
 
@@ -162,6 +163,10 @@ def _assemble_intermediary_directory(
         ("logical_identities", manifest.logical_identities, "$.logical_identities"),
         *(("nodes", path, f"$.nodes[{index}]") for index, path in enumerate(manifest.nodes)),
     ]
+    if manifest.entity_relationships is not None:
+        entries.append(
+            ("entity_relationships", manifest.entity_relationships, "$.entity_relationships")
+        )
     source_resolved = source.resolve()
     listed: dict[str, str] = {}
     findings: list[ValidationFinding] = []
@@ -257,6 +262,7 @@ def _assemble_intermediary_directory(
     identity_sources: dict[str, str] = {}
     nodes: list[Any] = []
     node_sources: dict[str, str] = {}
+    entity_relationships: list[Any] = []
 
     for collection, raw_path, _ in entries:
         path = source / raw_path
@@ -371,6 +377,18 @@ def _assemble_intermediary_directory(
                     if isinstance(node_id, str):
                         node_sources[node_id] = relative
                     nodes.append(node)
+        elif collection == "entity_relationships":
+            file_relationships = document.get(collection)
+            if not isinstance(file_relationships, list):
+                findings.append(
+                    ValidationFinding(
+                        location=f"{relative}:$.entity_relationships",
+                        rule="list_type",
+                        message="entity_relationships must be a list",
+                    )
+                )
+                continue
+            entity_relationships.extend(file_relationships)
 
     if findings:
         return None, findings
@@ -380,6 +398,8 @@ def _assemble_intermediary_directory(
         "logical_identities": logical_identities,
         "nodes": nodes,
     }
+    if manifest.entity_relationships is not None:
+        payload["entity_relationships"] = entity_relationships
     validation_findings = _validation_findings(payload)
     return (None, validation_findings) if validation_findings else (payload, [])
 

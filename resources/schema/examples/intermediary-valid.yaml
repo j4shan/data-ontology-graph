@@ -3,6 +3,10 @@ logical_identities:
   customer_identity:
     name: Customer identity
     description: Unknown
+entity_relationships:
+  - endpoints: [customer_identity, customer_identity]
+    descriptions:
+      - A customer may refer another customer.
 nodes:
   - node_id: dataset_a
     descriptor:

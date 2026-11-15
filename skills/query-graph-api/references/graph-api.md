@@ -51,12 +51,14 @@ marks a field that can be absent. Arbitrary JSON objects are written as `object`
 ```text
 Snapshot = {
   api_version: string, version: string,
-  node_count: integer, entity_definition_count: integer, identity_count: integer
+  node_count: integer, entity_definition_count: integer, identity_count: integer,
+  entity_relationship_count: integer
 }
 ```
 
 `api_version` names the API contract described here. It is the string `"5"`.
-`entity_definition_count` is the number of entity definitions in the snapshot.
+`entity_definition_count` is the number of entity definitions in the snapshot, and
+`entity_relationship_count` the number of cross-entity relationships.
 `graph.get_entity_definitions` provides filtered discovery and replaces
 `graph.get_identity`; the old name is no longer a registered method.
 `version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).
@@ -230,7 +232,7 @@ served graph's metadata.
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
 | `query` | string, required | Nonempty. |
-| `kind` | Array of `"identity"`, `"dataset"`, `"entity_definition"`, `"column"` | Omitted or null searches all kinds; otherwise nonempty. |
+| `kind` | Array of `"identity"`, `"dataset"`, `"entity_definition"`, `"entity_relationship"`, `"column"` | Omitted or null searches all kinds; otherwise nonempty. |
 | `limit` | integer | 50; range 1–1000, applied per kind. |
 
 Returns:
@@ -251,7 +253,12 @@ Join a group's subject and match rows on `key`. Subject headers by kind are:
 | `column` | `key`, `node_id`, `column_name`. |
 | `dataset` | `key`, `qualified_name`, `unknown_fields`. |
 | `entity_definition` | `key`, `entity_expression`, `node_id`, `identity_id`, `dataset_columns`, `unknown_fields`. |
+| `entity_relationship` | `key`, `endpoints`. |
 | `identity` | `key`, `name`. |
+
+Groups appear in the order `column`, `dataset`, `entity_definition`, `entity_relationship`,
+`identity`. A cross-entity relationship matches by its descriptions, and its `key` is its
+endpoint pair joined by `|`, such as `calendar_day_identity|order_identity`.
 
 The match header is `key`, `match_type`, `match_field`, `matched_term`, `matched_value`.
 Each matching field value has one match row. Dataset and identity keys are their canonical IDs;
@@ -392,6 +399,71 @@ Canonical endpoints and both directions are always returned. With `from_node_id`
 is the directed view leaving that endpoint at standard positions, and `edge_fields` names
 them. Without it those fields are null. Endpoint datasets use standard detail; the separate
 definitions include full metadata. This method does not accept navigation detail or fields.
+
+### `graph.get_entity_relationships`
+
+A cross-entity relationship states in descriptive text how two registered logical entities
+relate in the business, independently of any dataset. Its endpoints are an unordered pair of
+logical entity IDs, possibly the same logical entity twice, and it holds one description per way
+the two relate, such as "An order is placed on one calendar day." and "An order is shipped on
+one calendar day once it ships." It has no multiplicity, match existence, or dataset fields, and
+it never changes a relationship between entity definitions or any typed claim.
+
+| Parameter | Type | Default and constraints |
+| --- | --- | --- |
+| `identity_id` | string, required | A registered logical entity; unknown is resource not found. |
+| `limit` | integer | 200; range 1–1000 per page. |
+| `cursor` | string | Omitted or null starts at the first page; bound to the snapshot and request. |
+
+Returns:
+
+```text
+{
+  snapshot: Snapshot, identity_id: string, name: string, limit: integer,
+  relationship_count: integer,
+  entity_relationships: [{identity_id: string, name: string, descriptions: string[]}],
+  truncated: boolean, next_cursor: string | null
+}
+```
+
+Each item names the other logical entity of one cross-entity relationship, ordered by its ID,
+with that relationship's descriptions. A relationship of a logical entity with itself appears
+once. `relationship_count` counts every cross-entity relationship at the logical entity;
+`truncated` reports whether this page omits some, and `next_cursor` is null on the last page.
+An empty list means no cross-entity relationship is stated for that logical entity; it does not
+mean the data cannot relate it to others.
+
+### `graph.find_entity_relationship_paths`
+
+| Parameter | Type | Default and constraints |
+| --- | --- | --- |
+| `from_identity_id` | string, required | Starting logical entity. |
+| `to_identity_id` | string, required | Target logical entity; must differ from `from_identity_id`. |
+| `max_steps` | integer | 4; range 1–10. |
+| `k` | integer | 6; range 1–100 paths. |
+
+Returns:
+
+```text
+{
+  snapshot: Snapshot, from_identity_id: string, to_identity_id: string,
+  max_steps: integer, k: integer, path_count: integer,
+  paths: [[{from_identity_id: string, to_identity_id: string, descriptions: string[]}]],
+  truncated: boolean
+}
+```
+
+Each path is a travel-ordered array of steps over cross-entity relationships; a step names its
+two logical entities in the path's direction and carries the descriptions of their cross-entity
+relationship. Paths never repeat a logical entity and rank by step count, then by the sequence of
+logical entity IDs. `path_count` counts returned paths, and `truncated` indicates a further path
+or an interrupted search. Equal endpoints are invalid params; an unknown logical entity is
+resource not found. Zero paths means no stated path exists within `max_steps`.
+
+The response describes stated knowledge only. Where the data realizes a step is found through
+`graph.get_entity_definitions` with the other logical entity as a target, and through
+relationships between datasets. A step with no realizing dataset is valid stated knowledge that
+the data does not hold.
 
 ## Traversal methods
 

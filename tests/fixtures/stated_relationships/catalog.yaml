@@ -1,0 +1,118 @@
+# Synthetic `stated_relationships` catalog for graph unit tests. Every identifier here belongs
+# to this catalog only; it describes no real data source. It holds cross-entity relationships
+# (product/graph-model.md 3.9-3.13): a pair with two descriptions, a self pair, a chain from
+# campaign to conversion, and a pair that no dataset realizes.
+schema_version: '5'
+logical_identities:
+  calendar_day_identity:
+    name: Calendar day
+  campaign_identity:
+    name: Campaign
+  click_identity:
+    name: Click
+  conversion_identity:
+    name: Conversion
+  employee_identity:
+    name: Employee
+  hashed_id_identity:
+    name: Hashed ID
+  impression_identity:
+    name: Impression
+  order_identity:
+    name: Order
+entity_relationships:
+- endpoints: [calendar_day_identity, order_identity]
+  descriptions:
+  - An order is placed on one calendar day.
+  - An order is shipped on one calendar day once it ships.
+- endpoints: [campaign_identity, impression_identity]
+  descriptions:
+  - A campaign owns the impressions it serves.
+- endpoints: [click_identity, impression_identity]
+  descriptions:
+  - An impression conditionally causes a click. A click is recorded only when the viewer clicks
+    the served impression.
+- endpoints: [click_identity, hashed_id_identity]
+  descriptions:
+  - A click is identified by the hashed ID of the viewer who clicked.
+- endpoints: [conversion_identity, hashed_id_identity]
+  descriptions:
+  - An online store conversion is identified by the hashed ID of the buyer.
+- endpoints: [employee_identity, employee_identity]
+  descriptions:
+  - An employee reports to one manager, who is also an employee.
+nodes:
+- node_id: stated:ads.fact_click
+  descriptor:
+    qualified_name: ads.fact_click
+    display_name: fact_click
+    description: One row per click on a served impression.
+  accessor:
+    kind: synthetic
+    endpoint: stated-relationships-catalog
+    properties:
+      table: fact_click
+  grain:
+    components:
+    - identity_id: click_identity
+      dataset_columns:
+      - click_id
+  columns:
+  - name: click_id
+  - name: impression_id
+  - name: hashed_id
+  entity_definitions:
+  - identity_id: click_identity
+    dataset_columns:
+    - click_id
+    entity_universe: complete
+    unique: true
+    total: true
+    conforms: true
+  - identity_id: impression_identity
+    dataset_columns:
+    - impression_id
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: true
+  - identity_id: hashed_id_identity
+    dataset_columns:
+    - hashed_id
+    entity_universe: partial
+    unique: false
+    total: false
+    conforms: unknown
+- node_id: stated:store.fact_conversion
+  descriptor:
+    qualified_name: store.fact_conversion
+    display_name: fact_conversion
+    description: One row per online store conversion.
+  accessor:
+    kind: synthetic
+    endpoint: stated-relationships-catalog
+    properties:
+      table: fact_conversion
+  grain:
+    components:
+    - identity_id: conversion_identity
+      dataset_columns:
+      - conversion_id
+  columns:
+  - name: conversion_id
+  - name: hashed_id
+  entity_definitions:
+  - identity_id: conversion_identity
+    dataset_columns:
+    - conversion_id
+    entity_universe: complete
+    unique: true
+    total: true
+    conforms: true
+  - identity_id: hashed_id_identity
+    dataset_columns:
+    - hashed_id
+    entity_universe: partial
+    unique: false
+    total: true
+    conforms: unknown

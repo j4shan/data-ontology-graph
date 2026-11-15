@@ -4,6 +4,11 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
 from data_ontology_graph.model.derivation import MembershipIndex
+from data_ontology_graph.model.entity_relationship import (
+    EntityRelationship,
+    EntityRelationshipIndex,
+    duplicate_pair_messages,
+)
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.relationship import JoinAnnotation
 
@@ -20,8 +25,10 @@ class GraphSnapshot(BaseModel):
     logical_identities: list[LogicalIdentity] = Field(default_factory=list)
     nodes: list[DatasetNode]
     annotations: list[JoinAnnotation] = Field(default_factory=list)
+    entity_relationships: list[EntityRelationship] = Field(default_factory=list)
     _nodes_by_id: dict[str, DatasetNode] = PrivateAttr()
     _memberships: MembershipIndex = PrivateAttr()
+    _entity_relationships: EntityRelationshipIndex = PrivateAttr()
 
     @model_validator(mode="after")
     def validate_graph(self) -> "GraphSnapshot":
@@ -42,6 +49,17 @@ class GraphSnapshot(BaseModel):
                         f"node {node.node_id} references unknown logical entity "
                         f"{definition.identity_id}"
                     )
+        for relationship in self.entity_relationships:
+            unknown = sorted(set(relationship.endpoints) - known_identities)
+            if unknown:
+                raise ValueError(
+                    f"cross-entity relationship {list(relationship.endpoints)} references unknown "
+                    f"logical entities {unknown}"
+                )
+        duplicates = duplicate_pair_messages(self.entity_relationships)
+        if duplicates:
+            raise ValueError("; ".join(duplicates))
+        self._entity_relationships = EntityRelationshipIndex(self.entity_relationships)
         self._nodes_by_id = {node.node_id: node for node in sorted(self.nodes, key=lambda item: item.node_id)}
         self._memberships = MembershipIndex(self._nodes_by_id)
         annotated = set()
@@ -58,6 +76,11 @@ class GraphSnapshot(BaseModel):
     @property
     def memberships(self) -> MembershipIndex:
         return self._memberships
+
+    @property
+    def entity_relationship_index(self) -> EntityRelationshipIndex:
+        """Cross-entity relationship adjacency, built once at load (system design 3.4.4)."""
+        return self._entity_relationships
 
     @property
     def nodes_by_id(self) -> dict[str, DatasetNode]:

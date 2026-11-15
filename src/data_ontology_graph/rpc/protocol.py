@@ -10,6 +10,8 @@ from data_ontology_graph.service.contracts import (
     DatasetRequest,
     EdgesRequest,
     EntityDefinitionsRequest,
+    EntityRelationshipPathsRequest,
+    EntityRelationshipsRequest,
     PathsRequest,
     RelationshipRequest,
     SearchRequest,
@@ -35,9 +37,11 @@ class JsonRpcDispatcher:
             "graph.get_entity_definitions": self._get_entity_definitions,
             "graph.get_dataset": self._get_dataset,
             "graph.get_relationship": self._get_relationship,
+            "graph.get_entity_relationships": self._get_entity_relationships,
             "graph.get_edges": self._get_edges,
             "graph.expand_subgraph": self._expand_subgraph,
             "graph.find_paths": self._find_paths,
+            "graph.find_entity_relationship_paths": self._find_entity_relationship_paths,
             "graph.find_connecting_subgraph": self._find_connecting_subgraph,
         }
 
@@ -58,7 +62,9 @@ class JsonRpcDispatcher:
             return error_response(request_id, METHOD_NOT_FOUND, "Method not found")
 
         try:
-            if method in (self._find_paths, self._get_entity_definitions):
+            if method in (
+                self._find_paths, self._get_entity_definitions, self._find_entity_relationship_paths,
+            ):
                 result = _json_value(method(params, cancel_event))
             else:
                 result = _json_value(method(params))
@@ -115,6 +121,16 @@ class JsonRpcDispatcher:
 
     def _find_paths(self, params: dict[str, Any], cancel_event: Event | None = None) -> Any:
         return self.service.find_paths(PathsRequest.model_validate(params), cancel_event)
+
+    def _get_entity_relationships(self, params: dict[str, Any]) -> Any:
+        return self.service.get_entity_relationships(EntityRelationshipsRequest.model_validate(params))
+
+    def _find_entity_relationship_paths(
+        self, params: dict[str, Any], cancel_event: Event | None = None,
+    ) -> Any:
+        return self.service.find_entity_relationship_paths(
+            EntityRelationshipPathsRequest.model_validate(params), cancel_event,
+        )
 
     def _find_connecting_subgraph(self, params: dict[str, Any]) -> Any:
         return self.service.find_connecting_subgraph(

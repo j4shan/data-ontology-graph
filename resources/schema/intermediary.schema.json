@@ -145,6 +145,43 @@
       "title": "DatasetGrain",
       "type": "object"
     },
+    "EntityRelationship": {
+      "additionalProperties": false,
+      "properties": {
+        "descriptions": {
+          "description": "One nonblank, distinct description per way the two logical entities relate.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Descriptions",
+          "type": "array"
+        },
+        "endpoints": {
+          "description": "The unordered pair of logical entity IDs, in ascending lexical order. Both may name the same logical entity.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "title": "Endpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "endpoints",
+        "descriptions"
+      ],
+      "title": "EntityRelationship",
+      "type": "object"
+    },
     "EntityUniverse": {
       "enum": [
         "complete",
@@ -365,6 +402,14 @@
   },
   "additionalProperties": false,
   "properties": {
+    "entity_relationships": {
+      "description": "Cross-entity relationships between registered logical entities.",
+      "items": {
+        "$ref": "#/$defs/EntityRelationship"
+      },
+      "title": "Cross-Entity Relationships",
+      "type": "array"
+    },
     "logical_identities": {
       "additionalProperties": {
         "$ref": "#/$defs/LogicalIdentityDefinition"

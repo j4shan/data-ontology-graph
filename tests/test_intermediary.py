@@ -398,3 +398,99 @@ def test_unreviewed_universe_status_is_reported_as_unknown() -> None:
     ]
     assert len(universe_gaps) == 2
     assert not any("lending.region].entity_definitions" in item for item in universe_gaps)
+
+
+STATED = ROOT / "tests" / "fixtures" / "stated_relationships" / "catalog.yaml"
+
+
+def _stated_payload() -> dict:
+    return yaml.safe_load(STATED.read_text(encoding="utf-8"))
+
+
+def _stated_findings(tmp_path: Path, relationships: list) -> list[str]:
+    payload = _stated_payload()
+    payload["entity_relationships"] = relationships
+    path = tmp_path / "catalog.yaml"
+    _write_yaml(path, payload)
+    return [finding.message for finding in validate_intermediary_yaml(path).findings]
+
+
+def test_cross_entity_relationships_build_in_ascending_pair_order() -> None:
+    snapshot, report = build_snapshot_from_yaml(STATED)
+    pairs = [relationship.endpoints for relationship in snapshot.entity_relationships]
+    assert pairs == sorted(pairs)
+    assert report.entity_relationship_count == 6
+    assert snapshot.entity_relationship_index.between("calendar_day_identity", "order_identity").descriptions == [
+        "An order is placed on one calendar day.",
+        "An order is shipped on one calendar day once it ships.",
+    ]
+
+
+def test_cross_entity_relationships_are_optional() -> None:
+    snapshot, report = build_snapshot_from_yaml(LENDING)
+    assert report.entity_relationship_count == 0
+    assert snapshot.entity_relationship_index.adjacency == {}
+
+
+def test_cross_entity_relationship_rules_reject_each_invalid_case(tmp_path: Path) -> None:
+    def single(endpoints, descriptions=("A order is placed on one calendar day.",)):
+        return [{"endpoints": list(endpoints), "descriptions": list(descriptions)}]
+
+    cases = {
+        "unknown logical entities ['missing_identity']": single(["calendar_day_identity", "missing_identity"]),
+        "ascending lexical order": single(["order_identity", "calendar_day_identity"]),
+        "must not be blank": single(["calendar_day_identity", "order_identity"], [" "]),
+        "distinct within one cross-entity relationship": single(
+            ["calendar_day_identity", "order_identity"], ["Same.", "Same."]
+        ),
+        "at least 1 item": single(["calendar_day_identity", "order_identity"], []),
+        "is listed more than once": single(["calendar_day_identity", "order_identity"]) * 2,
+    }
+    for expected, relationships in cases.items():
+        messages = _stated_findings(tmp_path, relationships)
+        assert any(expected in message for message in messages), (expected, messages)
+
+
+def test_cross_entity_relationships_load_from_their_manifest_collection(tmp_path: Path) -> None:
+    yaml_directory, _ = _manifest_directory(tmp_path)
+    _write_yaml(
+        yaml_directory / "relationships.yaml",
+        {
+            "schema_version": "5",
+            "entity_relationships": [
+                {
+                    "endpoints": ["customer_identity", "customer_identity"],
+                    "descriptions": ["A customer may refer another customer."],
+                }
+            ],
+        },
+    )
+    manifest_path = tmp_path / "directory-manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["entity_relationships"] = "relationships.yaml"
+    _write_yaml(manifest_path, manifest)
+    definition = load_intermediary_directory(yaml_directory)
+    assert [relationship.endpoints for relationship in definition.entity_relationships] == [
+        ("customer_identity", "customer_identity")
+    ]
+
+
+def test_cross_entity_relationship_collection_must_be_a_listed_list(tmp_path: Path) -> None:
+    yaml_directory, _ = _manifest_directory(tmp_path)
+    _write_yaml(
+        yaml_directory / "relationships.yaml",
+        {"schema_version": "5", "entity_relationships": {"not": "a list"}},
+    )
+    assert "unlisted_file" in _rules(yaml_directory)
+    manifest_path = tmp_path / "directory-manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["entity_relationships"] = "relationships.yaml"
+    _write_yaml(manifest_path, manifest)
+    assert "list_type" in _rules(yaml_directory)
+
+
+def test_valid_example_shows_a_cross_entity_relationship() -> None:
+    definition = load_intermediary_yaml(VALID_EXAMPLE)
+    assert [relationship.endpoints for relationship in definition.entity_relationships] == [
+        ("customer_identity", "customer_identity")
+    ]

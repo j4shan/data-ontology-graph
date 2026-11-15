@@ -19,6 +19,7 @@ SEARCH_KINDS: tuple[SearchKind, ...] = (
     "column",
     "dataset",
     "entity_definition",
+    "entity_relationship",
     "identity",
 )
 MATCH_ROW_HEADER = ["key", "match_type", "match_field", "matched_term", "matched_value"]
@@ -33,6 +34,7 @@ SUBJECT_ROW_HEADERS: dict[SearchKind, list[str]] = {
         "dataset_columns",
         "unknown_fields",
     ],
+    "entity_relationship": ["key", "endpoints"],
     "identity": ["key", "name"],
 }
 _MATCH_TYPES = ("exact", "prefix", "phrase", "all_words")
@@ -297,6 +299,19 @@ class LexicalSearchIndex:
                         *((SearchField.SYNONYM, synonym) for synonym in column.synonyms),
                     ],
                 )
+
+        for relationship in snapshot.entity_relationships:
+            key = "|".join(relationship.endpoints)
+            add_subject(
+                "entity_relationship",
+                key,
+                " ".join(relationship.endpoints),
+                [key, list(relationship.endpoints)],
+                [
+                    (SearchField.DESCRIPTION, descriptive_text(description))
+                    for description in relationship.descriptions
+                ],
+            )
 
         self._subjects = tuple(subjects)
         self._trie = _record_trie(entries)

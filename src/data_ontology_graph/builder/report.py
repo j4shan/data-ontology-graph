@@ -10,6 +10,7 @@ from data_ontology_graph.model.intermediary import IntermediaryDefinition
 class ExplicitBuildReport(BaseModel):
     node_count: int
     entity_definition_count: int
+    entity_relationship_count: int = 0
     unknown_fields: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 

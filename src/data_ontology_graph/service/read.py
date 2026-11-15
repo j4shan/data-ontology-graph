@@ -27,6 +27,12 @@ from data_ontology_graph.service.contracts import (
     EdgesResponse,
     EntityDefinitionsRequest,
     EntityDefinitionsResponse,
+    EntityRelationshipPathsRequest,
+    EntityRelationshipPathsResponse,
+    EntityRelationshipsRequest,
+    EntityRelationshipsResponse,
+    EntityRelationshipStep,
+    RelatedLogicalEntity,
     PathsRequest,
     PathsResponse,
     RelationshipDetail,
@@ -39,6 +45,7 @@ from data_ontology_graph.service.contracts import (
 )
 from data_ontology_graph.query.edge_discovery import discover_edges
 from data_ontology_graph.query.entity_definitions import discover_entity_definitions
+from data_ontology_graph.query.entity_relationship_paths import ranked_paths
 from data_ontology_graph.query.connecting import connecting_tree
 from data_ontology_graph.query.neighbourhood import (
     DirectedEdge,
@@ -103,6 +110,7 @@ class GraphReadIndex:
         self.directed_edges = MembershipDirectedEdges(self.memberships)
         self.paths = PathGraph(self.memberships)
         self.annotations = snapshot.annotation_map()
+        self.entity_relationships = snapshot.entity_relationship_index
         self.search = LexicalSearchIndex(snapshot)
 
 
@@ -120,6 +128,7 @@ class GraphReadService:
             node_count=len(snapshot.nodes),
             entity_definition_count=self.index.memberships.entity_definition_count,
             identity_count=len(snapshot.logical_identities),
+            entity_relationship_count=self.index.entity_relationships.relationship_count,
         )
 
     def search(self, request: SearchRequest) -> SearchResponse:
@@ -384,6 +393,69 @@ class GraphReadService:
             to_node_id=request.to_node_id,
             path_count=len(paths),
             **presented,
+            truncated=truncated or bool(cancel_event is not None and cancel_event.is_set()),
+        )
+
+    def get_entity_relationships(
+        self, request: EntityRelationshipsRequest,
+    ) -> EntityRelationshipsResponse:
+        """Cross-entity relationships at one logical entity, by the other logical entity's ID."""
+        identity = self._identity(request.identity_id)
+        related = list(self.index.entity_relationships.related(request.identity_id).items())
+        scope = _cursor_scope(request, "get_entity_relationships")
+        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_entity_relationships")
+        if request.cursor is not None and offset >= len(related):
+            raise ValueError("cursor is outside the selected cross-entity relationship range")
+        page = related[offset:offset + request.limit]
+        return EntityRelationshipsResponse(
+            snapshot=self.snapshot_info(),
+            identity_id=identity.identity_id,
+            name=identity.name,
+            limit=request.limit,
+            relationship_count=len(related),
+            entity_relationships=[
+                RelatedLogicalEntity(
+                    identity_id=other,
+                    name=self.index.identities[other].name,
+                    descriptions=list(relationship.descriptions),
+                )
+                for other, relationship in page
+            ],
+            truncated=len(page) < len(related),
+            next_cursor=_cursor(self.index.fingerprint, scope, offset + request.limit)
+            if offset + request.limit < len(related) else None,
+        )
+
+    def find_entity_relationship_paths(
+        self, request: EntityRelationshipPathsRequest, cancel_event: Event | None = None,
+    ) -> EntityRelationshipPathsResponse:
+        """Ranked simple paths of cross-entity relationships between two logical entities."""
+        self._identity(request.from_identity_id)
+        self._identity(request.to_identity_id)
+        index = self.index.entity_relationships
+        paths, truncated = ranked_paths(
+            index, request.from_identity_id, request.to_identity_id, request.k, request.max_steps,
+            cancelled=(cancel_event.is_set if cancel_event is not None else lambda: False),
+        )
+        steps = [
+            [
+                EntityRelationshipStep(
+                    from_identity_id=left,
+                    to_identity_id=right,
+                    descriptions=list(index.between(left, right).descriptions),
+                )
+                for left, right in zip(path, path[1:])
+            ]
+            for path in paths
+        ]
+        return EntityRelationshipPathsResponse(
+            snapshot=self.snapshot_info(),
+            from_identity_id=request.from_identity_id,
+            to_identity_id=request.to_identity_id,
+            max_steps=request.max_steps,
+            k=request.k,
+            path_count=len(steps),
+            paths=steps,
             truncated=truncated or bool(cancel_event is not None and cancel_event.is_set()),
         )
 

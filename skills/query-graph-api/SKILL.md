@@ -115,6 +115,19 @@ page, so use `next_cursor` to decide when enumeration is complete. Each call is 
 `get_entity_definitions` has its own primary and target scope; it does not apply the
 `get_edges` source or target filters.
 
+Cross-entity relationships are stated knowledge about how two logical entities relate in the
+business, such as "An impression conditionally causes a click." `get_entity_relationships`
+lists them at one logical entity, and `find_entity_relationship_paths` returns ranked stated
+paths between two logical entities, each step carrying its descriptions. A stated path is one
+way to plan a route before looking at datasets: each step can be resolved to datasets through
+`get_entity_definitions` with the other logical entity as a target, and through the
+relationships between those datasets. A cross-entity relationship carries no multiplicity or
+match existence; those claims come from the realizing entity definitions and relationships, and
+the definitions' effective descriptions distinguish roles such as a placement date and a ship
+date. A step with no realizing dataset is stated knowledge the data does not hold. When no stated
+path exists, dataset-level discovery remains available, and a stated path never filters
+dataset-level results.
+
 Keep two temporary files and refer to both when generating the AKG.
 
 **File A — question and logical entities.** A JSON document:
@@ -150,9 +163,9 @@ Read each fenced Python literal as data with `ast.literal_eval`, never by import
 executing it.
 
 The proxy accumulates request/response pairs for `get_edges`, `expand_subgraph`, `find_paths`,
-and `find_connecting_subgraph`, including service errors. Object discovery and lookup calls
-(`search`, `get_dataset`, `get_entity_definitions`, and `get_relationship`) are printed but do not enter
-File B. Connection failures have no service response and are reported separately.
+`find_entity_relationship_paths`, and `find_connecting_subgraph`, including service errors.
+Object discovery and lookup calls (`search`, `get_dataset`, `get_entity_definitions`,
+`get_entity_relationships`, and `get_relationship`) are printed but do not enter File B. Connection failures have no service response and are reported separately.
 
 Reread both temporary files when generating the AKG. Use aggregated responses for discovery;
 select concrete edges only from detailed traversal responses, with object lookups for additional

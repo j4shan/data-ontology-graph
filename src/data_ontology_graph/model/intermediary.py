@@ -12,6 +12,10 @@ from data_ontology_graph.model.dataset import (
     EntityDefinition,
     duplicate_accessor_messages,
 )
+from data_ontology_graph.model.entity_relationship import (
+    EntityRelationship,
+    duplicate_pair_messages,
+)
 from data_ontology_graph.model.enums import EntityUniverse, Unknown
 
 
@@ -45,16 +49,25 @@ class IntermediaryDirectoryManifest(BaseModel):
         min_length=1,
         description="Relative path of the only logical-entities collection file (`logical_identities`).",
     )
+    entity_relationships: str | None = Field(
+        default=None,
+        title="Cross-Entity Relationships",
+        min_length=1,
+        description=(
+            "Relative path of the only cross-entity relationship collection file "
+            "(`entity_relationships`); absent means there are none."
+        ),
+    )
     nodes: list[Annotated[str, Field(min_length=1)]] = Field(
         min_length=1,
         description="Relative paths of the files that partition the nodes collection.",
         json_schema_extra={"uniqueItems": True},
     )
 
-    @field_validator("logical_identities")
+    @field_validator("logical_identities", "entity_relationships")
     @classmethod
-    def scalar_paths_must_be_nonblank(cls, value: str) -> str:
-        if not value.strip():
+    def scalar_paths_must_be_nonblank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
             raise ValueError("collection path must not be blank")
         return value
 
@@ -70,6 +83,8 @@ class IntermediaryDirectoryManifest(BaseModel):
     @model_validator(mode="after")
     def collection_paths_must_be_unique(self) -> "IntermediaryDirectoryManifest":
         paths = [self.logical_identities, *self.nodes]
+        if self.entity_relationships is not None:
+            paths.append(self.entity_relationships)
         if len(paths) != len(set(paths)):
             raise ValueError("each collection path must appear exactly once")
         return self
@@ -201,6 +216,11 @@ class IntermediaryDefinition(BaseModel):
     schema_version: Literal["5"]
     logical_identities: dict[str, LogicalIdentityDefinition] = Field(min_length=1, title="Logical Entities")
     nodes: list[IntermediaryNode] = Field(min_length=1)
+    entity_relationships: list[EntityRelationship] = Field(
+        default_factory=list,
+        title="Cross-Entity Relationships",
+        description="Cross-entity relationships between registered logical entities.",
+    )
 
     @model_validator(mode="after")
     def validate_registry_and_references(self) -> "IntermediaryDefinition":
@@ -222,7 +242,20 @@ class IntermediaryDefinition(BaseModel):
                         f"node {node.node_id!r} references unknown logical entity "
                         f"{definition.identity_id!r}"
                     )
+        for relationship in self.entity_relationships:
+            unknown = sorted(set(relationship.endpoints) - known_identities)
+            if unknown:
+                raise ValueError(
+                    f"cross-entity relationship {list(relationship.endpoints)} references unknown "
+                    f"logical entities {unknown}"
+                )
+        duplicates = duplicate_pair_messages(self.entity_relationships)
+        if duplicates:
+            raise ValueError("; ".join(duplicates))
         return self
+
+    def runtime_entity_relationships(self) -> list[EntityRelationship]:
+        return sorted(self.entity_relationships, key=lambda relationship: relationship.endpoints)
 
     def runtime_identities(self) -> list[LogicalIdentity]:
         return [

@@ -27,10 +27,12 @@ def build_snapshot_from_definition(
         version=snapshot_version(),
         logical_identities=definition.runtime_identities(),
         nodes=nodes,
+        entity_relationships=definition.runtime_entity_relationships(),
     )
     report = ExplicitBuildReport(
         node_count=len(snapshot.nodes),
         entity_definition_count=snapshot.memberships.entity_definition_count,
+        entity_relationship_count=snapshot.entity_relationship_index.relationship_count,
         unknown_fields=unknown_field_locations(definition),
         warnings=accessor_warnings(snapshot.nodes),
     )

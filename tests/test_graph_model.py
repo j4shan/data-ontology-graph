@@ -198,3 +198,40 @@ def test_canonical_edge_order_swaps_directions_and_relative_unknowns() -> None:
     assert relationship.unknown_fields_from("dataset:a") == [
         "reverse_direction.match_existence"
     ]
+
+
+def _stated_snapshot(relationships: list[dict]) -> GraphSnapshot:
+    return GraphSnapshot(
+        version=snapshot_version(),
+        logical_identities=[
+            LogicalIdentity(identity_id="customer", name="Customer"),
+            LogicalIdentity(identity_id="order", name="Order"),
+        ],
+        nodes=[_node("customers")],
+        entity_relationships=relationships,
+    )
+
+
+def test_cross_entity_relationship_index_files_one_object_under_both_endpoints() -> None:
+    snapshot = _stated_snapshot([
+        {"endpoints": ["customer", "order"], "descriptions": ["A customer places orders."]},
+        {"endpoints": ["customer", "customer"], "descriptions": ["A customer refers customers."]},
+    ])
+    index = snapshot.entity_relationship_index
+    assert index.between("customer", "order") is index.between("order", "customer")
+    assert list(index.related("customer")) == ["customer", "order"]
+    assert list(index.related("order")) == ["customer"]
+    assert index.relationship_count == 2
+
+
+@pytest.mark.parametrize(
+    ("relationships", "message"),
+    [
+        ([{"endpoints": ["customer", "invoice"], "descriptions": ["x"]}], "unknown logical entities"),
+        ([{"endpoints": ["customer", "order"], "descriptions": ["x"]}] * 2, "listed more than once"),
+        ([{"endpoints": ["order", "customer"], "descriptions": ["x"]}], "ascending lexical order"),
+    ],
+)
+def test_snapshot_rejects_invalid_cross_entity_relationships(relationships, message) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _stated_snapshot(relationships)
