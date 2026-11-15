@@ -66,6 +66,16 @@ list their former IDs in the last column.
 | 3.7 | An annotation is descriptive sidecar metadata on one relationship: a description and tags. It never creates, approves, rejects, or alters the relationship's structural claims. | 3.3.7 |
 | 3.8 | A directed edge is a relationship traversed from one of its endpoints and carries the relationship's claims in that direction. A relationship with both endpoints on the same dataset yields two directed edges from that dataset, one from each endpoint. | — |
 
+## Cross-entity relationships
+
+| ID | Clause | Former |
+| --- | --- | --- |
+| 3.9 | A cross-entity relationship states in descriptive text how two registered logical entities relate in the business, independently of any dataset. For example, the logical entities `impression` and `click` may have the description “An impression conditionally causes a click. A click is recorded only when the viewer clicks the served impression.” | — |
+| 3.10 | Its endpoints are an unordered pair of logical entity IDs (`identity_id`), written in ascending lexical order. The pair identifies the cross-entity relationship, so it appears at most once. Both endpoints may name the same logical entity; for example, the pair (`employee`, `employee`) may have “An employee reports to one manager, who is also an employee.” | — |
+| 3.11 | Each cross-entity relationship has a nonempty list of distinct, nonblank descriptions, one for each way the logical entities relate. Each description supplies the action verb and reading direction. For example, `calendar_day` and `order` may have “An order is placed on one calendar day.” and “An order is shipped on one calendar day once it ships.” There is no separate verb or per-description identity. | — |
+| 3.12 | A cross-entity relationship has no multiplicity, match existence, or realization fields. Its descriptions are descriptive text (4.1), so they never establish or negate a typed claim. It never creates, approves, rejects, or alters a relationship between entity definitions or any entity-definition claim. | — |
+| 3.13 | A cross-entity relationship is valid even when no dataset realizes it. The agent discovers where data realizes it by finding datasets with entity definitions of both logical entities and inspecting relationships between datasets. The definitions’ effective descriptions (1.9) distinguish roles, such as an order's placement date and ship date. If no dataset realizes the cross-entity relationship, it tells the agent that the data does not hold it. | — |
+
 ## Claims
 
 | ID | Clause | Former |

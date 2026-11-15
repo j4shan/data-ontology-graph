@@ -57,6 +57,13 @@ defined in product/graph-model.md.
   and changes definitions between consecutive relationship traversals.
   An optional multiplicity filter applies in the traversal direction; unknown
   multiplicity passes a restrictive filter only when explicitly allowed.
+- List the cross-entity relationships at a logical entity, with each related logical
+  entity and the descriptions that state how they relate. Include a relationship
+  count and bounded continuation so an agent can inspect the full list.
+- Find bounded, ranked paths of cross-entity relationships between two distinct
+  logical entities. Paths contain no repeated logical entity and rank by step count,
+  then by the sequence of logical entity IDs. Each step retains the descriptions
+  of its cross-entity relationship; report when further paths exist.
 - Retrieve one approximate connecting subgraph for at least two distinct selected
   datasets, including intermediate datasets where needed. The server-configured
   input maximum defaults to 16. The result is not a guaranteed minimum and does not
@@ -85,6 +92,12 @@ A target logical-entity filter chooses which of those neighbours to retain; it d
 not change the identity or claims of the relationships connecting them. Histogram
 counts describe entity occurrence and guide the agent's next selection. Concrete
 relationships are inspected through detailed results and relationship lookup.
+
+An agent may use a stated path of cross-entity relationships to plan a route between
+logical entities, then resolve each step to datasets through entity-definition and
+dataset-level discovery. When no stated path exists, the agent can use dataset-level
+discovery directly. Cross-entity relationships never filter dataset-level discovery
+or change a relationship or its claims.
 
 Dataset records use a consistent structure across lookup and navigation operations,
 with metadata selected by the operation and detail level. Search subject rows are

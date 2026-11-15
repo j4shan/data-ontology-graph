@@ -6,7 +6,7 @@ An agent can discover graph objects, inspect their metadata, and find datasets w
 
 ### Capabilities
 
-- Search logical entities, datasets, entity definitions, and columns using deterministic lexical matching, optionally restricted by kind. Support exact and prefix matching, plus phrase and all-words matching for multi-word dataset and logical-entity names.
+- Search logical entities, datasets, entity definitions, columns, and cross-entity relationships using deterministic lexical matching, optionally restricted by kind. Match cross-entity relationships by their descriptions. Support exact and prefix matching, plus phrase and all-words matching for multi-word dataset and logical-entity names.
 - Return matching field values unchanged, with their best match type. Order results by match type, normalized label, and object key. Apply limits per kind and report omitted results.
 - Exclude whole-value placeholders such as `N/A`, `unknown`, and `TBD` from description search while preserving published metadata. Names, synonyms, and tags remain searchable.
 - Look up a dataset with its complete published metadata using the shared dataset structure.
@@ -29,4 +29,4 @@ Multi-entity filtering identifies candidate bridge datasets. Dataset-level co-oc
 
 ### Exclusions
 
-Discovery does not provide semantic-similarity search, read source records, or infer relationships between different logical entities.
+Discovery does not provide semantic-similarity search, read source records, or infer cross-entity relationships.
