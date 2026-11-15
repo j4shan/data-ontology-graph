@@ -13,8 +13,9 @@ DEFINITION = "D"
 COLUMN = "C"
 ENTITY_RELATIONSHIP = "X"
 
-_ORDINAL = r"[1-9][0-9]*"
-_EDGE = re.compile(rf"^{DEFINITION}({_ORDINAL})-{DEFINITION}({_ORDINAL})$")
+_ORDINAL = r"[1-9][0-9]{0,17}"
+"""A decimal ordinal from 1 without leading zeros, short enough to always convert to an int."""
+_EDGE = re.compile(rf"{DEFINITION}({_ORDINAL})-{DEFINITION}({_ORDINAL})")
 
 
 def format_id(prefix: str, ordinal: int) -> str:
@@ -39,7 +40,7 @@ def edge_id(left: int, right: int) -> str:
 
 def edge_ordinals(text: str) -> tuple[int, int] | None:
     """The two definition ordinals of a canonical ``D<i>-D<j>`` with ``i < j``, else None."""
-    match = _EDGE.match(text)
+    match = _EDGE.fullmatch(text)
     if not match:
         return None
     left, right = int(match.group(1)), int(match.group(2))

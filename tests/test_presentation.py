@@ -84,6 +84,9 @@ def test_every_response_presents_a_dataset_as_one_record(lending_service) -> Non
                                 "grain", "descriptor", "unknown_fields", "edge_groups"]
     assert list(identity) == list(relationship) == standard
     assert identity["descriptor"] == relationship["descriptor"] == {"description": identity["descriptor"]["description"]}
+    # Every response carries the snapshot tag that IDs are local to (3.6.2).
+    assert service.get_dataset(account).snapshot == service.get_relationship(edge_id).snapshot
+    assert service.get_dataset(account).snapshot.version == service.snapshot_info().version
     full = service.get_dataset(account).model_dump(mode="json", exclude={"snapshot"})
     full_navigation = service.get_edges(account, response_format="records", detail="full").datasets[0]
     assert full == {key: value for key, value in full_navigation.items()

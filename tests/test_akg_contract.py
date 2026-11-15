@@ -136,13 +136,43 @@ def test_changed_claim_is_one_mismatch_at_its_position(source: str, lending_serv
     assert "document has 'optional', graph has 'always'" in findings[0].message
 
 
-def test_an_edge_from_a_non_endpoint_is_unknown(lending_service) -> None:
+LOAN_DEFINITION_AT = LOAN_EDGE_AT.rsplit(".edges[", 1)[0]
+
+
+def test_an_edge_group_definition_the_dataset_lacks_is_unknown(lending_service) -> None:
     payload = _payload("akg-single.json")
     _loan_definition(payload)["dataset_columns"] = ["loan_id"]
     findings = resolve_document(payload, _source("service", lending_service))
     assert [(finding.location, finding.rule) for finding in findings] == [
-        (LOAN_EDGE_AT.replace("['account_id']", "['loan_id']"), "unknown_element"),
+        (LOAN_DEFINITION_AT.replace("['account_id']", "['loan_id']"), "unknown_element"),
     ]
+
+
+def test_an_edge_group_under_another_logical_entity_is_unknown(lending_service) -> None:
+    payload = _payload("akg-single.json")
+    payload["datasets"][0]["edge_groups"][0]["identity_id"] = "loan_identity"
+    findings = resolve_document(payload, _source("service", lending_service))
+    assert [(finding.location, finding.rule) for finding in findings] == [
+        (LOAN_DEFINITION_AT.replace("['account_identity']", "['loan_identity']"), "unknown_element"),
+    ]
+
+
+def test_an_edge_group_definition_id_must_match_the_graph(lending_service) -> None:
+    """The other endpoint's ID passes the offline check but not resolution (2.6.3)."""
+    payload = _payload("akg-single.json")
+    _loan_definition(payload)["id"] = "D1"
+    assert check_document(payload, final=True) == []
+    findings = resolve_document(payload, _source("service", lending_service))
+    assert [(finding.location, finding.rule) for finding in findings] == [
+        (f"{LOAN_DEFINITION_AT}.id", "graph_mismatch"),
+    ]
+
+
+@pytest.mark.parametrize("edge_id", ["D1-D8\n", "D1-D" + "9" * 5000, " D1-D8"])
+def test_a_malformed_edge_id_is_an_edge_key_finding(edge_id: str) -> None:
+    payload = _payload("akg-single.json")
+    _loan_definition(payload)["edges"][0][-1] = edge_id
+    assert "edge_key" in [finding.rule for finding in check_document(payload)]
 
 
 def test_unknown_dataset_column_and_changed_field_are_reported(lending_service) -> None:

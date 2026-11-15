@@ -210,6 +210,7 @@ def test_definition_ids_follow_ascending_key_order() -> None:
 
 @pytest.mark.parametrize("edge_id", [
     "D3-D2", "D2-D2", "D02-D3", "D0-D2", "D2-D9", "D1-D2", "d2-d3", "D2_D3", "", "C2-C3",
+    "D2-D3\n", "D2-D" + "3" * 5000,
 ])
 def test_ids_that_name_no_canonical_pair_resolve_to_nothing(edge_id: str) -> None:
     # D1 is the account definition on a; D2 and D3 are device definitions.

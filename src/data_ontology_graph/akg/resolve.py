@@ -115,9 +115,25 @@ def resolve_document(payload: dict[str, Any], source: GraphSource) -> list[AkgFi
             findings.append(_finding(location, "unknown_element", error))
             continue
         findings.extend(_compare_dataset(location, dataset, record))
+        served_definitions = {
+            (item["identity_id"], tuple(item["dataset_columns"])): item
+            for item in record.get("entity_definitions") or []
+        }
         for group in dataset.get("edge_groups") or []:
             for definition in group["entity_definitions"]:
                 columns = definition["dataset_columns"]
+                held_at = (
+                    f"{location}.edge_groups[{group['identity_id']!r}].entity_definitions[{columns!r}]"
+                )
+                served = served_definitions.get((group["identity_id"], tuple(columns)))
+                if served is None:
+                    findings.append(_finding(
+                        held_at, "unknown_element",
+                        f"no entity definition of {group['identity_id']!r} on {columns!r}",
+                    ))
+                    continue
+                if definition.get("id") != served.get("id"):
+                    findings.append(_mismatch(f"{held_at}.id", definition.get("id"), served.get("id")))
                 for array in definition["edges"]:
                     edge = dict(zip(fields, array))
                     where = edge_location(node_id, group["identity_id"], columns, edge["edge_id"])
