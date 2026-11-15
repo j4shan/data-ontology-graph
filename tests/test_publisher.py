@@ -157,3 +157,21 @@ def test_publication_still_refuses_an_unrelated_directory(tmp_path) -> None:
     with pytest.raises(RuntimeError, match="not a loadable artifact"):
         CurrentArtifactStore(target).publish(snapshot)
     assert (target / "notes.txt").exists()
+
+
+def test_replacing_an_artifact_warns_about_unrelated_files_it_removes(tmp_path) -> None:
+    from data_ontology_graph.builder import build_snapshot_from_yaml
+
+    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
+    snapshot, _ = build_snapshot_from_yaml(example)
+    target = tmp_path / "current"
+    target.mkdir()
+    for name in ("nodes.json", "edges.json"):
+        (target / name).write_text("not JSON")
+    (target / "notes.txt").write_text("unrelated")
+    store = CurrentArtifactStore(target)
+    store.publish(snapshot)
+    assert not (target / "notes.txt").exists()
+    assert len(store.warnings) == 1 and store.warnings[0].endswith("not artifact files: notes.txt")
+    store.publish(snapshot)
+    assert store.warnings == []

@@ -48,11 +48,17 @@ class SnapshotStore:
         )
 
 
+ARTIFACT_FILES = frozenset({"nodes.json", "annotations.json", "entity_relationships.json", "edges.json"})
+"""File names a current or stored-relationship artifact may hold."""
+
+
 class CurrentArtifactStore:
     """Publish one complete current artifact without retaining prior releases."""
 
     def __init__(self, directory: Path) -> None:
         self.directory = Path(directory)
+        self.warnings: list[str] = []
+        """Warnings from the last publication, such as unrelated files it replaced."""
 
     def load(self) -> GraphSnapshot:
         return SnapshotStore(self.directory.parent).load(self.directory)
@@ -63,6 +69,7 @@ class CurrentArtifactStore:
         parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not target.is_dir():
             raise RuntimeError(f"current artifact path is not a directory: {target}")
+        self.warnings = []
         if target.exists() and not _is_stored_relationship_artifact(target):
             try:
                 self.load()
@@ -70,6 +77,14 @@ class CurrentArtifactStore:
                 raise RuntimeError(
                     f"refusing to replace a directory that is not a loadable artifact: {target}"
                 ) from error
+
+        if target.exists():
+            unrelated = sorted(path.name for path in target.iterdir() if path.name not in ARTIFACT_FILES)
+            if unrelated:
+                self.warnings.append(
+                    f"{target}: replacing the artifact also removes files that are not artifact files: "
+                    + ", ".join(unrelated)
+                )
 
         staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.candidate-", dir=parent))
         backup = parent / f".{target.name}.previous-{uuid.uuid4().hex}"

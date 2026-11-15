@@ -145,7 +145,8 @@ New artifacts contain `nodes.json` for the registry and dataset definitions,
 cross-entity relationships between logical entities. They do not contain `edges.json`:
 relationships are derived from membership when requested. An artifact that still holds
 `edges.json` is refused at load; republish it by running the same publish command against its
-finalized YAML directory. Publication replaces the current artifact atomically. Reload the
+finalized YAML directory. Publication replaces the current artifact atomically; it warns about
+any file in the replaced directory that is not an artifact file, which the replacement removes. Reload the
 service after publishing.
 
 The service runs only on demand. Nothing starts it at login, because the job's property list sits
