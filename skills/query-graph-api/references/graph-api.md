@@ -1,6 +1,6 @@
 # Graph service API
 
-This document describes graph API version `4`.
+This document describes graph API version `5`.
 
 The service discovers dataset metadata and explores relationships in one published graph.
 It is read-only and sessionless: the caller selects evidence and maintains its own working
@@ -258,7 +258,7 @@ Join a group's subject and match rows on `key`. Subject headers by kind are:
 
 Groups appear in the order `column`, `dataset`, `entity_definition`, `entity_relationship`,
 `identity`. A cross-entity relationship matches by its descriptions, and its `key` is its
-endpoint pair joined by `|`, such as `calendar_day_identity|order_identity`.
+endpoint pair encoded as a JSON array, such as `["calendar_day_identity","order_identity"]`.
 
 The match header is `key`, `match_type`, `match_field`, `matched_term`, `matched_value`.
 Each matching field value has one match row. Dataset and identity keys are their canonical IDs;

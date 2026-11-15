@@ -95,13 +95,16 @@ The manifest uses schema version `"5"` and names every collection file relative 
 ```yaml
 schema_version: "5"
 logical_identities: identities.yaml
+entity_relationships: entity_relationships.yaml  # optional
 nodes:
   - customers.yaml
   - orders.yaml
 ```
 
 Each listed file also declares schema version `"5"` and contains exactly its named collection.
-The logical entity collection has one owner file. One or more node files partition the
+The logical entity collection has one owner file, and so does the optional cross-entity
+relationship collection. Each cross-entity relationship names two logical entity IDs in
+ascending order as `endpoints` and lists one description per way they relate. One or more node files partition the
 single assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
 YAML directory, mixed collection ownership, and conflicting schema versions block construction.
 A finalized YAML directory may contain only `.yaml` and `.yml` files.
@@ -137,8 +140,9 @@ data-ontology-graph-publish --yaml-dir path/to/finalized-yaml-directory
 data-ontology-graph-launchd setup
 ```
 
-New artifacts contain `nodes.json` for the registry and dataset definitions and
-`annotations.json` for sparse relationship annotations. They do not contain `edges.json`:
+New artifacts contain `nodes.json` for the registry and dataset definitions,
+`annotations.json` for sparse relationship annotations, and `entity_relationships.json` for
+cross-entity relationships between logical entities. They do not contain `edges.json`:
 relationships are derived from membership when requested. An artifact that still holds
 `edges.json` is refused at load; republish it by running the same publish command against its
 finalized YAML directory. Publication replaces the current artifact atomically. Reload the
@@ -165,11 +169,12 @@ data-ontology-graph-client graph.search --params '{"query":"customer"}'
 
 The service supports snapshot information, lexical search, entity-definition discovery and dataset lookup,
 relationship detail, a dataset's directed edges, breadth-first subgraph expansion, ranked shortest paths,
-and an approximate connecting subgraph for two to sixteen datasets. It does
+an approximate connecting subgraph for two to sixteen datasets, and the cross-entity
+relationships at a logical entity with ranked stated paths between two logical entities. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
 Membership-backed indexes serve these methods without constructing all pairs at startup. The
-graph API is version `4`. `graph.get_entity_definitions` replaces `graph.get_identity` and
+graph API is version `5`. `graph.get_entity_definitions` replaces `graph.get_identity` and
 discovers datasets containing a primary logical entity. An optional `entity_universe` filters
 the primary definitions; up to four distinct `target_identity_ids` can require additional
 entities on every selected dataset. The result reports exact matching dataset and primary

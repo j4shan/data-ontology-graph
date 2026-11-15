@@ -126,3 +126,34 @@ def test_loader_rejects_mixed_build_envelopes(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="annotations.json version does not match nodes.json"):
         SnapshotStore(tmp_path).load(artifact)
+
+
+def test_republication_replaces_a_stored_relationship_artifact(tmp_path) -> None:
+    from data_ontology_graph.builder import build_snapshot_from_yaml
+    from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+
+    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
+    snapshot, _ = build_snapshot_from_yaml(example)
+    store = CurrentArtifactStore(tmp_path / "current")
+    store.publish(snapshot)
+    (store.directory / "edges.json").write_text(json.dumps({"version": snapshot.version, "edges": []}))
+    with pytest.raises(ValueError, match="republish"):
+        store.load()
+    store.publish(snapshot)
+    assert not (store.directory / "edges.json").exists()
+    assert store.load().version == snapshot.version
+
+
+def test_publication_still_refuses_an_unrelated_directory(tmp_path) -> None:
+    from data_ontology_graph.builder import build_snapshot_from_yaml
+    from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+
+    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
+    snapshot, _ = build_snapshot_from_yaml(example)
+    target = tmp_path / "current"
+    target.mkdir()
+    (target / "edges.json").write_text("{}")
+    (target / "notes.txt").write_text("not an artifact")
+    with pytest.raises(RuntimeError, match="not a loadable artifact"):
+        CurrentArtifactStore(target).publish(snapshot)
+    assert (target / "notes.txt").exists()

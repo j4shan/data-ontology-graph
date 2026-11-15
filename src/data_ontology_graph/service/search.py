@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -301,7 +302,8 @@ class LexicalSearchIndex:
                 )
 
         for relationship in snapshot.entity_relationships:
-            key = "|".join(relationship.endpoints)
+            # A JSON array keeps the pair unambiguous: logical entity IDs may contain any character.
+            key = json.dumps(list(relationship.endpoints), ensure_ascii=False, separators=(",", ":"))
             add_subject(
                 "entity_relationship",
                 key,

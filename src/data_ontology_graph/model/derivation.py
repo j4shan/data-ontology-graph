@@ -1,5 +1,6 @@
 """Logical-entity memberships and relationships derived only when consumed."""
 
+from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Mapping
 
@@ -85,6 +86,53 @@ class MembershipIndex:
                 self._by_token[endpoint_token(self.endpoint(key))].append(key)
                 by_identity[definition.identity_id].append(key)
         self.by_identity = {identity: sorted(keys) for identity, keys in by_identity.items()}
+        ambiguous = self._ambiguous_relationship_ids()
+        if ambiguous:
+            raise ValueError("; ".join(ambiguous))
+
+    def _ambiguous_relationship_ids(self) -> list[str]:
+        """Messages for relationship IDs that two different pairs would share (system design 3.4.2).
+
+        A relationship ID joins two unescaped endpoint references with ``__``. It is ambiguous
+        when two definitions share one reference and their logical entity has a third definition,
+        or when a reference containing ``__`` splits into another valid pair. Only references are
+        compared, so no relationship pair is enumerated.
+        """
+        messages: list[str] = []
+        for token, keys in sorted(self._by_token.items()):
+            if len(keys) > 1 and len(self.by_identity[keys[0].identity_id]) > 2:
+                messages.append(
+                    f"entity definitions {sorted(list(key.dataset_columns) for key in keys)} on "
+                    f"{keys[0].node_id} share the relationship endpoint reference {token!r}"
+                )
+        tokens = sorted(self._by_token)
+        for combined in tokens:
+            position = combined.find("__")
+            while position >= 0:
+                head, middle = combined[:position], combined[position + 2:]
+                if head in self._by_token:
+                    prefix = middle + "__"
+                    index = bisect_left(tokens, prefix)
+                    while index < len(tokens) and tokens[index].startswith(prefix):
+                        tail = tokens[index][len(prefix):]
+                        for message in self._split_collisions(head, tokens[index], combined, tail):
+                            messages.append(message)
+                        index += 1
+                position = combined.find("__", position + 1)
+        return messages
+
+    def _split_collisions(self, a: str, b: str, c: str, d: str) -> list[str]:
+        """Pairs (a, b) and (c, d) whose IDs ``a__b`` and ``c__d`` are the same string."""
+        def valid(left: DefinitionKey, right: DefinitionKey) -> bool:
+            return left < right and left.identity_id == right.identity_id
+
+        return [
+            f"relationship ID {a + '__' + b!r} would identify two different relationships"
+            for left in self._by_token.get(a, ()) for right in self._by_token.get(b, ())
+            if valid(left, right)
+            for other_left in self._by_token.get(c, ()) for other_right in self._by_token.get(d, ())
+            if valid(other_left, other_right)
+        ]
 
     @property
     def entity_definition_count(self) -> int:

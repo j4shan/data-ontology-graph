@@ -216,13 +216,28 @@ def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
     assert index.relationship(edge.edge_id) == edge
 
 
-def test_membership_id_resolution_rejects_ambiguous_legacy_tokens() -> None:
-    index = _index([
-        _node("a", [_definition(["x", "y"]), _definition(["x+y"])]),
-        _node("b", [_definition()]),
-    ])
-    keys = index.by_identity["device"]
-    # The existing ID format joins columns with '+', so these two distinct pairs collide.
-    assert index.edge_id(keys[0], keys[2]) == index.edge_id(keys[1], keys[2])
-    with pytest.raises(ValueError, match="ambiguous relationship ID"):
-        index.relationship(index.edge_id(keys[0], keys[2]))
+def test_index_rejects_definitions_that_share_an_endpoint_reference() -> None:
+    # The ID format joins columns with '+', so ["x", "y"] and ["x+y"] share the reference
+    # dataset:a:device:x+y, and each pairs with b under one relationship ID.
+    with pytest.raises(ValueError, match="share the relationship endpoint reference 'dataset:a:device:x\\+y'"):
+        _index([
+            _node("a", [_definition(["x", "y"]), _definition(["x+y"])]),
+            _node("b", [_definition()]),
+        ])
+
+
+def test_two_definitions_sharing_a_reference_alone_have_one_unambiguous_relationship() -> None:
+    index = _index([_node("a", [_definition(["x", "y"]), _definition(["x+y"])])])
+    left, right = index.by_identity["device"]
+    assert index.resolve(index.edge_id(left, right)) == (left, right)
+
+
+def test_index_rejects_references_whose_delimiter_splits_into_another_pair() -> None:
+    # dataset:p:device:id__dataset:q:device:k__dataset:r:device:id reads as either
+    # (p:id, q:k__...) or (p:id__..., r:id).
+    with pytest.raises(ValueError, match="would identify two different relationships"):
+        _index([
+            _node("p", [_definition(["id"]), _definition(["id__dataset:q:device:k"])]),
+            _node("q", [_definition(["k__dataset:r:device:id"])]),
+            _node("r", [_definition(["id"])]),
+        ])

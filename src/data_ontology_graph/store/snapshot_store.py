@@ -63,7 +63,7 @@ class CurrentArtifactStore:
         parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not target.is_dir():
             raise RuntimeError(f"current artifact path is not a directory: {target}")
-        if target.exists():
+        if target.exists() and not _is_stored_relationship_artifact(target):
             try:
                 self.load()
             except Exception as error:
@@ -138,6 +138,11 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
         json.dumps(relationships_doc, indent=2),
         encoding="utf-8",
     )
+
+
+def _is_stored_relationship_artifact(directory: Path) -> bool:
+    """An artifact from the stored-relationship release, which republication replaces (2.5.6)."""
+    return (directory / "nodes.json").is_file() and (directory / "edges.json").is_file()
 
 
 def _require_same_envelope(reference: dict, candidate: dict, filename: str) -> None:

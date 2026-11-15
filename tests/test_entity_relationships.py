@@ -183,11 +183,10 @@ def test_search_matches_cross_entity_relationship_descriptions(service) -> None:
     (group,) = response.groups
     assert group.kind == "entity_relationship"
     assert group.subject_row_header == ["key", "endpoints"]
-    assert group.subject_rows == [
-        ["calendar_day_identity|order_identity", ["calendar_day_identity", "order_identity"]]
-    ]
+    key = '["calendar_day_identity","order_identity"]'
+    assert group.subject_rows == [[key, ["calendar_day_identity", "order_identity"]]]
     assert group.match_rows == [[
-        "calendar_day_identity|order_identity", "exact", "description", "shipped",
+        key, "exact", "description", "shipped",
         "An order is shipped on one calendar day once it ships.",
     ]]
 
@@ -197,3 +196,26 @@ def test_search_without_kind_includes_cross_entity_relationships_in_group_order(
     assert [group.kind for group in response.groups] == [
         "column", "dataset", "entity_definition", "entity_relationship", "identity",
     ]
+
+
+def test_search_keys_stay_distinct_when_logical_entity_ids_contain_delimiters() -> None:
+    from data_ontology_graph.model.intermediary import LogicalIdentity
+    from data_ontology_graph.model.snapshot import GraphSnapshot
+
+    snapshot, _ = build_snapshot_from_yaml(STATED)
+    identities = [LogicalIdentity(identity_id=value, name=value) for value in ("a", "a|b", "b|c", "c")]
+    colliding = GraphSnapshot(
+        version=snapshot.version,
+        logical_identities=[*snapshot.logical_identities, *identities],
+        nodes=snapshot.nodes,
+        entity_relationships=[
+            {"endpoints": ["a", "b|c"], "descriptions": ["alpha link"]},
+            {"endpoints": ["a|b", "c"], "descriptions": ["alpha other"]},
+        ],
+    )
+    (group,) = GraphReadService(colliding).search(SearchRequest(query="alpha", kind=["entity_relationship"])).groups
+    keys = [row[0] for row in group.subject_rows]
+    assert keys == ['["a","b|c"]', '["a|b","c"]']
+    assert {row[0]: row[4] for row in group.match_rows} == {
+        '["a","b|c"]': "alpha link", '["a|b","c"]': "alpha other",
+    }
