@@ -2,7 +2,33 @@
   "$defs": {
     "Accessor": {
       "additionalProperties": true,
+      "description": "The dataset's path of information, as the graph service returned it.",
       "properties": {
+        "endpoint": {
+          "minLength": 1,
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "kind": {
+          "minLength": 1,
+          "title": "Kind",
+          "type": "string"
+        },
+        "labels": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Labels"
+        },
         "properties": {
           "anyOf": [
             {
@@ -17,15 +43,11 @@
           ],
           "default": null,
           "title": "Properties"
-        },
-        "schema_id": {
-          "minLength": 1,
-          "title": "Schema Id",
-          "type": "string"
         }
       },
       "required": [
-        "schema_id"
+        "kind",
+        "endpoint"
       ],
       "title": "Accessor",
       "type": "object"

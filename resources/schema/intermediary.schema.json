@@ -34,23 +34,50 @@
     },
     "DatasetAccessor": {
       "additionalProperties": false,
+      "description": "A credential-free path of information to a dataset's data (`product/graph-model.md#2.6`).\n\nThe graph never follows, resolves, or interprets an accessor. Keys and values of ``labels``\nand ``properties`` are the contributor's choice.",
       "properties": {
-        "properties": {
+        "endpoint": {
+          "description": "Where the path of information starts, in any form: an address, URI, account identifier, connector-plugin connection name, or shared document.",
+          "pattern": "\\S",
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Free-text name of the kind of system the endpoint belongs to.",
+          "pattern": "\\S",
+          "title": "Kind",
+          "type": "string"
+        },
+        "labels": {
           "additionalProperties": {
-            "$ref": "#/$defs/JsonValue"
+            "type": "string"
           },
-          "title": "Properties",
+          "propertyNames": {
+            "minLength": 1
+          },
+          "title": "Labels",
           "type": "object"
         },
-        "schema_id": {
-          "minLength": 1,
-          "title": "Schema Id",
-          "type": "string"
+        "properties": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JsonValue"
+              },
+              "minProperties": 1,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Properties"
         }
       },
       "required": [
-        "schema_id",
-        "properties"
+        "kind",
+        "endpoint"
       ],
       "title": "DatasetAccessor",
       "type": "object"
@@ -116,6 +143,43 @@
         "components"
       ],
       "title": "DatasetGrain",
+      "type": "object"
+    },
+    "EntityRelationship": {
+      "additionalProperties": false,
+      "properties": {
+        "descriptions": {
+          "description": "One nonblank, distinct description per way the two logical entities relate.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Descriptions",
+          "type": "array"
+        },
+        "endpoints": {
+          "description": "The unordered pair of logical entity IDs, in ascending lexical order. Both may name the same logical entity.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "minLength": 1,
+              "type": "string"
+            }
+          ],
+          "title": "Endpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "endpoints",
+        "descriptions"
+      ],
+      "title": "EntityRelationship",
       "type": "object"
     },
     "EntityUniverse": {
@@ -283,7 +347,7 @@
           "title": "Grain"
         },
         "node_id": {
-          "description": "Stable dataset identity in the form <accessor-family>:<catalog>.<object>, where accessor-family is the middle segment of accessor.schema_id. Keep the value stable while the dataset remains at the same access location; a dataset served through a different accessor family is a different node.",
+          "description": "Stable dataset identity chosen by the contributor and unique in the graph. It does not depend on accessor content; keep it while the accessor leads to the same data.",
           "minLength": 1,
           "title": "Node Id",
           "type": "string"
@@ -338,6 +402,14 @@
   },
   "additionalProperties": false,
   "properties": {
+    "entity_relationships": {
+      "description": "Cross-entity relationships between registered logical entities.",
+      "items": {
+        "$ref": "#/$defs/EntityRelationship"
+      },
+      "title": "Cross-Entity Relationships",
+      "type": "array"
+    },
     "logical_identities": {
       "additionalProperties": {
         "$ref": "#/$defs/LogicalIdentityDefinition"
@@ -355,7 +427,7 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "4",
+      "const": "5",
       "title": "Schema Version",
       "type": "string"
     }

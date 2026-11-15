@@ -1,6 +1,6 @@
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
 from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
 from data_ontology_graph.service.tables import ResponseFormat, Table
@@ -15,7 +15,7 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
-API_VERSION = "1"
+API_VERSION = "5"
 """The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
 
 
@@ -23,8 +23,9 @@ class SnapshotInfo(ContractModel):
     api_version: str = API_VERSION
     version: str
     node_count: int
-    edge_count: int
+    entity_definition_count: int
     identity_count: int
+    entity_relationship_count: int
 
 
 class EntityDefinitionRef(ContractModel):
@@ -33,7 +34,7 @@ class EntityDefinitionRef(ContractModel):
     dataset_columns: list[str]
 
 
-SearchKind = Literal["identity", "dataset", "entity_definition", "column"]
+SearchKind = Literal["identity", "dataset", "entity_definition", "entity_relationship", "column"]
 
 
 SearchCell = str | list[str] | None
@@ -69,11 +70,34 @@ class SearchResponse(ContractModel):
     truncated: bool
 
 
-class IdentityRequest(ContractModel):
+class EntityDefinitionsRequest(ContractModel):
     identity_id: str = Field(min_length=1)
     entity_universe: list[EntityUniverse] | None = Field(default=None, min_length=1)
     limit: int = Field(default=100, ge=1, le=1000)
     response_format: ResponseFormat = "table"
+    target_identity_ids: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
+    view: Literal["auto", "aggregated", "detailed"] = "auto"
+    dataset_threshold: int = Field(default=200, ge=1, le=10_000)
+    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @field_validator("target_identity_ids")
+    @classmethod
+    def canonical_targets(cls, values: list[str]) -> list[str]:
+        selected = sorted(set(values))
+        if len(selected) > 4:
+            raise ValueError("target_identity_ids allows at most four distinct logical entities")
+        return selected
+
+    @field_validator("entity_universe")
+    @classmethod
+    def canonical_universes(cls, values: list[EntityUniverse] | None) -> list[EntityUniverse] | None:
+        return sorted(set(values)) if values is not None else None
+
+    @model_validator(mode="after")
+    def cursor_needs_detail(self) -> "EntityDefinitionsRequest":
+        if self.cursor is not None and self.view == "aggregated":
+            raise ValueError("cursor requires an auto or detailed view")
+        return self
 
 
 class DatasetRequest(ContractModel):
@@ -105,11 +129,22 @@ class EdgesRequest(NavigationRequest):
     """Directed edges listed per entity definition."""
     identity_id: str | None = Field(default=None, min_length=1)
     from_dataset_columns: list[str] | None = Field(default=None, min_length=1)
+    view: Literal["auto", "aggregated", "detailed"] = "auto"
+    fan_out_threshold: int = Field(default=200, ge=1, le=10_000)
+    target_identity_ids: list[Annotated[str, Field(min_length=1)]] = Field(default_factory=list)
+    cursor: str | None = Field(default=None, min_length=1, max_length=4096)
+
+    @field_validator("target_identity_ids")
+    @classmethod
+    def canonical_targets(cls, values: list[str]) -> list[str]:
+        return sorted(set(values))
 
     @model_validator(mode="after")
     def columns_need_a_logical_entity(self) -> "EdgesRequest":
         if self.from_dataset_columns is not None and self.identity_id is None:
             raise ValueError("from_dataset_columns requires identity_id")
+        if self.cursor is not None and self.view == "aggregated":
+            raise ValueError("cursor requires an auto or detailed view")
         return self
 
 
@@ -131,6 +166,63 @@ class PathsRequest(NavigationRequest):
     )
 
 
+class EntityRelationshipsRequest(ContractModel):
+    identity_id: str = Field(min_length=1)
+    limit: int = Field(default=200, ge=1, le=1000)
+    cursor: str | None = None
+
+
+class EntityRelationshipPathsRequest(ContractModel):
+    from_identity_id: str = Field(min_length=1)
+    to_identity_id: str = Field(min_length=1)
+    max_steps: int = Field(default=4, ge=1, le=10)
+    k: int = Field(default=6, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def distinct_endpoints(self) -> "EntityRelationshipPathsRequest":
+        if self.from_identity_id == self.to_identity_id:
+            raise ValueError("from_identity_id and to_identity_id must differ")
+        return self
+
+
+class RelatedLogicalEntity(ContractModel):
+    """The other logical entity of a cross-entity relationship and its descriptions."""
+
+    identity_id: str
+    name: str
+    descriptions: list[str]
+
+
+class EntityRelationshipsResponse(ContractModel):
+    snapshot: SnapshotInfo
+    identity_id: str
+    name: str
+    limit: int
+    relationship_count: int
+    entity_relationships: list[RelatedLogicalEntity]
+    truncated: bool
+    next_cursor: str | None = None
+
+
+class EntityRelationshipStep(ContractModel):
+    """One step of a stated path, read in the path's direction."""
+
+    from_identity_id: str
+    to_identity_id: str
+    descriptions: list[str]
+
+
+class EntityRelationshipPathsResponse(ContractModel):
+    snapshot: SnapshotInfo
+    from_identity_id: str
+    to_identity_id: str
+    max_steps: int
+    k: int
+    path_count: int
+    paths: list[list[EntityRelationshipStep]]
+    truncated: bool
+
+
 class ConnectingSubgraphRequest(NavigationRequest):
     node_ids: list[str] = Field(min_length=2)
 
@@ -143,13 +235,32 @@ class ConnectingSubgraphRequest(NavigationRequest):
         return self
 
 
-class IdentityDetail(ContractModel):
+class EntityDefinitionsSelection(ContractModel):
+    snapshot: SnapshotInfo
     identity_id: str
     name: str
     description: str
     synonyms: list[str]
+    entity_universe: list[EntityUniverse] | None
+    target_identity_ids: list[str]
+    limit: int
+    dataset_threshold: int
+    dataset_count: int
+    primary_definition_count: int
+
+
+class EntityDefinitionsResponse(EntityDefinitionsSelection):
+    view: Literal["detailed"] = "detailed"
     entity_definitions: Collection
     datasets: Collection
+    truncated: bool
+    next_cursor: str | None = None
+
+
+class AggregatedEntityDefinitionsResponse(EntityDefinitionsSelection):
+    view: Literal["aggregated"] = "aggregated"
+    histogram: Collection
+    logical_entity_count: int
     truncated: bool
 
 
@@ -210,9 +321,29 @@ class NavigationResponse(ContractModel):
         return data
 
 
-class EdgesResponse(NavigationResponse):
+class EdgesSelection(ContractModel):
+    snapshot: SnapshotInfo
     node_id: str
     limit: int
+    identity_id: str | None
+    from_dataset_columns: list[str] | None
+    target_identity_ids: list[str]
+    fan_out_count: int
+    fan_out_threshold: int
+
+
+class EdgesResponse(NavigationResponse, EdgesSelection):
+    view: Literal["detailed"] = "detailed"
+    next_cursor: str | None = None
+
+
+class AggregatedEdgesResponse(EdgesSelection):
+    view: Literal["aggregated"] = "aggregated"
+    detail: Detail
+    fields: dict[str, list[str]]
+    histogram: Collection
+    logical_entity_count: int
+    truncated: bool
 
 
 class SubgraphResponse(NavigationResponse):

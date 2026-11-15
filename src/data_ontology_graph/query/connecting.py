@@ -1,13 +1,14 @@
 """Deterministic Mehlhorn approximation for unit-cost dataset links.
 
-Relationships are undirected for connectivity; their claims remain directional.
-No path alternatives or semantic decisions are enumerated here.
+Directed edges are followed in either direction for connectivity; their claims remain
+directional. No path alternatives or semantic decisions are enumerated here.
 """
 
 from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
 from typing import Literal
 
-from data_ontology_graph.model.relationship import JoinRelationship
+from data_ontology_graph.query.neighbourhood import DirectedEdge
 
 
 class DisjointSets:
@@ -40,18 +41,18 @@ class ConnectingTree:
     edge_ids: list[str]
 
 
-Candidate = tuple[int, str, str, str, JoinRelationship]
+Candidate = tuple[int, str, str, str, DirectedEdge]
 
 
 def connecting_tree(
-    adjacency: dict[str, tuple[JoinRelationship, ...]],
+    edges: Mapping[str, Iterable[DirectedEdge]],
     terminals: list[str],
 ) -> ConnectingTree:
     # Level-synchronous multi-source BFS builds Voronoi regions and collects the
     # cheapest boundary edge between each pair of regions as it goes.
     owner = {node: node for node in terminals}
     distance = dict.fromkeys(terminals, 0)
-    predecessor: dict[str, tuple[str, JoinRelationship]] = {}
+    predecessor: dict[str, tuple[str, DirectedEdge]] = {}
     candidates: dict[tuple[str, str], Candidate] = {}
     frontier = list(terminals)
     level = 0
@@ -59,8 +60,9 @@ def connecting_tree(
     while frontier:
         following = []
         for current in frontier:
-            for edge in adjacency.get(current, ()):
-                other = edge.opposite(current).node_id
+            # Edge-ID order keeps region growth and boundary choice deterministic.
+            for edge in sorted(edges.get(current, ()), key=lambda item: item.edge_id):
+                other = edge.target.node_id
                 if other not in owner:
                     owner[other] = owner[current]
                     distance[other] = level + 1

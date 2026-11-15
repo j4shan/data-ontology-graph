@@ -45,7 +45,7 @@ def export_markdown(payload: dict[str, Any]) -> str:
         role = (dataset.get("usage") or {}).get("role") or "—"
         lines.append(
             f"| {alias[node_id]} | `{dataset['qualified_name']}` | "
-            f"{dataset['accessor']['schema_id']} | {_grain(dataset.get('grain'))} | {role} |"
+            f"{_source(dataset['accessor'])} | {_grain(dataset.get('grain'))} | {role} |"
         )
     lines.append("")
 
@@ -119,6 +119,12 @@ def _edge_values(fields: list[str], array: list[Any]) -> dict[str, Any]:
         edge["edge"]
     )
     return edge
+
+
+def _source(accessor: dict) -> str:
+    """The accessor's kind and endpoint, escaped for a Markdown table cell."""
+    endpoint = accessor["endpoint"].replace("|", "\\|")
+    return f"{accessor['kind']} `{endpoint}`"
 
 
 def _grain(grain: Any) -> str:

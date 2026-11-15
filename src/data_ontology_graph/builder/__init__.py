@@ -9,47 +9,50 @@ from data_ontology_graph.builder.intermediary import (
     validate_intermediary_yaml,
     write_intermediary_directory_json_schema,
 )
-from data_ontology_graph.builder.report import ExplicitBuildReport, unknown_field_locations
-from data_ontology_graph.builder.validate import Contradiction, detect_contradictions
+from data_ontology_graph.builder.report import (
+    ExplicitBuildReport,
+    accessor_warnings,
+    unknown_field_locations,
+)
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
-from data_ontology_graph.model.derivation import derive_relationships
 from data_ontology_graph.model.snapshot import GraphSnapshot, snapshot_version
 
 
 def build_snapshot_from_definition(
     definition: IntermediaryDefinition,
-) -> tuple[GraphSnapshot, ExplicitBuildReport, list[Contradiction]]:
+) -> tuple[GraphSnapshot, ExplicitBuildReport]:
     """Build the graph of a validated intermediary, deriving its relationships."""
     nodes = [node.to_runtime() for node in definition.nodes]
     snapshot = GraphSnapshot(
         version=snapshot_version(),
         logical_identities=definition.runtime_identities(),
         nodes=nodes,
-        edges=derive_relationships(nodes),
+        entity_relationships=definition.runtime_entity_relationships(),
     )
     report = ExplicitBuildReport(
         node_count=len(snapshot.nodes),
-        edge_count=len(snapshot.edges),
-        unknown_fields=unknown_field_locations(definition, snapshot.edges),
+        entity_definition_count=snapshot.memberships.entity_definition_count,
+        entity_relationship_count=snapshot.entity_relationship_index.relationship_count,
+        unknown_fields=unknown_field_locations(definition),
+        warnings=accessor_warnings(snapshot.nodes),
     )
-    return snapshot, report, []
+    return snapshot, report
 
 
 def build_snapshot_from_yaml(
     path: Path | str,
-) -> tuple[GraphSnapshot, ExplicitBuildReport, list[Contradiction]]:
+) -> tuple[GraphSnapshot, ExplicitBuildReport]:
     """Validate a complete YAML intermediary before building its explicit graph."""
     return build_snapshot_from_definition(load_intermediary_yaml(path))
 
 
 __all__ = [
-    "Contradiction",
     "ExplicitBuildReport",
     "IntermediaryValidationError",
     "IntermediaryValidationReport",
+    "accessor_warnings",
     "build_snapshot_from_definition",
     "build_snapshot_from_yaml",
-    "detect_contradictions",
     "intermediary_directory_json_schema",
     "load_intermediary_yaml",
     "load_intermediary_directory",

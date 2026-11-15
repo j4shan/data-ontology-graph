@@ -20,10 +20,10 @@ def _yaml_directory(tmp_path: Path) -> Path:
     payload = yaml.safe_load(VALID_EXAMPLE.read_text(encoding="utf-8"))
     collections = {
         "identities.yaml": {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": payload["logical_identities"],
         },
-        "nodes.yaml": {"schema_version": "4", "nodes": payload["nodes"]},
+        "nodes.yaml": {"schema_version": "5", "nodes": payload["nodes"]},
     }
     for name, collection in collections.items():
         (directory / name).write_text(
@@ -33,7 +33,7 @@ def _yaml_directory(tmp_path: Path) -> Path:
     (tmp_path / "directory-manifest.yaml").write_text(
         yaml.safe_dump(
             {
-                "schema_version": "4",
+                "schema_version": "5",
                 "logical_identities": "identities.yaml",
                 "nodes": ["nodes.yaml"],
             },
@@ -58,7 +58,7 @@ def test_publisher_replaces_one_current_artifact(tmp_path: Path) -> None:
     assert report.node_count == 2
     assert {path.name for path in artifact.iterdir()} == {
         "annotations.json",
-        "edges.json",
+        "entity_relationships.json",
         "nodes.json",
     }
     assert CurrentArtifactStore(artifact).load().nodes
@@ -119,10 +119,59 @@ def test_loader_rejects_mixed_build_envelopes(tmp_path: Path) -> None:
     yaml_directory = _yaml_directory(tmp_path)
     artifact = tmp_path / "current"
     publish_current_artifact(yaml_directory, artifact)
-    edges_path = artifact / "edges.json"
-    edges = json.loads(edges_path.read_text(encoding="utf-8"))
-    edges["version"] = "2000-01-01T00:00:00Z"
-    edges_path.write_text(json.dumps(edges), encoding="utf-8")
+    annotations_path = artifact / "annotations.json"
+    annotations = json.loads(annotations_path.read_text(encoding="utf-8"))
+    annotations["version"] = "2000-01-01T00:00:00Z"
+    annotations_path.write_text(json.dumps(annotations), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="edges.json version does not match nodes.json"):
+    with pytest.raises(ValueError, match="annotations.json version does not match nodes.json"):
         SnapshotStore(tmp_path).load(artifact)
+
+
+def test_republication_replaces_a_stored_relationship_artifact(tmp_path) -> None:
+    from data_ontology_graph.builder import build_snapshot_from_yaml
+    from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+
+    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
+    snapshot, _ = build_snapshot_from_yaml(example)
+    store = CurrentArtifactStore(tmp_path / "current")
+    store.publish(snapshot)
+    (store.directory / "edges.json").write_text(json.dumps({"version": snapshot.version, "edges": []}))
+    with pytest.raises(ValueError, match="republish"):
+        store.load()
+    store.publish(snapshot)
+    assert not (store.directory / "edges.json").exists()
+    assert store.load().version == snapshot.version
+
+
+def test_publication_still_refuses_an_unrelated_directory(tmp_path) -> None:
+    from data_ontology_graph.builder import build_snapshot_from_yaml
+    from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+
+    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
+    snapshot, _ = build_snapshot_from_yaml(example)
+    target = tmp_path / "current"
+    target.mkdir()
+    (target / "edges.json").write_text("{}")
+    (target / "notes.txt").write_text("not an artifact")
+    with pytest.raises(RuntimeError, match="not a loadable artifact"):
+        CurrentArtifactStore(target).publish(snapshot)
+    assert (target / "notes.txt").exists()
+
+
+def test_replacing_an_artifact_warns_about_unrelated_files_it_removes(tmp_path) -> None:
+    from data_ontology_graph.builder import build_snapshot_from_yaml
+
+    example = Path(__file__).resolve().parents[1] / "resources/schema/examples/intermediary-valid.yaml"
+    snapshot, _ = build_snapshot_from_yaml(example)
+    target = tmp_path / "current"
+    target.mkdir()
+    for name in ("nodes.json", "edges.json"):
+        (target / name).write_text("not JSON")
+    (target / "notes.txt").write_text("unrelated")
+    store = CurrentArtifactStore(target)
+    store.publish(snapshot)
+    assert not (target / "notes.txt").exists()
+    assert len(store.warnings) == 1 and store.warnings[0].endswith("not artifact files: notes.txt")
+    store.publish(snapshot)
+    assert store.warnings == []

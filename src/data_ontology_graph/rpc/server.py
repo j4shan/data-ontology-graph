@@ -9,7 +9,6 @@ import socket
 import stat
 from pathlib import Path
 from threading import Event
-from typing import Any
 
 from data_ontology_graph.home import default_artifact, default_socket
 from data_ontology_graph.rpc.protocol import (
@@ -139,7 +138,8 @@ class GraphUnixServer:
 
     async def _dispatch_one(self, payload: object) -> object:
         navigation = isinstance(payload, dict) and payload.get("method") in {
-            "graph.find_paths", "graph.expand_subgraph", "graph.find_connecting_subgraph",
+            "graph.get_edges", "graph.find_paths", "graph.expand_subgraph", "graph.find_connecting_subgraph",
+            "graph.get_entity_definitions", "graph.find_entity_relationship_paths",
         }
         if navigation:
             async with self._navigation_slots:

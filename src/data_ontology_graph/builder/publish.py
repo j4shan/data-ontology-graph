@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from data_ontology_graph.builder import build_snapshot_from_yaml
@@ -13,8 +14,10 @@ def publish_current_artifact(
     yaml_directory: Path,
     artifact_directory: Path,
 ) -> tuple[Path, ExplicitBuildReport]:
-    snapshot, report, _ = build_snapshot_from_yaml(yaml_directory)
-    published = CurrentArtifactStore(artifact_directory).publish(snapshot)
+    snapshot, report = build_snapshot_from_yaml(yaml_directory)
+    store = CurrentArtifactStore(artifact_directory)
+    published = store.publish(snapshot)
+    report.warnings.extend(store.warnings)
     return published, report
 
 
@@ -28,7 +31,11 @@ def main() -> None:
     args = parser.parse_args()
     if args.artifact_dir is None:
         ensure_service_home()
-    published, _ = publish_current_artifact(args.yaml_dir, args.artifact_dir or default_artifact())
+    published, report = publish_current_artifact(
+        args.yaml_dir, args.artifact_dir or default_artifact()
+    )
+    for warning in report.warnings:
+        print(f"warning: {warning}", file=sys.stderr)
     print(published)
 
 

@@ -1,11 +1,19 @@
-from collections.abc import Mapping, Sequence
-from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any, ClassVar
+import json
+from collections.abc import Iterable, Mapping, Sequence
+from typing import Annotated, Any, ClassVar, NamedTuple
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.enums import EntityUniverse, Unknown
+
+
+class DefinitionKey(NamedTuple):
+    """Identifies one entity definition: its dataset, logical entity ID, and columns."""
+
+    node_id: str
+    identity_id: str
+    dataset_columns: tuple[str, ...]
 
 
 class StrictModel(BaseModel):
@@ -20,87 +28,61 @@ class DatasetDescriptor(StrictModel):
     tags: list[str] = Field(default_factory=list)
 
 
-class S3AccessorProperties(StrictModel):
-    bucket: str = Field(min_length=1)
-    prefix: str
-    format: str = Field(min_length=1)
-
-
-class DatabricksUnityAccessorProperties(StrictModel):
-    workspace_host: str = Field(min_length=1)
-    catalog: str = Field(min_length=1)
-    schema_name: str = Field(alias="schema", min_length=1)
-    object: str = Field(min_length=1)
-    format: str | None = None
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-class SqlDatabaseAccessorProperties(StrictModel):
-    host: str = Field(min_length=1)
-    database: str = Field(min_length=1)
-    schema_name: str = Field(alias="schema", min_length=1)
-    object: str = Field(min_length=1)
-    dialect: str = Field(min_length=1)
-    format: str | None = None
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-class SnowflakeAccessorProperties(StrictModel):
-    account: str = Field(min_length=1)
-    database: str = Field(min_length=1)
-    schema_name: str = Field(alias="schema", min_length=1)
-    object: str = Field(min_length=1)
-    format: str | None = None
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-
-class SqliteAccessorProperties(StrictModel):
-    """Recipe for an external SQLite client to locate one table or view.
-
-    SQLite has no server: ``host`` names the machine that holds the database file, and
-    ``database_path`` is the absolute path a client on that host opens. ``schema`` and
-    ``object`` form the fully qualified name, where ``main`` is the directly opened file.
-    Credentials never belong in an accessor.
-    """
-
-    host: str = Field(min_length=1)
-    database_path: str = Field(min_length=1)
-    schema_name: str = Field(alias="schema", min_length=1)
-    object: str = Field(min_length=1)
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    @field_validator("database_path")
-    @classmethod
-    def database_path_must_be_absolute(cls, value: str) -> str:
-        if not (PurePosixPath(value).is_absolute() or PureWindowsPath(value).is_absolute()):
-            raise ValueError("database_path must be an absolute path on the accessor host")
-        return value
-
-
-ACCESSOR_PROPERTY_SCHEMAS: dict[str, type[BaseModel]] = {
-    "accessor.s3.v1": S3AccessorProperties,
-    "accessor.databricks-unity.v1": DatabricksUnityAccessorProperties,
-    "accessor.sql-database.v1": SqlDatabaseAccessorProperties,
-    "accessor.snowflake.v1": SnowflakeAccessorProperties,
-    "accessor.sqlite.v1": SqliteAccessorProperties,
-}
+ACCESSOR_SOFT_LIMIT = 256
+"""Characters of an accessor's canonical JSON above which the build warns (graph-model 2.8)."""
 
 
 class DatasetAccessor(StrictModel):
-    schema_id: str = Field(min_length=1)
-    properties: dict[str, JsonValue]
+    """A credential-free path of information to a dataset's data (`product/graph-model.md#2.6`).
 
-    @model_validator(mode="after")
-    def validate_known_schema(self) -> "DatasetAccessor":
-        schema = ACCESSOR_PROPERTY_SCHEMAS.get(self.schema_id)
-        if schema is None:
-            raise ValueError(f"unknown accessor schema_id {self.schema_id!r}")
-        schema.model_validate(self.properties)
-        return self
+    The graph never follows, resolves, or interprets an accessor. Keys and values of ``labels``
+    and ``properties`` are the contributor's choice.
+    """
+
+    kind: str = Field(
+        pattern=r"\S",
+        description="Free-text name of the kind of system the endpoint belongs to.",
+    )
+    endpoint: str = Field(
+        pattern=r"\S",
+        description=(
+            "Where the path of information starts, in any form: an address, URI, account "
+            "identifier, connector-plugin connection name, or shared document."
+        ),
+    )
+    labels: dict[Annotated[str, Field(min_length=1)], str] = Field(default_factory=dict)
+    properties: dict[str, JsonValue] | None = Field(default=None, min_length=1)
+
+    def canonical_json(self) -> str:
+        """The accessor as written, without absent optional fields, in canonical JSON."""
+        return json.dumps(
+            self.model_dump(mode="json", exclude_defaults=True),
+            ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+        )
+
+    def identity(self) -> tuple[str, str, str]:
+        """What makes two accessors the same access location; labels are not compared."""
+        return (
+            self.kind,
+            self.endpoint,
+            json.dumps(self.properties, separators=(",", ":"), sort_keys=True),
+        )
+
+
+def duplicate_accessor_messages(nodes: Iterable["DatasetNode"]) -> list[str]:
+    """One message per dataset whose accessor equals an earlier dataset's (graph-model 2.7)."""
+    owners: dict[tuple[str, str, str], str] = {}
+    messages: list[str] = []
+    for node in nodes:
+        key = node.accessor.identity()
+        if key in owners:
+            messages.append(
+                f"datasets {owners[key]!r} and {node.node_id!r} have the same accessor "
+                "kind, endpoint, and properties"
+            )
+        else:
+            owners[key] = node.node_id
+    return messages
 
 
 class ColumnMetadata(StrictModel):
@@ -186,8 +168,8 @@ class EntityDefinition(ClaimModel):
             raise ValueError("a complete entity definition conforms by definition")
         return self
 
-    def key(self, node_id: str) -> tuple[str, str, tuple[str, ...]]:
-        return (node_id, self.identity_id, tuple(self.dataset_columns))
+    def key(self, node_id: str) -> DefinitionKey:
+        return DefinitionKey(node_id, self.identity_id, tuple(self.dataset_columns))
 
     def conforming(self) -> bool | None:
         """Whether every non-null key value belongs to the population; None when unknown."""
@@ -289,5 +271,5 @@ class DatasetNode(ClaimModel):
 
     def entity_definition_map(
         self,
-    ) -> dict[tuple[str, str, tuple[str, ...]], EntityDefinition]:
+    ) -> dict[DefinitionKey, EntityDefinition]:
         return {definition.key(self.node_id): definition for definition in self.entity_definitions}

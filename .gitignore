@@ -49,6 +49,7 @@ venv/
 # never cited as a source of requirements; the spec is what carries those
 # forward.
 project_metadata/plans/
+project_metadata/working_state/
 
 # Agent tooling state and per-developer editor config. None of it is a product
 # artifact, and `.superpowers/` holds live session state — pids, logs, ports

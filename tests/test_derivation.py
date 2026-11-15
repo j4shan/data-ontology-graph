@@ -1,7 +1,10 @@
+from itertools import combinations
+
 import pytest
 from pydantic import ValidationError
 
 from data_ontology_graph.model.dataset import (
+    DefinitionKey,
     ColumnMetadata,
     DatasetAccessor,
     DatasetDescriptor,
@@ -10,9 +13,9 @@ from data_ontology_graph.model.dataset import (
 )
 from data_ontology_graph.model.derivation import (
     contained,
-    derive_relationships,
     derived_match_existence,
     derived_multiplicity,
+    MembershipIndex,
 )
 from data_ontology_graph.model.enums import MatchExistence, Multiplicity
 
@@ -36,19 +39,19 @@ def _definition(
     )
 
 
+def _index(nodes: list[DatasetNode]) -> MembershipIndex:
+    return MembershipIndex({node.node_id: node for node in nodes})
+
+
 def _node(name: str, definitions: list[EntityDefinition]) -> DatasetNode:
     columns = sorted({column for definition in definitions for column in definition.dataset_columns})
     return DatasetNode(
         node_id=f"dataset:{name}",
         descriptor=DatasetDescriptor(qualified_name=f"example.main.{name}", display_name=name),
         accessor=DatasetAccessor(
-            schema_id="accessor.sqlite.v1",
-            properties={
-                "host": "localhost",
-                "database_path": "/srv/sqlite/example.sqlite",
-                "schema": "main",
-                "object": name,
-            },
+            kind="sqlite",
+            endpoint="/srv/sqlite/example.sqlite",
+            properties={"host": "localhost", "schema": "main", "object": name},
         ),
         grain="unknown",
         columns=[ColumnMetadata(name=column) for column in columns],
@@ -121,18 +124,16 @@ def test_every_two_definitions_of_one_identity_are_related() -> None:
         _node("d", [_definition(["other"], identity_id="group")]),
     ]
 
-    relationships = derive_relationships(nodes)
+    index = _index(nodes)
 
-    by_identity = {}
-    for relationship in relationships:
-        by_identity.setdefault(relationship.endpoint_a.identity_id, []).append(relationship)
-    assert {identity: len(items) for identity, items in by_identity.items()} == {
+    related = {
+        identity: {index.pair(left, right).edge_id for left, right in combinations(keys, 2)}
+        for identity, keys in index.by_identity.items()
+    }
+    assert {identity: len(edge_ids) for identity, edge_ids in related.items()} == {
         "device": 3,
         "group": 1,
     }
-    assert [relationship.edge_id for relationship in relationships] == sorted(
-        relationship.edge_id for relationship in relationships
-    )
 
 
 def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
@@ -144,7 +145,7 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
         ],
     )
 
-    [relationship] = derive_relationships([link])
+    relationship = _index([link]).pair(*_index([link]).by_identity["device"])
 
     assert relationship.endpoint_a.node_id == relationship.endpoint_b.node_id == link.node_id
     assert relationship.endpoint_a.dataset_columns == ["device_a"]
@@ -154,4 +155,89 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
 
 
 def test_a_definition_alone_yields_no_relationship() -> None:
-    assert derive_relationships([_node("a", [_definition(unique=False)])]) == []
+    index = _index([_node("a", [_definition(unique=False)])])
+    assert len(index.by_identity["device"]) == 1
+    assert index.degree("dataset:a") == 0
+
+
+def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) -> None:
+    from data_ontology_graph.model import derivation
+
+    nodes = [_node(str(i), [_definition(unique=i == 0)]) for i in range(40)]
+
+    def unexpected_pair(**kwargs):
+        pytest.fail("membership construction must not derive relationship objects")
+
+    monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)
+    index = _index(nodes)
+    assert len(index.definitions) == 40
+    assert not hasattr(index, "endpoints")
+    assert len(index.by_identity["device"]) == 40
+    assert index.entity_definition_count == 40
+    assert index.degree(nodes[0].node_id) == 39
+
+
+def test_selected_membership_pairs_preserve_claims_ids_and_self_join_degree() -> None:
+    nodes = [
+        _node("a", [_definition(["source"], unique=False), _definition(["target"], unique=True)]),
+        _node("b", [_definition(unique=True, universe="complete")]),
+        _node("c", [_definition(identity_id="unrelated")]),
+    ]
+    index = _index(nodes)
+    assert index.entity_definition_count == 4
+    assert index.degree(nodes[0].node_id) == 4
+    assert index.degree(nodes[1].node_id) == 2
+    assert index.degree(nodes[2].node_id) == 0
+    keys = index.by_identity["device"]
+    assert isinstance(keys, list) and keys == sorted(keys)
+    assert all(isinstance(key, DefinitionKey) for key in keys)
+    assert [key.node_id for key in keys] == ["dataset:a", "dataset:a", "dataset:b"]
+    edge = index.pair(keys[2], keys[0])
+    assert edge.a_to_b.multiplicity == Multiplicity.MANY_TO_ONE
+    assert edge.a_to_b.match_existence == MatchExistence.UNKNOWN
+    assert index.relationship(edge.edge_id) == index.pair(keys[0], keys[2])
+    assert index.resolve(edge.edge_id) == (keys[0], keys[2])
+    with pytest.raises(ValueError, match="two distinct definitions"):
+        index.pair(keys[0], keys[0])
+    with pytest.raises(ValueError, match="same logical entity"):
+        index.pair(keys[0], index.by_identity["unrelated"][0])
+    with pytest.raises(KeyError):
+        index.relationship("missing")
+
+
+def test_membership_id_resolution_handles_unescaped_delimiters() -> None:
+    index = _index([
+        _node("a__b:c", [_definition(["x+y__z"], identity_id="identity:__id")]),
+        _node("d__e:f", [_definition(["r:s__t"], identity_id="identity:__id")]),
+    ])
+    left, right = index.by_identity["identity:__id"]
+    edge = index.pair(left, right)
+    assert index.resolve(edge.edge_id) == (left, right)
+    assert index.relationship(edge.edge_id) == edge
+
+
+def test_index_rejects_definitions_that_share_an_endpoint_reference() -> None:
+    # The ID format joins columns with '+', so ["x", "y"] and ["x+y"] share the reference
+    # dataset:a:device:x+y, and each pairs with b under one relationship ID.
+    with pytest.raises(ValueError, match="share the relationship endpoint reference 'dataset:a:device:x\\+y'"):
+        _index([
+            _node("a", [_definition(["x", "y"]), _definition(["x+y"])]),
+            _node("b", [_definition()]),
+        ])
+
+
+def test_two_definitions_sharing_a_reference_alone_have_one_unambiguous_relationship() -> None:
+    index = _index([_node("a", [_definition(["x", "y"]), _definition(["x+y"])])])
+    left, right = index.by_identity["device"]
+    assert index.resolve(index.edge_id(left, right)) == (left, right)
+
+
+def test_index_rejects_references_whose_delimiter_splits_into_another_pair() -> None:
+    # dataset:p:device:id__dataset:q:device:k__dataset:r:device:id reads as either
+    # (p:id, q:k__...) or (p:id__..., r:id).
+    with pytest.raises(ValueError, match="would identify two different relationships"):
+        _index([
+            _node("p", [_definition(["id"]), _definition(["id__dataset:q:device:k"])]),
+            _node("q", [_definition(["k__dataset:r:device:id"])]),
+            _node("r", [_definition(["id"])]),
+        ])

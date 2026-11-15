@@ -8,9 +8,9 @@
 
 | Alias | Dataset | Source | Grain | Role |
 | --- | --- | --- | --- | --- |
-| loan | `lending.main.loan` | accessor.sqlite.v1 | loan_id | anchor |
-| account | `lending.main.account` | accessor.sqlite.v1 | account_id | bridge |
-| region | `lending.main.region` | accessor.sqlite.v1 | region_id | grouping |
+| loan | `lending.main.loan` | sqlite `/srv/fixtures/lending.sqlite` | loan_id | anchor |
+| account | `lending.main.account` | sqlite `/srv/fixtures/lending.sqlite` | account_id | bridge |
+| region | `lending.main.region` | sqlite `/srv/fixtures/lending.sqlite` | region_id | grouping |
 
 ### Columns
 

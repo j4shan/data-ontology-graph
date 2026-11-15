@@ -7,10 +7,10 @@ two directed edges. A dataset's directed edges are grouped by the entity definit
 from, and limits apply per group, so every entity definition stays visible.
 """
 
-from collections import defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
+from data_ontology_graph.model.derivation import MembershipIndex
 from data_ontology_graph.model.relationship import (
     JoinEndpoint,
     JoinRelationship,
@@ -58,14 +58,43 @@ def directed_edge_from(relationship: JoinRelationship, source_key: tuple) -> Dir
     raise KeyError(source_key)
 
 
-def directed_edges_by_dataset(relationships: Iterable[JoinRelationship]) -> dict[str, tuple[DirectedEdge, ...]]:
-    """Every dataset's directed edges in ``DirectedEdge.sort_key`` order."""
-    listed: dict[str, list[DirectedEdge]] = defaultdict(list)
-    for relationship in relationships:
-        a, b = relationship.endpoint_a, relationship.endpoint_b
-        listed[a.node_id].append(DirectedEdge(relationship, a, b))
-        listed[b.node_id].append(DirectedEdge(relationship, b, a))
-    return {node_id: tuple(sorted(edges, key=DirectedEdge.sort_key)) for node_id, edges in listed.items()}
+class _DatasetEdges(Sequence[DirectedEdge]):
+    """A re-iterable outgoing-edge view; creating it does not derive a relationship."""
+
+    def __init__(self, memberships: MembershipIndex, node_id: str) -> None:
+        self.memberships = memberships
+        self.node_id = node_id
+
+    def __len__(self) -> int:
+        return self.memberships.degree(self.node_id)
+
+    def __iter__(self) -> Iterator[DirectedEdge]:
+        index = self.memberships
+        for source in index.definition_keys(self.node_id):
+            for target in index.by_identity[source.identity_id]:
+                if target != source:
+                    yield DirectedEdge(index.pair(source, target), index.endpoint(source), index.endpoint(target))
+
+    def __getitem__(self, position: int | slice) -> DirectedEdge | list[DirectedEdge]:
+        return list(self)[position]
+
+
+class MembershipDirectedEdges(Mapping[str, Sequence[DirectedEdge]]):
+    """Dataset adjacency backed by memberships, with no stored pairwise edge collection."""
+
+    def __init__(self, memberships: MembershipIndex) -> None:
+        self.memberships = memberships
+
+    def __len__(self) -> int:
+        return len(self.memberships.nodes)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.memberships.nodes)
+
+    def __getitem__(self, node_id: str) -> Sequence[DirectedEdge]:
+        if node_id not in self.memberships.nodes:
+            raise KeyError(node_id)
+        return _DatasetEdges(self.memberships, node_id)
 
 
 @dataclass
@@ -112,7 +141,7 @@ class Neighbourhood:
 
 
 def expand(
-    edges: dict[str, tuple[DirectedEdge, ...]],
+    edges: Mapping[str, Sequence[DirectedEdge]],
     seeds: list[str],
     depth: int,
     *,

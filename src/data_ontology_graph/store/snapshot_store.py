@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 
 from data_ontology_graph.model.dataset import DatasetNode
+from data_ontology_graph.model.entity_relationship import EntityRelationship
 from data_ontology_graph.model.relationship import JoinAnnotation
 from data_ontology_graph.model.snapshot import GraphSnapshot
 
@@ -16,23 +17,39 @@ class SnapshotStore:
 
     def load(self, directory: Path) -> GraphSnapshot:
         nodes_doc = json.loads((directory / "nodes.json").read_text(encoding="utf-8"))
-        edges_doc = json.loads((directory / "edges.json").read_text(encoding="utf-8"))
-        _require_same_envelope(nodes_doc, edges_doc, "edges.json")
+        if (directory / "edges.json").exists():
+            raise ValueError(
+                f"{directory} holds edges.json from a stored-relationship release; "
+                "republish the graph from its YAML source to load it"
+            )
         annotations_path = directory / "annotations.json"
         annotations = []
         if annotations_path.exists():
             annotations_doc = json.loads(annotations_path.read_text(encoding="utf-8"))
             _require_same_envelope(nodes_doc, annotations_doc, "annotations.json")
             annotations = [JoinAnnotation.model_validate(item) for item in annotations_doc["annotations"]]
+        relationships_path = directory / "entity_relationships.json"
+        entity_relationships = []
+        if relationships_path.exists():
+            relationships_doc = json.loads(relationships_path.read_text(encoding="utf-8"))
+            _require_same_envelope(nodes_doc, relationships_doc, "entity_relationships.json")
+            entity_relationships = [
+                EntityRelationship.model_validate(item)
+                for item in relationships_doc["entity_relationships"]
+            ]
         return GraphSnapshot.model_validate(
             {
                 "version": nodes_doc["version"],
                 "logical_identities": nodes_doc.get("logical_identities", []),
                 "nodes": nodes_doc["nodes"],
-                "edges": edges_doc["edges"],
                 "annotations": annotations,
+                "entity_relationships": entity_relationships,
             }
         )
+
+
+ARTIFACT_FILES = frozenset({"nodes.json", "annotations.json", "entity_relationships.json", "edges.json"})
+"""File names a current or stored-relationship artifact may hold."""
 
 
 class CurrentArtifactStore:
@@ -40,6 +57,8 @@ class CurrentArtifactStore:
 
     def __init__(self, directory: Path) -> None:
         self.directory = Path(directory)
+        self.warnings: list[str] = []
+        """Warnings from the last publication, such as unrelated files it replaced."""
 
     def load(self) -> GraphSnapshot:
         return SnapshotStore(self.directory.parent).load(self.directory)
@@ -50,13 +69,22 @@ class CurrentArtifactStore:
         parent.mkdir(parents=True, exist_ok=True)
         if target.exists() and not target.is_dir():
             raise RuntimeError(f"current artifact path is not a directory: {target}")
-        if target.exists():
+        self.warnings = []
+        if target.exists() and not _is_stored_relationship_artifact(target):
             try:
                 self.load()
             except Exception as error:
                 raise RuntimeError(
                     f"refusing to replace a directory that is not a loadable artifact: {target}"
                 ) from error
+
+        if target.exists():
+            unrelated = sorted(path.name for path in target.iterdir() if path.name not in ARTIFACT_FILES)
+            if unrelated:
+                self.warnings.append(
+                    f"{target}: replacing the artifact also removes files that are not artifact files: "
+                    + ", ".join(unrelated)
+                )
 
         staging = Path(tempfile.mkdtemp(prefix=f".{target.name}.candidate-", dir=parent))
         backup = parent / f".{target.name}.previous-{uuid.uuid4().hex}"
@@ -103,13 +131,6 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
         ],
         "nodes": [_serialize_node(node) for node in snapshot.nodes],
     }
-    edges_doc = {
-        **envelope,
-        "edges": [
-            edge.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
-            for edge in snapshot.edges
-        ],
-    }
     annotations_doc = {
         **envelope,
         "annotations": [
@@ -118,11 +139,25 @@ def _write_snapshot_directory(directory: Path, snapshot: GraphSnapshot) -> None:
         ],
     }
     (directory / "nodes.json").write_text(json.dumps(nodes_doc, indent=2), encoding="utf-8")
-    (directory / "edges.json").write_text(json.dumps(edges_doc, indent=2), encoding="utf-8")
     (directory / "annotations.json").write_text(
         json.dumps(annotations_doc, indent=2),
         encoding="utf-8",
     )
+    relationships_doc = {
+        **envelope,
+        "entity_relationships": [
+            relationship.model_dump(mode="json") for relationship in snapshot.entity_relationships
+        ],
+    }
+    (directory / "entity_relationships.json").write_text(
+        json.dumps(relationships_doc, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _is_stored_relationship_artifact(directory: Path) -> bool:
+    """An artifact from the stored-relationship release, which republication replaces (2.5.6)."""
+    return (directory / "nodes.json").is_file() and (directory / "edges.json").is_file()
 
 
 def _require_same_envelope(reference: dict, candidate: dict, filename: str) -> None:

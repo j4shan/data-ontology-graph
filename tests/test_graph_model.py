@@ -35,13 +35,9 @@ def _node(name: str, *, universe: EntityUniverse = EntityUniverse.PARTIAL) -> Da
             display_name=name,
         ),
         accessor=DatasetAccessor(
-            schema_id="accessor.sqlite.v1",
-            properties={
-                "host": "localhost",
-                "database_path": "/srv/sqlite/example.sqlite",
-                "schema": "main",
-                "object": name,
-            },
+            kind="sqlite",
+            endpoint="/srv/sqlite/example.sqlite",
+            properties={"host": "localhost", "schema": "main", "object": name},
         ),
         grain=DatasetGrain(
             components=[GrainComponent(identity_id="customer", dataset_columns=["id"])]
@@ -84,17 +80,6 @@ def _relationship(left: DatasetNode, right: DatasetNode) -> JoinRelationship:
             match_existence=MatchExistence.OPTIONAL,
         ),
     )
-
-
-def test_accessor_schema_dispatch_validates_provider_properties() -> None:
-    with pytest.raises(ValidationError, match="unknown accessor schema_id"):
-        DatasetAccessor(schema_id="accessor.unknown.v1", properties={})
-
-    with pytest.raises(ValidationError, match="bucket"):
-        DatasetAccessor(
-            schema_id="accessor.s3.v1",
-            properties={"prefix": "events/", "format": "parquet"},
-        )
 
 
 def test_duplicate_column_names_are_rejected() -> None:
@@ -145,19 +130,15 @@ def test_edge_identity_and_directional_cardinality() -> None:
     assert derived_cardinality(relationship, right.node_id) == Cardinality.ONE_TO_N
 
 
-def test_snapshot_requires_registered_endpoint_definitions() -> None:
+def test_snapshot_does_not_accept_stored_relationships() -> None:
     left = _node("events")
     right = _node("customers")
-    relationship = _relationship(left, right)
-    relationship.endpoint_b.node_id = "dataset:missing"
-    relationship.edge_id = edge_id_for(relationship.endpoint_a, relationship.endpoint_b)
-
-    with pytest.raises(ValidationError, match="unknown dataset"):
+    with pytest.raises(ValidationError, match="edges"):
         GraphSnapshot(
             version=snapshot_version(),
             logical_identities=[LogicalIdentity(identity_id="customer", name="Customer")],
             nodes=[left, right],
-            edges=[relationship],
+            edges=[_relationship(left, right)],
         )
 
 
@@ -217,3 +198,40 @@ def test_canonical_edge_order_swaps_directions_and_relative_unknowns() -> None:
     assert relationship.unknown_fields_from("dataset:a") == [
         "reverse_direction.match_existence"
     ]
+
+
+def _stated_snapshot(relationships: list[dict]) -> GraphSnapshot:
+    return GraphSnapshot(
+        version=snapshot_version(),
+        logical_identities=[
+            LogicalIdentity(identity_id="customer", name="Customer"),
+            LogicalIdentity(identity_id="order", name="Order"),
+        ],
+        nodes=[_node("customers")],
+        entity_relationships=relationships,
+    )
+
+
+def test_cross_entity_relationship_index_files_one_object_under_both_endpoints() -> None:
+    snapshot = _stated_snapshot([
+        {"endpoints": ["customer", "order"], "descriptions": ["A customer places orders."]},
+        {"endpoints": ["customer", "customer"], "descriptions": ["A customer refers customers."]},
+    ])
+    index = snapshot.entity_relationship_index
+    assert index.between("customer", "order") is index.between("order", "customer")
+    assert list(index.related("customer")) == ["customer", "order"]
+    assert list(index.related("order")) == ["customer"]
+    assert index.relationship_count == 2
+
+
+@pytest.mark.parametrize(
+    ("relationships", "message"),
+    [
+        ([{"endpoints": ["customer", "invoice"], "descriptions": ["x"]}], "unknown logical entities"),
+        ([{"endpoints": ["customer", "order"], "descriptions": ["x"]}] * 2, "listed more than once"),
+        ([{"endpoints": ["order", "customer"], "descriptions": ["x"]}], "ascending lexical order"),
+    ],
+)
+def test_snapshot_rejects_invalid_cross_entity_relationships(relationships, message) -> None:
+    with pytest.raises(ValidationError, match=message):
+        _stated_snapshot(relationships)

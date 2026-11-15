@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ SEARCH_KINDS: tuple[SearchKind, ...] = (
     "column",
     "dataset",
     "entity_definition",
+    "entity_relationship",
     "identity",
 )
 MATCH_ROW_HEADER = ["key", "match_type", "match_field", "matched_term", "matched_value"]
@@ -33,6 +35,7 @@ SUBJECT_ROW_HEADERS: dict[SearchKind, list[str]] = {
         "dataset_columns",
         "unknown_fields",
     ],
+    "entity_relationship": ["key", "endpoints"],
     "identity": ["key", "name"],
 }
 _MATCH_TYPES = ("exact", "prefix", "phrase", "all_words")
@@ -212,9 +215,15 @@ class LexicalSearchIndex:
             )
 
         for node in sorted(snapshot.nodes, key=lambda item: item.node_id):
+            accessor = node.accessor
             accessor_fields = [
                 (SearchField.ACCESSOR, value)
-                for value in _string_values(node.accessor.properties)
+                for value in [
+                    accessor.kind,
+                    accessor.endpoint,
+                    *_string_values(accessor.labels),
+                    *_string_values(accessor.properties),
+                ]
             ]
             add_subject(
                 "dataset",
@@ -226,7 +235,6 @@ class LexicalSearchIndex:
                     (SearchField.CANONICAL_NAME, node.descriptor.display_name),
                     (SearchField.QUALIFIED_NAME, node.descriptor.qualified_name),
                     (SearchField.DESCRIPTION, descriptive_text(node.descriptor.description)),
-                    (SearchField.ACCESSOR, node.accessor.schema_id),
                     *(
                         (SearchField.SYNONYM, synonym)
                         for synonym in node.descriptor.synonyms
@@ -292,6 +300,20 @@ class LexicalSearchIndex:
                         *((SearchField.SYNONYM, synonym) for synonym in column.synonyms),
                     ],
                 )
+
+        for relationship in snapshot.entity_relationships:
+            # A JSON array keeps the pair unambiguous: logical entity IDs may contain any character.
+            key = json.dumps(list(relationship.endpoints), ensure_ascii=False, separators=(",", ":"))
+            add_subject(
+                "entity_relationship",
+                key,
+                " ".join(relationship.endpoints),
+                [key, list(relationship.endpoints)],
+                [
+                    (SearchField.DESCRIPTION, descriptive_text(description))
+                    for description in relationship.descriptions
+                ],
+            )
 
         self._subjects = tuple(subjects)
         self._trie = _record_trie(entries)

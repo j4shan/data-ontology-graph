@@ -1,6 +1,6 @@
 # Graph service API
 
-This document describes graph API version `1`.
+This document describes graph API version `5`.
 
 The service discovers dataset metadata and explores relationships in one published graph.
 It is read-only and sessionless: the caller selects evidence and maintains its own working
@@ -51,21 +51,26 @@ marks a field that can be absent. Arbitrary JSON objects are written as `object`
 ```text
 Snapshot = {
   api_version: string, version: string,
-  node_count: integer, edge_count: integer, identity_count: integer
+  node_count: integer, entity_definition_count: integer, identity_count: integer,
+  entity_relationship_count: integer
 }
 ```
 
-`api_version` names the API contract described here. It is currently `1` and rises only on a
-breaking change to a method, parameter, response field, or meaning; additions keep it.
-`version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`) and
-identifies the published data.
+`api_version` names the API contract described here. It is the string `"5"`.
+`entity_definition_count` is the number of entity definitions in the snapshot, and
+`entity_relationship_count` the number of cross-entity relationships.
+`graph.get_entity_definitions` provides filtered discovery and replaces
+`graph.get_identity`; the old name is no longer a registered method.
+`version` is the snapshot's UTC build time to the second (`YYYY-MM-DDTHH:MM:SSZ`).
+Detailed `get_edges` and `get_entity_definitions` cursors bind to snapshot content as well as
+the displayed build time.
 
 ### Dataset and entity metadata
 
 ```text
 Dataset = {
   node_id: string, qualified_name: string,
-  accessor?: {schema_id?: string, properties?: object},
+  accessor?: {kind?: string, endpoint?: string, labels?: {string: string}, properties?: object | null},
   grain?: "unknown" | {
     components: [{dataset_columns: string[], identity_id: string | null, description: string}],
     description: string
@@ -86,14 +91,21 @@ Definition = {
 ```
 
 `get_dataset` returns every metadata field, without navigation-only `distance`, `edge_count`,
-or `edge_groups`. Lookup dataset collections from `get_identity` and `get_relationship` also
-omit `distance` and `edge_count`. Other methods select dataset fields by detail. Standalone definition
-collections add `node_id`; nested definitions take it from their dataset.
+or `edge_groups`. Dataset collections from `get_entity_definitions` and `get_relationship`
+also omit `distance`, `edge_count`, and `edge_groups`. Other methods select dataset fields by
+detail. Standalone definition collections add `node_id`; nested definitions take it from
+their dataset.
 
 - `qualified_name` identifies the deployed dataset in source terminology. `node_id` is its
   graph key. Display names need not be unique.
-- `accessor` is a credential-free location recipe. Its `schema_id` selects provider-specific
-  properties; do not assume all datasets are SQL tables.
+- `accessor` is a credential-free path of information to the dataset's data, written by the
+  contributor. `kind` names the kind of system in the contributor's words, such as `postgresql`,
+  `kafka`, or `sharepoint list`; it has no fixed vocabulary. `endpoint` is where the path starts:
+  a server address, URI, account identifier, connection name configured in a connector plugin, or
+  a shared document that holds connection details. `labels` is a map of strings, `{}` when
+  absent. `properties` holds any further facts in any JSON shape, or `null` when absent. The
+  graph does not follow, check, or interpret an accessor, and no dataset is assumed to be a SQL
+  table.
 - `grain` describes one record's boundary. Composite components together define that boundary.
 - An entity definition realizes a logical entity through its `dataset_columns` and describes
   the role of those columns. `entity_expression` contains descriptive labels, not executable
@@ -108,26 +120,15 @@ collections add `node_id`; nested definitions take it from their dataset.
 - `unknown_fields` names typed claims whose value is `unknown`. Descriptive text does not
   establish or override a typed claim.
 
-Supported accessor recipes currently include:
-
-| `schema_id` | Properties |
-| --- | --- |
-| `accessor.sqlite.v1` | `host`, absolute `database_path`, `schema`, `object`. |
-| `accessor.sql-database.v1` | `host`, `database`, `schema`, `object`, `dialect`, optional `format`. |
-| `accessor.snowflake.v1` | `account`, `database`, `schema`, `object`, optional `format`. |
-| `accessor.databricks-unity.v1` | `workspace_host`, `catalog`, `schema`, `object`, optional `format`. |
-| `accessor.s3.v1` | `bucket`, `prefix`, `format`. |
-
-These property values are strings; optional `format` may be null.
-
 ### Collections and response format
 
 `Collection<T>` is either a table `{"header": string[], "rows": any[][]}` (the default) or
 an array of records `T[]` when `response_format: "records"` is supported and requested.
 Each table row follows its header. Dotted headers are nested record paths: for example,
-`accessor.schema_id`. Decode with the returned header, not assumed positions.
+`accessor.kind`. Decode with the returned header, not assumed positions.
 
-Navigation in table format separates dataset fields, columns, definitions, and edge groups:
+Detailed navigation in table format separates dataset fields, columns, definitions, and edge
+groups. An aggregated `get_edges` response uses the separate shape documented below:
 
 ```text
 Navigation = {
@@ -185,7 +186,8 @@ reasoning, not a change to these claims.
 ## Navigation detail and fields
 
 These parameters apply to `get_edges`, `expand_subgraph`, `find_paths`, and
-`find_connecting_subgraph`:
+`find_connecting_subgraph`. For aggregated `get_edges`, they select the echoed `detail` and
+`fields` and the histogram's collection format; no dataset or edge fields are returned:
 
 | Parameter | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -197,8 +199,8 @@ Detail levels are cumulative:
 
 | Level | Dataset fields | Directed-edge fields |
 | --- | --- | --- |
-| `essential` | `node_id`, `qualified_name`, `accessor.schema_id`, `distance` where applicable, `edge_count`. | `edge`, `multiplicity`, `match_existence`, `edge_id`. |
-| `standard` | Adds `grain`, `descriptor.description`, `unknown_fields`. | Adds reverse claims and endpoint descriptions. |
+| `essential` | `node_id`, `qualified_name`, `accessor.kind`, `distance` where applicable, `edge_count`. | `edge`, `multiplicity`, `match_existence`, `edge_id`. |
+| `standard` | Adds `accessor.endpoint`, `accessor.labels`, `grain`, `descriptor.description`, `unknown_fields`. | Adds reverse claims and endpoint descriptions. |
 | `full` | Adds `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. | Adds `annotation`. |
 
 Use essential for initial exploration, standard for relationship analysis, and full when
@@ -209,7 +211,7 @@ The complete caller-added field catalog is:
 
 | Object | Allowed field names |
 | --- | --- |
-| `dataset` | `node_id`, `qualified_name`, `distance`, `edge_count`, `accessor.schema_id`, `grain`, `descriptor.description`, `unknown_fields`, `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. |
+| `dataset` | `node_id`, `qualified_name`, `distance`, `edge_count`, `accessor.kind`, `accessor.endpoint`, `accessor.labels`, `grain`, `descriptor.description`, `unknown_fields`, `descriptor.display_name`, `descriptor.synonyms`, `descriptor.tags`, `accessor.properties`, `columns`, `entity_definitions`. |
 | `edge` | `edge`, `identity_id`, `multiplicity`, `match_existence`, `reverse_multiplicity`, `reverse_match_existence`, `from_description`, `to_description`, `annotation`, `edge_id`. |
 | `entity_definition` | `identity_id`, `dataset_columns`, `entity_universe`, `unique`, `total`, `conforms`, `entity_expression`, `entity_metadata`, `description`, `effective_description`, `description_source`, `unknown_fields`. |
 
@@ -230,7 +232,7 @@ served graph's metadata.
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
 | `query` | string, required | Nonempty. |
-| `kind` | Array of `"identity"`, `"dataset"`, `"entity_definition"`, `"column"` | Omitted or null searches all kinds; otherwise nonempty. |
+| `kind` | Array of `"identity"`, `"dataset"`, `"entity_definition"`, `"entity_relationship"`, `"column"` | Omitted or null searches all kinds; otherwise nonempty. |
 | `limit` | integer | 50; range 1–1000, applied per kind. |
 
 Returns:
@@ -251,16 +253,22 @@ Join a group's subject and match rows on `key`. Subject headers by kind are:
 | `column` | `key`, `node_id`, `column_name`. |
 | `dataset` | `key`, `qualified_name`, `unknown_fields`. |
 | `entity_definition` | `key`, `entity_expression`, `node_id`, `identity_id`, `dataset_columns`, `unknown_fields`. |
+| `entity_relationship` | `key`, `endpoints`. |
 | `identity` | `key`, `name`. |
+
+Groups appear in the order `column`, `dataset`, `entity_definition`, `entity_relationship`,
+`identity`. A cross-entity relationship matches by its descriptions, and its `key` is its
+endpoint pair encoded as a JSON array, such as `["calendar_day_identity","order_identity"]`.
 
 The match header is `key`, `match_type`, `match_field`, `matched_term`, `matched_value`.
 Each matching field value has one match row. Dataset and identity keys are their canonical IDs;
 other subject keys identify search rows and should not be substituted for dataset IDs.
 
 Search normalizes Unicode, case, camel-case boundaries, punctuation, and whitespace. It
-indexes names, IDs, descriptions, synonyms, dataset tags/accessors, column metadata, and
-entity-definition metadata. Whole-value description placeholders such as `N/A` and `TBD`
-are not indexed; returned descriptions remain unchanged.
+indexes names, IDs, descriptions, synonyms, dataset tags, accessor fields (`kind`, `endpoint`,
+and the keys and values of `labels` and `properties`), column metadata, and entity-definition
+metadata. Whole-value description placeholders such as `N/A` and `TBD` are not indexed;
+returned descriptions remain unchanged.
 
 Match types, strongest first, are `exact`, `prefix`, `phrase`, and `all_words`. Exact and prefix
 compare normalized stored terms (whole values and individual words). Phrase and all-words
@@ -275,20 +283,92 @@ The top-level `truncated` is true when any group's limit omitted eligible subjec
 Parameters: required nonempty string `node_id`. Returns one full `Dataset` record. It does
 not accept `detail`, `fields`, or `response_format`.
 
-### `graph.get_identity`
+### `graph.get_entity_definitions`
+
+Find datasets containing a primary logical entity, optionally alongside up to four more
+logical entities. This is dataset-level co-occurrence: a matching dataset is a candidate
+bridge, but the result does not establish row-level value co-occurrence or business meaning.
+Use the returned definitions and relationship evidence to assess an analytical question.
 
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
-| `identity_id` | string, required | Canonical logical entity ID. |
-| `entity_universe` | Array of `"complete"`, `"partial"`, `"unknown"` | Omitted or null leaves coverage unfiltered; otherwise nonempty. |
-| `limit` | integer | 100; range 1–1000, counts entity definitions. |
+| `identity_id` | string, required | Canonical primary logical entity ID. |
+| `entity_universe` | Array of `"complete"`, `"partial"`, `"unknown"` | Omitted or null leaves primary definitions unfiltered; otherwise nonempty. Duplicates are removed and values sorted. |
+| `target_identity_ids` | string array | `[]`; at most four distinct IDs. Every selected dataset must contain a definition of each target. IDs must be nonempty; duplicates are removed and IDs sorted. |
+| `view` | `"auto"`, `"aggregated"`, or `"detailed"` | `"auto"`. |
+| `dataset_threshold` | integer | 200; range 1–10000. Applies to distinct filtered datasets. |
+| `limit` | integer | 100; range 1–1000 datasets per detailed page. |
 | `response_format` | `"table"` or `"records"` | `"table"`. |
+| `cursor` | opaque string | Omitted or null starts a selection; if supplied, nonempty and at most 4096 characters. Cannot be used with `view: "aggregated"`. |
 
-Returns `{identity_id: string, name: string, description: string, synonyms: string[],
-entity_definitions: Collection<Definition with node_id>, datasets: Collection<Dataset>,
-truncated: boolean}`. Definitions include all their metadata and sort by `node_id`, then
-`dataset_columns`. Coverage filtering happens before the limit. Datasets use standard detail
-and appear once per selected dataset. `truncated` means eligible definitions were omitted.
+The primary `identity_id` is separate from the targets. `entity_universe` filters only its
+definitions, before matching datasets and calculating counts. A dataset qualifies when it has
+at least one qualifying primary definition and at least one definition of every target. Target
+definitions are not filtered by `entity_universe`. Listing the primary again as a target does
+not restore primary roles excluded by that filter; it still counts toward the four-target
+limit. An unknown primary or target ID returns resource-not-found (`-32004`); invalid filters
+return invalid parameters (`-32602`). Known filters with no matching datasets return zero
+counts and empty collections.
+
+Both response shapes include the resolved selection:
+
+```text
+EntityDefinitionsSelection = {
+  snapshot: Snapshot, identity_id: string, name: string,
+  description: string, synonyms: string[],
+  entity_universe: string[] | null, target_identity_ids: string[],
+  limit: integer, dataset_threshold: integer,
+  dataset_count: integer, primary_definition_count: integer,
+  view: "aggregated" | "detailed"
+}
+```
+
+`dataset_count` is the exact number of matching distinct datasets.
+`primary_definition_count` counts all qualifying primary roles on those datasets, before
+detailed paging. Returned filters are canonical: universes and target IDs are sorted and
+deduplicated. `view: "auto"` selects `aggregated` only when `dataset_count` exceeds
+`dataset_threshold`; equality selects `detailed`. Explicit views override this choice. A
+cursor continues detail even if `view` is `auto` and the count exceeds the threshold. Read the
+returned `view` before interpreting its collections.
+
+An aggregated response adds:
+
+```text
+{
+  histogram: Collection<{
+    identity_id: string, name: string,
+    entity_definition_count: integer, dataset_count: integer
+  }>,
+  logical_entity_count: integer, truncated: boolean
+}
+```
+
+The histogram scans every definition on every matching dataset, except the primary entity.
+It includes selected non-primary targets and counts separate roles of one entity separately in
+`entity_definition_count`; histogram `dataset_count` counts distinct matching datasets
+containing that entity. Rows sort by descending definition count, then ascending
+`identity_id`. Only the first 20 rows appear. `logical_entity_count` counts all eligible
+non-primary entities, and `truncated` means more than 20 groups exist. This response has no
+`datasets`, `entity_definitions`, or `next_cursor`.
+
+A detailed response adds `datasets: Collection<Dataset>`,
+`entity_definitions: Collection<Definition with node_id>`, `truncated: boolean`, and
+`next_cursor: string | null`. Pages contain whole datasets, sorted by `node_id`, with up to
+`limit` datasets per page. Each page includes its qualifying primary definitions and every
+definition of the selected targets on those datasets. Definitions sort by `node_id`, then
+`identity_id`, then `dataset_columns`, and include full metadata, effective descriptions,
+and unknown fields. Datasets use standard lookup metadata without navigation-only
+`distance`, `edge_count`, or nested edge groups. Detailed pages do not include a histogram.
+Here `truncated` means the page omits some matching datasets, including datasets on earlier
+pages; it can remain true on the last page. Only `next_cursor: null` marks completion.
+
+To continue, repeat the original primary and target filters, `entity_universe`, `limit`,
+`dataset_threshold`, and `response_format` with the returned cursor. The stateless cursor
+binds to those values, the method, API version, and snapshot content. Equivalent target and
+universe orderings or duplicates are canonicalized. `view` may be `auto` or `detailed` on
+continuation; `aggregated` with a cursor is invalid. Do not decode or modify cursors.
+Malformed, stale, mismatched, or out-of-range cursors return `-32602`. This method does not
+accept navigation `detail` or `fields`.
 
 ### `graph.get_relationship`
 
@@ -320,27 +400,160 @@ is the directed view leaving that endpoint at standard positions, and `edge_fiel
 them. Without it those fields are null. Endpoint datasets use standard detail; the separate
 definitions include full metadata. This method does not accept navigation detail or fields.
 
+### `graph.get_entity_relationships`
+
+A cross-entity relationship states in descriptive text how two registered logical entities
+relate in the business, independently of any dataset. Its endpoints are an unordered pair of
+logical entity IDs, possibly the same logical entity twice, and it holds one description per way
+the two relate, such as "An order is placed on one calendar day." and "An order is shipped on
+one calendar day once it ships." It has no multiplicity, match existence, or dataset fields, and
+it never changes a relationship between entity definitions or any typed claim.
+
+| Parameter | Type | Default and constraints |
+| --- | --- | --- |
+| `identity_id` | string, required | A registered logical entity; unknown is resource not found. |
+| `limit` | integer | 200; range 1–1000 per page. |
+| `cursor` | string | Omitted or null starts at the first page; bound to the snapshot and request. |
+
+Returns:
+
+```text
+{
+  snapshot: Snapshot, identity_id: string, name: string, limit: integer,
+  relationship_count: integer,
+  entity_relationships: [{identity_id: string, name: string, descriptions: string[]}],
+  truncated: boolean, next_cursor: string | null
+}
+```
+
+Each item names the other logical entity of one cross-entity relationship, ordered by its ID,
+with that relationship's descriptions. A relationship of a logical entity with itself appears
+once. `relationship_count` counts every cross-entity relationship at the logical entity;
+`truncated` reports whether this page omits some, and `next_cursor` is null on the last page.
+An empty list means no cross-entity relationship is stated for that logical entity; it does not
+mean the data cannot relate it to others.
+
+### `graph.find_entity_relationship_paths`
+
+| Parameter | Type | Default and constraints |
+| --- | --- | --- |
+| `from_identity_id` | string, required | Starting logical entity. |
+| `to_identity_id` | string, required | Target logical entity; must differ from `from_identity_id`. |
+| `max_steps` | integer | 4; range 1–10. |
+| `k` | integer | 6; range 1–100 paths. |
+
+Returns:
+
+```text
+{
+  snapshot: Snapshot, from_identity_id: string, to_identity_id: string,
+  max_steps: integer, k: integer, path_count: integer,
+  paths: [[{from_identity_id: string, to_identity_id: string, descriptions: string[]}]],
+  truncated: boolean
+}
+```
+
+Each path is a travel-ordered array of steps over cross-entity relationships; a step names its
+two logical entities in the path's direction and carries the descriptions of their cross-entity
+relationship. Paths never repeat a logical entity and rank by step count, then by the sequence of
+logical entity IDs. `path_count` counts returned paths, and `truncated` indicates a further path
+or an interrupted search. Equal endpoints are invalid params; an unknown logical entity is
+resource not found. Zero paths means no stated path exists within `max_steps`.
+
+The response describes stated knowledge only. Where the data realizes a step is found through
+`graph.get_entity_definitions` with the other logical entity as a target, and through
+relationships between datasets. A step with no realizing dataset is valid stated knowledge that
+the data does not hold.
+
 ## Traversal methods
 
-Each method accepts the shared navigation parameters above. All return `Navigation` plus
-the method-specific fields below. Edges are explicit; returning two datasets does not imply
-selecting every relationship between them.
+Each method accepts the shared navigation parameters above. `get_edges` can return either its
+aggregated shape or `Navigation` with the selection fields below. The other methods return
+`Navigation` plus their method-specific fields. Edges are explicit; returning two datasets does
+not imply selecting every relationship between them.
 
 ### `graph.get_edges`
 
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
 | `node_id` | string, required | Starting dataset. |
-| `limit` | integer | 200; range 1–1000 per entity definition. |
-| `identity_id` | string | Omitted or null leaves logical entities unfiltered. |
-| `from_dataset_columns` | Nonempty string array | Requires `identity_id`; selects one starting definition. |
+| `limit` | integer | 200; range 1–1000, applied independently to each source definition on each detailed page. |
+| `identity_id` | string | Omitted or null leaves source logical entities unfiltered. |
+| `from_dataset_columns` | Nonempty string array | Requires `identity_id`; selects one source definition. |
+| `target_identity_ids` | string array | `[]`; connected datasets must contain at least one definition of every listed entity. Duplicate IDs are removed and the list is sorted. |
+| `view` | `"auto"`, `"aggregated"`, or `"detailed"` | `"auto"`. |
+| `fan_out_threshold` | integer | 200; range 1–10000. |
+| `cursor` | opaque string | Omitted or null starts a new selection; if supplied, nonempty and at most 4096 characters. Cannot be used with `view: "aggregated"`. |
 
-Adds `{node_id: string, limit: integer}` to `Navigation`. Lists outgoing edges grouped by
-logical entity and starting definition. A filter matching no definition is invalid parameters.
-The start has distance 0, including targets of self-relationships; other listed targets are
-boundary datasets at distance 1. Group
-`edge_count` counts eligible outgoing edges before its limit, and `truncated` reports cuts.
-Top-level `truncated` means at least one definition's edge list was cut. There is no paging.
+`identity_id` and `from_dataset_columns` select the source definitions that establish the
+connections. `target_identity_ids` then retains connected datasets containing every requested
+logical entity. Target entities need not occur on the source or in a previously returned
+histogram. All filters apply before counts, aggregation, view selection, and detailed paging.
+An unknown target identity returns resource-not-found (`-32004`); a known target with no
+matching connected dataset produces an empty result. A source filter matching no source
+definition is invalid parameters (`-32602`).
+
+Fan-out is the number of distinct connected datasets other than the source dataset, even when
+several source definitions connect to the same dataset. With `view: "auto"`, `get_edges` returns
+`aggregated` only when `fan_out_count` is greater than `fan_out_threshold`; equality returns
+`detailed`. Explicit `view` selects that view regardless of the count. A cursor always continues
+the detailed view, including when `view` is `auto` and fan-out exceeds the threshold.
+
+Both response shapes include these resolved selection fields:
+
+```text
+EdgesSelection = {
+  snapshot: Snapshot, node_id: string, limit: integer,
+  identity_id: string | null, from_dataset_columns: string[] | null,
+  target_identity_ids: string[], fan_out_count: integer,
+  fan_out_threshold: integer, view: "aggregated" | "detailed"
+}
+```
+
+The returned target IDs are sorted and unique. The actual `view` identifies which response
+shape to read. An aggregated response has this shape in addition to `EdgesSelection`:
+
+```text
+AggregatedEdgesResponse = {
+  detail: "essential" | "standard" | "full", fields: {object_name: string[]},
+  histogram: Collection<{
+    identity_id: string, name: string,
+    entity_definition_count: integer, dataset_count: integer
+  }>,
+  logical_entity_count: integer, truncated: boolean
+}
+```
+
+The histogram covers all distinct selected connected datasets before detailed pagination. It
+excludes the source dataset and counts every entity definition on a connected dataset, including
+separate roles of the same entity. `dataset_count` counts distinct connected datasets containing
+the entity. Rows sort by descending `entity_definition_count`, then ascending `identity_id`.
+Only the first 20 rows appear. `logical_entity_count` counts all groups before that cutoff;
+aggregated `truncated` is true only when more than 20 groups exist. The histogram is a discovery
+summary, not relationship evidence. This response has no `datasets`, `edge_fields`, or
+`next_cursor`.
+
+A detailed response adds `Navigation` and `next_cursor: string | null` to `EdgesSelection`.
+It lists outgoing directed edges by logical entity and source definition. Each page includes up
+to `limit` eligible edges independently for each source definition, in the existing target
+order. A group's `edge_count` counts all its eligible matches, even when the current page lists
+none. Group `truncated` is true when any eligible match is omitted from that page, including
+matches on earlier pages. Top-level detailed `truncated` is true when any group is truncated,
+so it can remain true on the last page. Only `next_cursor: null` means enumeration is complete.
+Groups already exhausted can remain with their full count and an empty edge list.
+
+The source dataset has distance 0; other targets listed on the page have distance 1. Eligible
+same-dataset relationships remain in detail when the source satisfies the target filters, but
+they do not increase fan-out or contribute to the histogram. Detailed edges retain their
+source-definition grouping and endpoint claims. Only relationships on the current page are
+derived.
+
+To continue, send the returned opaque `next_cursor` with the original `node_id`, source and
+target filters, `limit`, `fan_out_threshold`, `detail`, `fields`, and `response_format`. The
+cursor is stateless and bound to the snapshot's content, API version, and those request values;
+the service keeps no cursor session. `view` may switch between `auto` and `detailed` across
+pages. Do not decode or modify the cursor. A malformed, stale, mismatched, or out-of-range
+cursor returns invalid parameters (`-32602`).
 
 ### `graph.expand_subgraph`
 
@@ -403,10 +616,39 @@ Find datasets and inspect their full metadata:
 ```
 
 Use those params with `graph.search`, then call `graph.get_dataset` with a returned `node_id`.
-For edges, retain standard claims while adding selected dataset metadata:
+To find datasets that define a primary entity and also contain a selected target, start with
+an aggregate summary:
 
 ```json
-{"node_id":"sqlite:lending.loan","detail":"standard","response_format":"records","fields":{"dataset":["columns","accessor.properties"]}}
+{"identity_id":"ACCOUNT_ID","target_identity_ids":["REGION_ID"],"view":"aggregated"}
+```
+
+Use those params with `graph.get_entity_definitions`. For full definitions, call it again
+with `view: "detailed"` and, if `next_cursor` is non-null, repeat that detailed request with
+the cursor until `next_cursor` is null. Keep the same filters, `limit`,
+`dataset_threshold`, and `response_format` across pages.
+
+For edges, inspect `view` in the response. Automatic aggregation is useful when the source has
+many connected datasets:
+
+```json
+{"node_id":"sqlite:lending.loan","view":"auto","fan_out_threshold":200}
+```
+
+To inspect concrete relationships on connected datasets containing both selected logical
+entities, keep the same source scope and request detail:
+
+```json
+{"node_id":"sqlite:lending.loan","target_identity_ids":["ACCOUNT_ID","REGION_ID"],"view":"detailed","limit":200,"response_format":"records"}
+```
+
+If that response has a non-null `next_cursor`, repeat the same parameters with the returned
+cursor, until `next_cursor` is null. The ID strings above are illustrative; use registered
+logical entity IDs from the served graph. To retain standard claims while adding selected
+dataset metadata in a detailed response:
+
+```json
+{"node_id":"sqlite:lending.loan","view":"detailed","detail":"standard","response_format":"records","fields":{"dataset":["columns","accessor.properties"]}}
 ```
 
 For paths restricted to outgoing non-fan-out multiplicities:

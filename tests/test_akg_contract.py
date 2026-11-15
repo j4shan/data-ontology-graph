@@ -122,7 +122,7 @@ def test_a_dataset_appears_once() -> None:
 
 
 def _service() -> ServiceSource:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
+    snapshot, _ = build_snapshot_from_yaml(LENDING / "catalog.yaml")
     return ServiceSource(dispatcher_call(JsonRpcDispatcher(GraphReadService(snapshot))))
 
 
@@ -159,7 +159,7 @@ def test_unknown_dataset_column_and_changed_field_are_reported() -> None:
     payload = _payload("akg-data-gap.json")
     payload["datasets"].append({
         "node_id": "sqlite:lending.branch", "qualified_name": "lending.main.branch",
-        "accessor": {"schema_id": "accessor.sqlite.v1"},
+        "accessor": {"kind": "sqlite", "endpoint": "/srv/fixtures/lending.sqlite"},
     })
     loan = payload["datasets"][0]
     loan["columns"].append({"name": "principal"})

@@ -16,6 +16,7 @@ from data_ontology_graph.builder.intermediary import (
 )
 from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity
 from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
+from graph_records import first_relationship, relationship_between
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,7 +39,7 @@ def _manifest_directory(tmp_path: Path, *, split_nodes: bool = True) -> tuple[Pa
     _write_yaml(
         yaml_directory / "identities.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": payload["logical_identities"],
         },
     )
@@ -46,21 +47,21 @@ def _manifest_directory(tmp_path: Path, *, split_nodes: bool = True) -> tuple[Pa
     if split_nodes:
         _write_yaml(
             yaml_directory / node_paths[0],
-            {"schema_version": "4", "nodes": [payload["nodes"][1]]},
+            {"schema_version": "5", "nodes": [payload["nodes"][1]]},
         )
         _write_yaml(
             yaml_directory / node_paths[1],
-            {"schema_version": "4", "nodes": [payload["nodes"][0]]},
+            {"schema_version": "5", "nodes": [payload["nodes"][0]]},
         )
     else:
         _write_yaml(
             yaml_directory / node_paths[0],
-            {"schema_version": "4", "nodes": payload["nodes"]},
+            {"schema_version": "5", "nodes": payload["nodes"]},
         )
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": "identities.yaml",
             "nodes": node_paths,
         },
@@ -150,18 +151,18 @@ def test_manifest_directory_is_assembled_deterministically(tmp_path: Path) -> No
     yaml_directory, payload = _manifest_directory(tmp_path)
 
     definition = load_intermediary_directory(yaml_directory)
-    snapshot, report, _ = build_snapshot_from_yaml(yaml_directory)
+    snapshot, report = build_snapshot_from_yaml(yaml_directory)
 
     assert [node.node_id for node in definition.nodes] == sorted(
         node["node_id"] for node in payload["nodes"]
     )
     assert report.node_count == len(payload["nodes"])
-    assert report.edge_count == len(snapshot.edges) == 1
+    assert report.entity_definition_count == 2
 
 
 def test_standalone_single_file_catalog_remains_supported() -> None:
     assert validate_intermediary_yaml(VALID_EXAMPLE).valid is True
-    assert load_intermediary_yaml(VALID_EXAMPLE).schema_version == "4"
+    assert load_intermediary_yaml(VALID_EXAMPLE).schema_version == "5"
 
 
 def test_directory_requires_valid_sibling_manifest(tmp_path: Path) -> None:
@@ -193,7 +194,7 @@ def test_manifest_requires_version_four_and_all_collection_owners(tmp_path: Path
 
 def test_directory_rejects_unlisted_and_unsupported_files(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
-    _write_yaml(yaml_directory / "surprise.yaml", {"schema_version": "4", "nodes": []})
+    _write_yaml(yaml_directory / "surprise.yaml", {"schema_version": "5", "nodes": []})
     (yaml_directory / "notes.json").write_text("{}", encoding="utf-8")
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -216,7 +217,7 @@ def test_manifest_rejects_duplicate_and_cross_collection_paths(tmp_path: Path) -
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": "identities.yaml",
             "nodes": ["nodes.yaml", "nodes.yaml"],
         },
@@ -229,7 +230,7 @@ def test_manifest_rejects_duplicate_and_cross_collection_paths(tmp_path: Path) -
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": "shared.yaml",
             "nodes": ["shared.yaml"],
         },
@@ -244,7 +245,7 @@ def test_manifest_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": str((tmp_path / "outside.yaml").resolve()),
             "nodes": ["../outside.yaml"],
         },
@@ -258,7 +259,7 @@ def test_manifest_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
 def test_manifest_rejects_symlink_escape(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
     outside = tmp_path / "outside.yaml"
-    _write_yaml(outside, {"schema_version": "4", "logical_identities": {}})
+    _write_yaml(outside, {"schema_version": "5", "logical_identities": {}})
     (yaml_directory / "escape.yaml").symlink_to(outside)
     manifest = yaml.safe_load(
         (tmp_path / "directory-manifest.yaml").read_text(encoding="utf-8")
@@ -274,14 +275,14 @@ def test_collection_file_rejects_mixed_or_wrong_ownership(tmp_path: Path) -> Non
     _write_yaml(
         yaml_directory / "identities.yaml",
         {
-            "schema_version": "4",
+            "schema_version": "5",
             "logical_identities": payload["logical_identities"],
             "nodes": payload["nodes"],
         },
     )
     _write_yaml(
         yaml_directory / "nodes-a.yaml",
-        {"schema_version": "4", "logical_identities": payload["logical_identities"]},
+        {"schema_version": "5", "logical_identities": payload["logical_identities"]},
     )
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -292,7 +293,7 @@ def test_collection_file_rejects_mixed_or_wrong_ownership(tmp_path: Path) -> Non
 def test_collection_file_rejects_malformed_yaml(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
     (yaml_directory / "nodes-a.yaml").write_text(
-        "schema_version: '4'\nnodes: [\n",
+        "schema_version: '5'\nnodes: [\n",
         encoding="utf-8",
     )
 
@@ -316,7 +317,7 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
     yaml_directory, payload = _manifest_directory(tmp_path)
     _write_yaml(
         yaml_directory / "nodes-b.yaml",
-        {"schema_version": "4", "nodes": [payload["nodes"][0]]},
+        {"schema_version": "5", "nodes": [payload["nodes"][0]]},
     )
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -326,15 +327,14 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
 
 def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     definition = load_intermediary_yaml(LENDING)
-    snapshot, report, contradictions = build_snapshot_from_yaml(LENDING)
+    snapshot, report = build_snapshot_from_yaml(LENDING)
 
     assert len(definition.nodes) == 5
     assert sum(len(node.columns) for node in definition.nodes) == 17
     assert all(column.description for node in definition.nodes for column in node.columns)
     assert len(definition.logical_identities) == 5
-    # account: 3 definitions, 3 pairs; customer: 2 definitions, 1 pair; region: 3, 3 pairs.
-    assert report.edge_count == len(snapshot.edges) == 7
-    assert contradictions == []
+    # Ten entity definitions across the five logical entities.
+    assert report.entity_definition_count == 10
 
     nodes = {node.descriptor.display_name: node for node in snapshot.nodes}
     loan_columns = nodes["loan"].column_map()
@@ -342,22 +342,12 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
     assert loan_columns["term"].value_description == "unit: month"
     assert "monthly statements" in account_columns["statement_cycle"].value_description
 
-    account_to_region = next(
-        edge
-        for edge in snapshot.edges
-        if {edge.endpoint_a.node_id, edge.endpoint_b.node_id}
-        == {"sqlite:lending.account", "sqlite:lending.region"}
-    )
+    account_to_region = relationship_between(snapshot, "sqlite:lending.account", "sqlite:lending.region")
     direction = account_to_region.direction_from("sqlite:lending.account")
     assert direction.multiplicity == Multiplicity.MANY_TO_ONE
     assert direction.match_existence == MatchExistence.UNKNOWN
 
-    holder_to_loan = next(
-        edge
-        for edge in snapshot.edges
-        if {edge.endpoint_a.node_id, edge.endpoint_b.node_id}
-        == {"sqlite:lending.account_holder", "sqlite:lending.loan"}
-    )
+    holder_to_loan = relationship_between(snapshot, "sqlite:lending.account_holder", "sqlite:lending.loan")
     direction = holder_to_loan.direction_from("sqlite:lending.account_holder")
     assert direction.multiplicity == Multiplicity.MANY_TO_MANY
     assert direction.match_existence == MatchExistence.OPTIONAL
@@ -367,20 +357,19 @@ def test_catalog_fixture_relates_every_two_definitions_of_an_identity() -> None:
 
 
 def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+    snapshot, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
     store = CurrentArtifactStore(tmp_path / "current")
     location = store.publish(snapshot)
     loaded = store.load()
 
     assert loaded.model_dump(mode="json") == snapshot.model_dump(mode="json")
     persisted_nodes = (location / "nodes.json").read_text(encoding="utf-8")
-    persisted_edges = (location / "edges.json").read_text(encoding="utf-8")
+    assert not (location / "edges.json").exists()
+    assert "edges" not in snapshot.model_dump()
     assert "foreign_key_declarations" not in persisted_nodes
     assert "logical_entity_key" not in persisted_nodes
     assert "table_name" not in persisted_nodes
     assert "data_source" not in persisted_nodes
-    assert '"participation"' not in persisted_edges
-    assert '"precedence"' not in persisted_edges
     definition = loaded.nodes[0].entity_definitions[0]
     assert definition.dataset_columns == ["c1", "c2", "c3"]
     assert definition.entity_expression == ["[c1, xxhash64(c2, c3)]"]
@@ -388,26 +377,120 @@ def test_snapshot_round_trip_preserves_yaml_identity_model(tmp_path: Path) -> No
     assert definition.entity_universe == EntityUniverse.PARTIAL
     assert loaded.nodes[0].grain is not None
     assert len(loaded.nodes[0].grain.components) == 1
-    edge_payload = loaded.edges[0].model_dump(mode="json")
+    edge_payload = first_relationship(loaded).model_dump(mode="json")
     assert "entity_expression" not in yaml.safe_dump(edge_payload)
     assert "expression_context" not in yaml.safe_dump(edge_payload)
 
 
-def test_build_report_lists_unknown_claims_including_derived_ones() -> None:
-    _, report, _ = build_snapshot_from_yaml(VALID_EXAMPLE)
+def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
+    _, report = build_snapshot_from_yaml(VALID_EXAMPLE)
 
-    edge = "edges[dataset_a:customer_identity:c1+c2+c3__dataset_b:customer_identity:d1+d2]"
     assert report.unknown_fields == [
         "nodes[dataset_a].entity_definitions[customer_identity:c1+c2+c3].total",
         "nodes[dataset_b].grain",
-        f"{edge}.a_to_b.match_existence",
     ]
 
 
 def test_unreviewed_universe_status_is_reported_as_unknown() -> None:
-    _, report, _ = build_snapshot_from_yaml(LENDING)
+    _, report = build_snapshot_from_yaml(LENDING)
     universe_gaps = [
         location for location in report.unknown_fields if location.endswith(".entity_universe")
     ]
     assert len(universe_gaps) == 2
     assert not any("lending.region].entity_definitions" in item for item in universe_gaps)
+
+
+STATED = ROOT / "tests" / "fixtures" / "stated_relationships" / "catalog.yaml"
+
+
+def _stated_payload() -> dict:
+    return yaml.safe_load(STATED.read_text(encoding="utf-8"))
+
+
+def _stated_findings(tmp_path: Path, relationships: list) -> list[str]:
+    payload = _stated_payload()
+    payload["entity_relationships"] = relationships
+    path = tmp_path / "catalog.yaml"
+    _write_yaml(path, payload)
+    return [finding.message for finding in validate_intermediary_yaml(path).findings]
+
+
+def test_cross_entity_relationships_build_in_ascending_pair_order() -> None:
+    snapshot, report = build_snapshot_from_yaml(STATED)
+    pairs = [relationship.endpoints for relationship in snapshot.entity_relationships]
+    assert pairs == sorted(pairs)
+    assert report.entity_relationship_count == 6
+    assert snapshot.entity_relationship_index.between("calendar_day_identity", "order_identity").descriptions == [
+        "An order is placed on one calendar day.",
+        "An order is shipped on one calendar day once it ships.",
+    ]
+
+
+def test_cross_entity_relationships_are_optional() -> None:
+    snapshot, report = build_snapshot_from_yaml(LENDING)
+    assert report.entity_relationship_count == 0
+    assert snapshot.entity_relationship_index.adjacency == {}
+
+
+def test_cross_entity_relationship_rules_reject_each_invalid_case(tmp_path: Path) -> None:
+    def single(endpoints, descriptions=("A order is placed on one calendar day.",)):
+        return [{"endpoints": list(endpoints), "descriptions": list(descriptions)}]
+
+    cases = {
+        "unknown logical entities ['missing_identity']": single(["calendar_day_identity", "missing_identity"]),
+        "ascending lexical order": single(["order_identity", "calendar_day_identity"]),
+        "must not be blank": single(["calendar_day_identity", "order_identity"], [" "]),
+        "distinct within one cross-entity relationship": single(
+            ["calendar_day_identity", "order_identity"], ["Same.", "Same."]
+        ),
+        "at least 1 item": single(["calendar_day_identity", "order_identity"], []),
+        "is listed more than once": single(["calendar_day_identity", "order_identity"]) * 2,
+    }
+    for expected, relationships in cases.items():
+        messages = _stated_findings(tmp_path, relationships)
+        assert any(expected in message for message in messages), (expected, messages)
+
+
+def test_cross_entity_relationships_load_from_their_manifest_collection(tmp_path: Path) -> None:
+    yaml_directory, _ = _manifest_directory(tmp_path)
+    _write_yaml(
+        yaml_directory / "relationships.yaml",
+        {
+            "schema_version": "5",
+            "entity_relationships": [
+                {
+                    "endpoints": ["customer_identity", "customer_identity"],
+                    "descriptions": ["A customer may refer another customer."],
+                }
+            ],
+        },
+    )
+    manifest_path = tmp_path / "directory-manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["entity_relationships"] = "relationships.yaml"
+    _write_yaml(manifest_path, manifest)
+    definition = load_intermediary_directory(yaml_directory)
+    assert [relationship.endpoints for relationship in definition.entity_relationships] == [
+        ("customer_identity", "customer_identity")
+    ]
+
+
+def test_cross_entity_relationship_collection_must_be_a_listed_list(tmp_path: Path) -> None:
+    yaml_directory, _ = _manifest_directory(tmp_path)
+    _write_yaml(
+        yaml_directory / "relationships.yaml",
+        {"schema_version": "5", "entity_relationships": {"not": "a list"}},
+    )
+    assert "unlisted_file" in _rules(yaml_directory)
+    manifest_path = tmp_path / "directory-manifest.yaml"
+    manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest["entity_relationships"] = "relationships.yaml"
+    _write_yaml(manifest_path, manifest)
+    assert "list_type" in _rules(yaml_directory)
+
+
+def test_valid_example_shows_a_cross_entity_relationship() -> None:
+    definition = load_intermediary_yaml(VALID_EXAMPLE)
+    assert [relationship.endpoints for relationship in definition.entity_relationships] == [
+        ("customer_identity", "customer_identity")
+    ]

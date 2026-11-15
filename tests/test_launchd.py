@@ -48,7 +48,7 @@ def home(tmp_path: Path, monkeypatch) -> Path:
 
 
 def _publish(artifact: Path) -> None:
-    snapshot, _, _ = build_snapshot_from_yaml(LENDING)
+    snapshot, _ = build_snapshot_from_yaml(LENDING)
     CurrentArtifactStore(artifact).publish(snapshot)
 
 

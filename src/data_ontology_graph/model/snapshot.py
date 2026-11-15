@@ -1,13 +1,16 @@
 from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
-from data_ontology_graph.model.dataset import DatasetNode
-from data_ontology_graph.model.intermediary import LogicalIdentity
-from data_ontology_graph.model.relationship import (
-    JoinAnnotation,
-    JoinRelationship,
+from data_ontology_graph.model.dataset import DatasetNode, duplicate_accessor_messages
+from data_ontology_graph.model.derivation import MembershipIndex
+from data_ontology_graph.model.entity_relationship import (
+    EntityRelationship,
+    EntityRelationshipIndex,
+    duplicate_pair_messages,
 )
+from data_ontology_graph.model.intermediary import LogicalIdentity
+from data_ontology_graph.model.relationship import JoinAnnotation
 
 
 
@@ -21,26 +24,23 @@ class GraphSnapshot(BaseModel):
     )
     logical_identities: list[LogicalIdentity] = Field(default_factory=list)
     nodes: list[DatasetNode]
-    edges: list[JoinRelationship]
     annotations: list[JoinAnnotation] = Field(default_factory=list)
+    entity_relationships: list[EntityRelationship] = Field(default_factory=list)
+    _nodes_by_id: dict[str, DatasetNode] = PrivateAttr()
+    _memberships: MembershipIndex = PrivateAttr()
+    _entity_relationships: EntityRelationshipIndex = PrivateAttr()
 
     @model_validator(mode="after")
     def validate_graph(self) -> "GraphSnapshot":
         ids = [node.node_id for node in self.nodes]
         if len(ids) != len(set(ids)):
             raise ValueError("node_id values must be unique")
-        edge_ids = [edge.edge_id for edge in self.edges]
-        if len(edge_ids) != len(set(edge_ids)):
-            raise ValueError("edge_id values must be unique")
-        nodes = {node.node_id: node for node in self.nodes}
+        duplicates = duplicate_accessor_messages(self.nodes)
+        if duplicates:
+            raise ValueError("; ".join(duplicates))
         identity_ids = [identity.identity_id for identity in self.logical_identities]
         if len(identity_ids) != len(set(identity_ids)):
             raise ValueError("logical entity ID (identity_id) values must be unique")
-        definitions = {
-            key
-            for node in self.nodes
-            for key in node.entity_definition_map()
-        }
         known_identities = set(identity_ids)
         for node in self.nodes:
             for definition in node.entity_definitions:
@@ -49,33 +49,43 @@ class GraphSnapshot(BaseModel):
                         f"node {node.node_id} references unknown logical entity "
                         f"{definition.identity_id}"
                     )
-        for edge in self.edges:
-            for endpoint in (edge.endpoint_a, edge.endpoint_b):
-                if endpoint.node_id not in nodes:
-                    raise ValueError(
-                        f"edge {edge.edge_id} references unknown dataset {endpoint.node_id}"
-                    )
-            if edge.endpoint_a.identity_id or edge.endpoint_b.identity_id:
-                if edge.endpoint_a.identity_key() not in definitions:
-                    raise ValueError(
-                        f"edge {edge.edge_id} endpoint_a does not resolve to an entity definition"
-                    )
-                if edge.endpoint_b.identity_key() not in definitions:
-                    raise ValueError(
-                        f"edge {edge.edge_id} endpoint_b does not resolve to an entity definition"
-                    )
-                if edge.endpoint_a.identity_id != edge.endpoint_b.identity_id:
-                    raise ValueError(
-                        f"edge {edge.edge_id} endpoints use different logical entities"
-                    )
-        known_edges = set(edge_ids)
+        for relationship in self.entity_relationships:
+            unknown = sorted(set(relationship.endpoints) - known_identities)
+            if unknown:
+                raise ValueError(
+                    f"cross-entity relationship {list(relationship.endpoints)} references unknown "
+                    f"logical entities {unknown}"
+                )
+        duplicates = duplicate_pair_messages(self.entity_relationships)
+        if duplicates:
+            raise ValueError("; ".join(duplicates))
+        self._entity_relationships = EntityRelationshipIndex(self.entity_relationships)
+        self._nodes_by_id = {node.node_id: node for node in sorted(self.nodes, key=lambda item: item.node_id)}
+        self._memberships = MembershipIndex(self._nodes_by_id)
+        annotated = set()
         for annotation in self.annotations:
-            if annotation.edge_id not in known_edges:
+            if annotation.edge_id in annotated:
+                raise ValueError("annotation edge_id values must be unique")
+            annotated.add(annotation.edge_id)
+            try:
+                self._memberships.resolve(annotation.edge_id)
+            except KeyError:
                 raise ValueError(f"annotation references unknown edge {annotation.edge_id}")
         return self
 
-    def node_map(self) -> dict[str, DatasetNode]:
-        return {node.node_id: node for node in self.nodes}
+    @property
+    def memberships(self) -> MembershipIndex:
+        return self._memberships
+
+    @property
+    def entity_relationship_index(self) -> EntityRelationshipIndex:
+        """Cross-entity relationship adjacency, built once at load (system design 3.4.4)."""
+        return self._entity_relationships
+
+    @property
+    def nodes_by_id(self) -> dict[str, DatasetNode]:
+        """Dataset nodes by ``node_id``, built once at load."""
+        return self._nodes_by_id
 
     def annotation_map(self) -> dict[str, JoinAnnotation]:
         return {annotation.edge_id: annotation for annotation in self.annotations}

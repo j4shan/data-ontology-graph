@@ -42,7 +42,11 @@ class GraphInfo(OpenModel):
 
 
 class Accessor(OpenModel):
-    schema_id: str = Field(min_length=1)
+    """The dataset's path of information, as the graph service returned it."""
+
+    kind: str = Field(min_length=1)
+    endpoint: str = Field(min_length=1)
+    labels: dict[str, str] | None = None
     properties: dict[str, JsonValue] | None = None
 
 

@@ -40,23 +40,44 @@ lockfile. `--extra dev` also installs `pytest`; without it, tests will not run.
 
 The initial target build path reads a finalized YAML directory through its sibling
 `directory-manifest.yaml`, assembles the logical entity and node collections deterministically,
-validates the result before ingestion, and derives one relationship for every two entity
-definitions of the same logical entity. Multiplicity and match existence come from each
-definition's `unique`, `total`, `conforms`, and `entity_universe` properties. The governed JSON
-Schemas are under [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
+and validates the result before ingestion. The logical-entity registry and each dataset's entity
+definitions establish logical-entity membership: a definition identifies the dataset columns
+that realize a registered logical entity. Definitions of the same logical entity can form a
+relationship, including two definitions on one dataset. The graph groups definitions by logical
+entity and derives a requested pair's canonical edge ID from its endpoints. Multiplicity, match
+existence, and unknown claims follow from the definitions' `unique`, `total`, `conforms`, and
+`entity_universe` properties. Sparse annotations accompany selected relationships. Build and
+compact-artifact load do not enumerate every possible pair. The governed JSON Schemas are under
+[`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
 governs the manifest and `intermediary.schema.json` governs the assembled document. Graph tests
-use the synthetic, single-file schema version `"4"` [lending fixture](tests/fixtures/lending/catalog.yaml).
-It describes no real data source.
+use the synthetic, single-file schema version `"5"` [lending fixture](tests/fixtures/lending/catalog.yaml)
+and the [open-accessor fixture](tests/fixtures/open_accessor/catalog.yaml), which records datasets
+in several storage providers. Neither describes a real data source.
+
+Each dataset's `accessor` is a credential-free path of information to its data, written in the
+contributor's own words. `kind` (required) names the kind of system, such as `postgresql` or
+`kafka`, with no fixed vocabulary. `endpoint` (required) is where the path starts, in any form: a
+server address, URI, account identifier, connector-plugin connection name, or a shared document
+with connection details. `labels` (a map of strings) and `properties` (any JSON object) are
+optional. The product ships no provider schemas; access requirements stay in connector plugins.
+Credentials and secrets are not allowed in an accessor. The build rejects two datasets whose
+`kind`, `endpoint`, and `properties` are equal. An accessor longer than 256 characters in
+canonical JSON produces a build-report warning, which the publish command prints, and is still
+accepted. See [graph-model.md](project_metadata/product/graph-model.md) clauses 2.3 and 2.6–2.10.
 Test data sources, reviewed reference catalogs, generated catalogs, published graph artifacts,
 and AKG evaluation live in the sibling [Critic](../data-ontology-agent-critic/) project.
 
 ```python
 from data_ontology_graph.builder import build_snapshot_from_yaml
 
-snapshot, report, findings = build_snapshot_from_yaml(
+snapshot, report = build_snapshot_from_yaml(
     "path/to/catalog/yaml"
 )
 ```
+
+The build report counts datasets and entity definitions and locates unknown input claims without
+listing an unknown entry for every implicit relationship. A requested relationship reports its
+own derived unknown claims. The graph offers no list of all relationships.
 
 A directory catalog has this layout:
 
@@ -69,18 +90,21 @@ catalog/
     └── orders.yaml
 ```
 
-The manifest uses schema version `"4"` and names every collection file relative to `yaml/`:
+The manifest uses schema version `"5"` and names every collection file relative to `yaml/`:
 
 ```yaml
-schema_version: "4"
+schema_version: "5"
 logical_identities: identities.yaml
+entity_relationships: entity_relationships.yaml  # optional
 nodes:
   - customers.yaml
   - orders.yaml
 ```
 
-Each listed file also declares schema version `"4"` and contains exactly its named collection.
-The logical entity collection has one owner file. One or more node files partition the
+Each listed file also declares schema version `"5"` and contains exactly its named collection.
+The logical entity collection has one owner file, and so does the optional cross-entity
+relationship collection. Each cross-entity relationship names two logical entity IDs in
+ascending order as `endpoints` and lists one description per way they relate. One or more node files partition the
 single assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
 YAML directory, mixed collection ownership, and conflicting schema versions block construction.
 A finalized YAML directory may contain only `.yaml` and `.yml` files.
@@ -116,6 +140,15 @@ data-ontology-graph-publish --yaml-dir path/to/finalized-yaml-directory
 data-ontology-graph-launchd setup
 ```
 
+New artifacts contain `nodes.json` for the registry and dataset definitions,
+`annotations.json` for sparse relationship annotations, and `entity_relationships.json` for
+cross-entity relationships between logical entities. They do not contain `edges.json`:
+relationships are derived from membership when requested. An artifact that still holds
+`edges.json` is refused at load; republish it by running the same publish command against its
+finalized YAML directory. Publication replaces the current artifact atomically; it warns about
+any file in the replaced directory that is not an artifact file, which the replacement removes. Reload the
+service after publishing.
+
 The service runs only on demand. Nothing starts it at login, because the job's property list sits
 in the service home rather than in `~/Library/LaunchAgents`. Start and stop it as needed; while it
 is started, `launchd` restarts it after an unexpected failure, and logging out stops it:
@@ -135,14 +168,36 @@ carries a request ID; fire-and-forget notifications are not supported:
 data-ontology-graph-client graph.search --params '{"query":"customer"}'
 ```
 
-The service supports snapshot information, lexical search, logical entity and dataset lookup,
+The service supports snapshot information, lexical search, entity-definition discovery and dataset lookup,
 relationship detail, a dataset's directed edges, breadth-first subgraph expansion, ranked shortest paths,
-and an approximate connecting subgraph for two to sixteen datasets. It does
+an approximate connecting subgraph for two to sixteen datasets, and the cross-entity
+relationships at a logical entity with ranked stated paths between two logical entities. It does
 not generate or validate SQL. For development, `data-ontology-graph-server` runs the service in
 the foreground with the same defaults.
+Membership-backed indexes serve these methods without constructing all pairs at startup. The
+graph API is version `5`. `graph.get_entity_definitions` replaces `graph.get_identity` and
+discovers datasets containing a primary logical entity. An optional `entity_universe` filters
+the primary definitions; up to four distinct `target_identity_ids` can require additional
+entities on every selected dataset. The result reports exact matching dataset and primary
+definition counts. With `view: "auto"`, more than `dataset_threshold` matching datasets
+(default 200) produces an aggregated top-20 histogram of other logical entities; otherwise
+detail pages list whole datasets and their selected definitions. Use `next_cursor: null` to
+recognize the end of detail, even if `truncated` remains true. Dataset-level co-occurrence
+identifies candidate bridges, not row-level value co-occurrence or business meaning.
+`graph.get_edges` returns a detailed view or, when more than 200
+distinct other datasets are connected, an aggregated view by default. Its `view` parameter can
+request either view explicitly. An aggregated result reports exact fan-out and a top-20 histogram
+of logical entities on connected datasets; it contains no relationship edges. Use
+`target_identity_ids` to retain connected datasets containing every selected entity, then request
+the detailed view and follow `next_cursor` until it is null. Keep the same source filters while
+refining targets: `identity_id` and `from_dataset_columns` choose how the seed connects, whereas
+`target_identity_ids` choose which connected datasets remain. Other navigation methods retain
+their contracts and can still produce tenant shortcuts. The YAML schema is unchanged.
 `graph.snapshot_info` reports the graph API `api_version` and the snapshot `version`, which
-identifies the published data by its UTC build time. Republish the current artifact from the
-YAML intermediary with `data-ontology-graph-publish` after a software upgrade.
+records the UTC build time. Detailed `get_edges` and `get_entity_definitions` cursors also bind
+to the snapshot content.
+After a software upgrade, republish from the YAML intermediary with
+`data-ontology-graph-publish` so the service loads a current artifact.
 
 ## AKG contract and the query-graph-api skill
 
@@ -157,6 +212,7 @@ python3 skills/query-graph-api/scripts/service.py start
 GRAPH_WORK=$(mktemp -d)
 GRAPH_CONTEXT="$GRAPH_WORK/question.json"
 python3 skills/query-graph-api/scripts/query.py snapshot_info --context "$GRAPH_CONTEXT" --question 'How many loans are there per region?'
+python3 skills/query-graph-api/scripts/query.py get_entity_definitions '{"identity_id":"ACCOUNT_ID"}' --context "$GRAPH_CONTEXT"
 python3 skills/query-graph-api/scripts/query.py get_edges '{"node_id":"sqlite:lending.loan"}' --context "$GRAPH_CONTEXT" --entity 'Account'
 # After the agent writes the AKG to "$GRAPH_WORK/akg.json":
 cd "$GRAPH_WORK"
