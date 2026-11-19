@@ -12,6 +12,7 @@ from typing import Any
 from data_ontology_graph.model import ids
 from data_ontology_graph.model.claims import ClaimModel
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey, EntityDefinition, effective_description
+from data_ontology_graph.model.entity_relationship import EntityRelationship
 from data_ontology_graph.model.intermediary import LogicalIdentity
 from data_ontology_graph.model.enums import EntityUniverse
 from data_ontology_graph.model.relationship import JoinRelationship
@@ -422,6 +423,7 @@ class GraphReadService:
                     identity_id=other,
                     name=self.index.identities[other].name,
                     descriptions=list(relationship.descriptions),
+                    **_claims_from(relationship, request.identity_id),
                 )
                 for other, relationship in page
             ],
@@ -447,6 +449,7 @@ class GraphReadService:
                     from_identity_id=left,
                     to_identity_id=right,
                     descriptions=list(index.between(left, right).descriptions),
+                    **_claims_from(index.between(left, right), left),
                 )
                 for left, right in zip(path, path[1:])
             ]
@@ -754,3 +757,8 @@ def _definition_payload(
         "description_source": effective[1] if effective else None,
     }
 
+
+def _claims_from(relationship: EntityRelationship, identity_id: str) -> dict[str, object]:
+    """Cross-entity relationship claims read from ``identity_id`` (system design 2.1.5)."""
+    claims = relationship.read_from(identity_id)
+    return {**claims._asdict(), "unknown_fields": claims.unknown_fields()}

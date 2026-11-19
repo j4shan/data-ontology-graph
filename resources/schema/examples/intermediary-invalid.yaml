@@ -1,4 +1,4 @@
-schema_version: "5"
+schema_version: "1"
 logical_identities:
   customer_identity:
     name: Customer identity

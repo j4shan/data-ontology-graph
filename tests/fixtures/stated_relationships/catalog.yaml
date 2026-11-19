@@ -1,8 +1,8 @@
 # Synthetic `stated_relationships` catalog for graph unit tests. Every identifier here belongs
 # to this catalog only; it describes no real data source. It holds cross-entity relationships
-# (product/graph-model.md 3.9-3.13): a pair with two descriptions, a self pair, a chain from
+# (product/graph-model.md 3.9-3.15): a pair with two descriptions, a self pair, a chain from
 # campaign to conversion, and a pair that no dataset realizes.
-schema_version: '5'
+schema_version: '1'
 logical_identities:
   calendar_day_identity:
     name: Calendar day
@@ -22,23 +22,35 @@ logical_identities:
     name: Order
 entity_relationships:
 - endpoints: [calendar_day_identity, order_identity]
+  multiplicity: many:many
+  match_existence: [optional, always]
   descriptions:
   - An order is placed on one calendar day.
   - An order is shipped on one calendar day once it ships.
 - endpoints: [campaign_identity, impression_identity]
+  multiplicity: 1:many
+  match_existence: [optional, always]
   descriptions:
   - A campaign owns the impressions it serves.
 - endpoints: [click_identity, impression_identity]
+  multiplicity: many:1
+  match_existence: [always, optional]
   descriptions:
   - An impression conditionally causes a click. A click is recorded only when the viewer clicks
     the served impression.
 - endpoints: [click_identity, hashed_id_identity]
+  multiplicity: many:1
+  match_existence: [always, optional]
   descriptions:
   - A click is identified by the hashed ID of the viewer who clicked.
 - endpoints: [conversion_identity, hashed_id_identity]
+  multiplicity: many:1
+  match_existence: [always, optional]
   descriptions:
   - An online store conversion is identified by the hashed ID of the buyer.
 - endpoints: [employee_identity, employee_identity]
+  multiplicity: many:1
+  match_existence: [unknown, optional]
   descriptions:
   - An employee reports to one manager, who is also an employee.
 nodes:

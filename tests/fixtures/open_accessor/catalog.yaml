@@ -1,7 +1,7 @@
 # Synthetic `open_accessor` catalog for graph unit tests. Every identifier here belongs to
 # this catalog only; it describes no real data source. Each dataset's accessor is a path of
 # information written in the contributor's own words (product/graph-model.md 2.6).
-schema_version: '5'
+schema_version: '1'
 logical_identities:
   customer_identity:
     name: Customer identity

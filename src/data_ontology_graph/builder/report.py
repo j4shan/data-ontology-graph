@@ -26,6 +26,9 @@ def unknown_field_locations(definition: IntermediaryDefinition) -> list[str]:
         for entity in node.entity_definitions:
             key = _json([entity.identity_id, entity.dataset_columns])
             locations.extend(_locations(entity, f"{node_location}.entity_definitions[{key}]"))
+    for relationship in definition.runtime_entity_relationships():
+        location = f"entity_relationships[{_json(list(relationship.endpoints))}]"
+        locations.extend(_locations(relationship, location))
     return locations
 
 

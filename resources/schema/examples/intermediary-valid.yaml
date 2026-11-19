@@ -1,10 +1,12 @@
-schema_version: "5"
+schema_version: "1"
 logical_identities:
   customer_identity:
     name: Customer identity
     description: Unknown
 entity_relationships:
   - endpoints: [customer_identity, customer_identity]
+    multiplicity: unknown
+    match_existence: [optional, optional]
     descriptions:
       - A customer may refer another customer.
 nodes:

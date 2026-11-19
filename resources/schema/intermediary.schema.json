@@ -173,10 +173,31 @@
           ],
           "title": "Endpoints",
           "type": "array"
+        },
+        "match_existence": {
+          "description": "Match existence for each endpoint, in endpoint order: whether every instance of that logical entity relates to at least one instance of the other.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "$ref": "#/$defs/MatchExistence"
+            },
+            {
+              "$ref": "#/$defs/MatchExistence"
+            }
+          ],
+          "title": "Match Existence",
+          "type": "array"
+        },
+        "multiplicity": {
+          "$ref": "#/$defs/Multiplicity",
+          "description": "Multiplicity for the pair, read from the first endpoint to the second; the reverse direction has the mirrored value. For a self pair the first endpoint is the subject of the descriptions."
         }
       },
       "required": [
         "endpoints",
+        "multiplicity",
+        "match_existence",
         "descriptions"
       ],
       "title": "EntityRelationship",
@@ -391,6 +412,26 @@
       "title": "LogicalIdentityDefinition",
       "type": "object"
     },
+    "MatchExistence": {
+      "enum": [
+        "always",
+        "optional",
+        "unknown"
+      ],
+      "title": "MatchExistence",
+      "type": "string"
+    },
+    "Multiplicity": {
+      "enum": [
+        "1:1",
+        "1:many",
+        "many:1",
+        "many:many",
+        "unknown"
+      ],
+      "title": "Multiplicity",
+      "type": "string"
+    },
     "Unknown": {
       "description": "Explicit unknown for a structured claim, such as a grain, that has no enum of its own.",
       "enum": [
@@ -427,7 +468,7 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "5",
+      "const": "1",
       "title": "Schema Version",
       "type": "string"
     }
