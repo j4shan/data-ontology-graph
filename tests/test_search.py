@@ -323,8 +323,8 @@ def test_search_keys_stay_distinct_when_logical_entity_ids_contain_delimiters() 
         logical_identities=[*snapshot.logical_identities, *identities],
         nodes=snapshot.nodes,
         entity_relationships=[
-            {"endpoints": ["a", "b|c"], "descriptions": ["alpha link"]},
-            {"endpoints": ["a|b", "c"], "descriptions": ["alpha other"]},
+            {"endpoints": ["a", "b|c"], "multiplicity": "unknown", "match_existence": ["unknown", "unknown"], "descriptions": ["alpha link"]},
+            {"endpoints": ["a|b", "c"], "multiplicity": "unknown", "match_existence": ["unknown", "unknown"], "descriptions": ["alpha other"]},
         ],
     )
     (group,) = GraphReadService(colliding).search(SearchRequest(query="alpha", kind=["entity_relationship"])).groups

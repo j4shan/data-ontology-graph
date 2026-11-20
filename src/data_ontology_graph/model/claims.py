@@ -27,5 +27,5 @@ class ClaimModel(BaseModel):
     def claim_value(self, path: str) -> object:
         value: object = self
         for part in path.split("."):
-            value = getattr(value, part)
+            value = value[int(part)] if part.isdigit() else getattr(value, part)
         return value

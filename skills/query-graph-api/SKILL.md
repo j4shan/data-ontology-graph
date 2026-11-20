@@ -116,17 +116,18 @@ page, so use `next_cursor` to decide when enumeration is complete. Each call is 
 `get_edges` source or target filters.
 
 Cross-entity relationships are stated knowledge about how two logical entities relate in the
-business, such as "An impression conditionally causes a click." `get_entity_relationships`
-lists them at one logical entity, and `find_entity_relationship_paths` returns ranked stated
-paths between two logical entities, each step carrying its descriptions. A stated path is one
-way to plan a route before looking at datasets: each step can be resolved to datasets through
-`get_entity_definitions` with the other logical entity as a target, and through the
-relationships between those datasets. A cross-entity relationship carries no multiplicity or
-match existence; those claims come from the realizing entity definitions and relationships, and
-the definitions' effective descriptions distinguish roles such as a placement date and a ship
-date. A step with no realizing dataset is stated knowledge the data does not hold. When no stated
-path exists, dataset-level discovery remains available, and a stated path never filters
-dataset-level results.
+business, such as "An impression conditionally causes a click." `get_entity_relationships` lists
+them at one logical entity, and `find_entity_relationship_paths` returns ranked stated paths
+between two logical entities, each step carrying its descriptions and its stated multiplicity
+and match existence in the direction of travel. A stated path is one way to plan a route before
+looking at datasets: each step can be resolved to datasets through `get_entity_definitions` with
+the other logical entity as a target, and through the relationships between those datasets. The
+stated claims describe the business pair; the realizing relationships between entity definitions
+carry their own derived claims, which may differ; each keeps its own value. The definitions'
+effective descriptions distinguish roles such as a placement date and a ship date. A step with
+no realizing dataset is stated knowledge the data does not hold. When no stated path exists,
+dataset-level discovery remains available, and a stated path never filters dataset-level
+results.
 
 Keep two temporary files and refer to both when generating the AKG.
 

@@ -11,6 +11,14 @@ class Multiplicity(str, Enum):
     MANY_TO_MANY = "many:many"
     UNKNOWN = UNKNOWN_TOKEN
 
+    def mirrored(self) -> "Multiplicity":
+        """The same multiplicity read in the opposite direction."""
+        if self is Multiplicity.ONE_TO_MANY:
+            return Multiplicity.MANY_TO_ONE
+        if self is Multiplicity.MANY_TO_ONE:
+            return Multiplicity.ONE_TO_MANY
+        return self
+
 
 class MatchExistence(str, Enum):
     ALWAYS = "always"

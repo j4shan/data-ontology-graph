@@ -176,7 +176,7 @@ def same_dataset_service(tmp_path: Path) -> GraphReadService:
     device = lambda columns, **claims: {
         "identity_id": "device", "dataset_columns": columns, **claims}
     payload = {
-        "schema_version": "5",
+        "schema_version": "1",
         "logical_identities": {"device": {"name": "Device"}},
         "nodes": [
             {"node_id": "net.device", "descriptor": {"qualified_name": "net.main.device",

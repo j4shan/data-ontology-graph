@@ -92,7 +92,9 @@ def test_logical_entities_with_no_stated_path_return_no_paths(stated_service) ->
 
 def _index(pairs: list[tuple[str, str]]) -> EntityRelationshipIndex:
     return EntityRelationshipIndex(
-        EntityRelationship(endpoints=tuple(sorted(pair)), descriptions=[f"{pair[0]} relates to {pair[1]}."])
+        EntityRelationship(
+            endpoints=tuple(sorted(pair)), multiplicity="unknown", match_existence=("unknown", "unknown"),
+            descriptions=[f"{pair[0]} relates to {pair[1]}."])
         for pair in pairs
     )
 
@@ -138,4 +140,60 @@ def test_methods_are_served_over_json_rpc(stated_service) -> None:
             "An impression conditionally causes a click. A click is recorded only when the viewer clicks the "
             "served impression."
         ],
+        "multiplicity": "many:1",
+        "match_existence": "always",
+        "reverse_match_existence": "optional",
+        "unknown_fields": [],
     }
+
+
+def test_claims_read_from_each_endpoint() -> None:
+    relationship = EntityRelationship(
+        endpoints=("click_identity", "impression_identity"), multiplicity="many:1",
+        match_existence=("always", "optional"), descriptions=["An impression conditionally causes a click."],
+    )
+    assert tuple(relationship.read_from("click_identity")) == ("many:1", "always", "optional")
+    assert tuple(relationship.read_from("impression_identity")) == ("1:many", "optional", "always")
+    with pytest.raises(ValueError):
+        relationship.read_from("campaign_identity")
+
+
+def test_self_pair_claims_read_as_stated() -> None:
+    relationship = EntityRelationship(
+        endpoints=("employee_identity", "employee_identity"), multiplicity="many:1",
+        match_existence=("unknown", "optional"),
+        descriptions=["An employee reports to one manager, who is also an employee."],
+    )
+    claims = relationship.read_from("employee_identity")
+    assert tuple(claims) == ("many:1", "unknown", "optional")
+    assert claims.unknown_fields() == ["match_existence"]
+    assert relationship.unknown_fields() == ["match_existence.0"]
+
+
+def test_listed_claims_are_read_from_the_requested_logical_entity(stated_service) -> None:
+    def item(identity_id: str, other: str):
+        response = stated_service.get_entity_relationships(EntityRelationshipsRequest(identity_id=identity_id))
+        return next(entry for entry in response.entity_relationships if entry.identity_id == other)
+
+    from_impression = item("impression_identity", "click_identity")
+    assert (from_impression.multiplicity, from_impression.match_existence,
+            from_impression.reverse_match_existence) == ("1:many", "optional", "always")
+    from_click = item("click_identity", "impression_identity")
+    assert (from_click.multiplicity, from_click.match_existence,
+            from_click.reverse_match_existence) == ("many:1", "always", "optional")
+    self_pair = item("employee_identity", "employee_identity")
+    assert self_pair.unknown_fields == ["match_existence"]
+
+
+def test_path_steps_read_claims_in_the_direction_of_travel(stated_service) -> None:
+    response = stated_service.find_entity_relationship_paths(
+        EntityRelationshipPathsRequest(from_identity_id="campaign_identity", to_identity_id="click_identity"),
+    )
+    first, second = response.paths[0]
+    assert (first.from_identity_id, first.to_identity_id, first.multiplicity) == (
+        "campaign_identity", "impression_identity", "1:many",
+    )
+    assert (second.from_identity_id, second.to_identity_id, second.multiplicity,
+            second.match_existence, second.reverse_match_existence) == (
+        "impression_identity", "click_identity", "1:many", "optional", "always",
+    )

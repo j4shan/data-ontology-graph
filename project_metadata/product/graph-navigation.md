@@ -58,12 +58,15 @@ defined in product/graph-model.md.
   An optional multiplicity filter applies in the traversal direction; unknown
   multiplicity passes a restrictive filter only when explicitly allowed.
 - List the cross-entity relationships at a logical entity, with each related logical
-  entity and the descriptions that state how they relate. Include a relationship
-  count and bounded continuation so an agent can inspect the full list.
+  entity, the descriptions that state how they relate, and the cross-entity
+  relationship's multiplicity and match existence read from the requested logical
+  entity. Include a cross-entity relationship count and bounded continuation so an
+  agent can inspect the full list.
 - Find bounded, ranked paths of cross-entity relationships between two distinct
   logical entities. Paths contain no repeated logical entity and rank by step count,
-  then by the sequence of logical entity IDs. Each step retains the descriptions
-  of its cross-entity relationship; report when further paths exist.
+  then by the sequence of logical entity IDs. Each step retains the descriptions and
+  claims of its cross-entity relationship, with multiplicity and match existence
+  read in the direction of travel; report when further paths exist.
 - Retrieve one approximate connecting subgraph for at least two distinct selected
   datasets, including intermediate datasets where needed. The server-configured
   input maximum defaults to 16. The result is not a guaranteed minimum and does not

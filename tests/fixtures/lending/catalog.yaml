@@ -1,6 +1,6 @@
 # Synthetic `lending` catalog for graph unit tests. Every identifier here belongs to
 # this catalog only; it describes no real data source.
-schema_version: '5'
+schema_version: '1'
 logical_identities:
   account_identity:
     name: Account identity

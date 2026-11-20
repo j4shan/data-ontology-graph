@@ -52,7 +52,7 @@ existence, and unknown claims follow from the definitions' `unique`, `total`, `c
 compact-artifact load do not enumerate every possible pair. The governed JSON Schemas are under
 [`resources/schema/`](resources/schema/): `intermediary-directory.schema.json`
 governs the manifest and `intermediary.schema.json` governs the assembled document. Graph tests
-use the synthetic, single-file schema version `"5"` [lending fixture](tests/fixtures/lending/catalog.yaml)
+use the synthetic, single-file schema version `"1"` [lending fixture](tests/fixtures/lending/catalog.yaml)
 and the [open-accessor fixture](tests/fixtures/open_accessor/catalog.yaml), which records datasets
 in several storage providers. Neither describes a real data source.
 
@@ -92,10 +92,10 @@ catalog/
     └── orders.yaml
 ```
 
-The manifest uses schema version `"5"` and names every collection file relative to `yaml/`:
+The manifest uses schema version `"1"` and names every collection file relative to `yaml/`:
 
 ```yaml
-schema_version: "5"
+schema_version: "1"
 logical_identities: identities.yaml
 entity_relationships: entity_relationships.yaml  # optional
 nodes:
@@ -103,11 +103,13 @@ nodes:
   - orders.yaml
 ```
 
-Each listed file also declares schema version `"5"` and contains exactly its named collection.
+Each listed file also declares schema version `"1"` and contains exactly its named collection.
 The logical entity collection has one owner file, and so does the optional cross-entity
 relationship collection. Each cross-entity relationship names two logical entity IDs in
-ascending order as `endpoints` and lists one description per way they relate. One or more node files partition the
-single assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
+ascending order as `endpoints`, states a `multiplicity` read from the first endpoint to the
+second and a two-value `match_existence` in endpoint order (`unknown` is written explicitly),
+and lists one description per way they relate. One or more node files partition the single
+assembled `nodes` list. Unlisted files, missing files, duplicate paths, paths outside the
 YAML directory, mixed collection ownership, and conflicting schema versions block construction.
 A finalized YAML directory may contain only `.yaml` and `.yml` files.
 

@@ -2,7 +2,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer, model_validator
 
-from data_ontology_graph.model.enums import EntityUniverse, Multiplicity, Unknown
+from data_ontology_graph.model.enums import EntityUniverse, MatchExistence, Multiplicity, Unknown
 from data_ontology_graph.service.tables import ResponseFormat, Table
 from data_ontology_graph.service.views import Detail, FieldObject
 
@@ -186,12 +186,19 @@ class EntityRelationshipPathsRequest(ContractModel):
 
 
 class RelatedLogicalEntity(ContractModel):
-    """The other logical entity of a cross-entity relationship and its descriptions."""
+    """The other logical entity of a cross-entity relationship, its descriptions, and its claims.
+
+    Claims are read from the requested logical entity to the other (system design 2.3.12).
+    """
 
     id: str
     identity_id: str
     name: str
     descriptions: list[str]
+    multiplicity: Multiplicity
+    match_existence: MatchExistence
+    reverse_match_existence: MatchExistence
+    unknown_fields: list[str]
 
 
 class EntityRelationshipsResponse(ContractModel):
@@ -206,11 +213,15 @@ class EntityRelationshipsResponse(ContractModel):
 
 
 class EntityRelationshipStep(ContractModel):
-    """One step of a stated path, read in the path's direction."""
+    """One step of a stated path; its claims are read from ``from_identity_id`` (system design 2.3.13)."""
 
     from_identity_id: str
     to_identity_id: str
     descriptions: list[str]
+    multiplicity: Multiplicity
+    match_existence: MatchExistence
+    reverse_match_existence: MatchExistence
+    unknown_fields: list[str]
 
 
 class EntityRelationshipPathsResponse(ContractModel):

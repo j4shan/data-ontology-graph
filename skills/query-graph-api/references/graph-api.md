@@ -420,8 +420,12 @@ A cross-entity relationship states in descriptive text how two registered logica
 relate in the business, independently of any dataset. Its endpoints are an unordered pair of
 logical entity IDs, possibly the same logical entity twice, and it holds one description per way
 the two relate, such as "An order is placed on one calendar day." and "An order is shipped on
-one calendar day once it ships." It has no multiplicity, match existence, or dataset fields, and
-it never changes a relationship between entity definitions or any typed claim.
+one calendar day once it ships." It also states one `multiplicity` for the pair, read from its
+first endpoint to its second, and one `match_existence` per endpoint: whether every instance of
+that logical entity relates to at least one instance of the other. Both cover all descriptions
+together; `unknown` is an explicit value. It has no dataset fields. Its claims are stated by the
+contributor, never derived from entity definitions, and it never changes a relationship between
+entity definitions or its claims.
 
 | Parameter | Type | Default and constraints |
 | --- | --- | --- |
@@ -435,15 +439,23 @@ Returns:
 {
   snapshot: Snapshot, identity_id: string, name: string, limit: integer,
   relationship_count: integer,
-  entity_relationships: [{id: string, identity_id: string, name: string, descriptions: string[]}],
+  entity_relationships: [{
+    id: string, identity_id: string, name: string, descriptions: string[],
+    multiplicity: string, match_existence: string,
+    reverse_match_existence: string, unknown_fields: string[]
+  }],
   truncated: boolean, next_cursor: string | null
 }
 ```
 
 Each item gives the cross-entity relationship's `id`, the other logical entity's `identity_id`
-and `name`, and the relationship's descriptions. Items are ordered by the other logical entity's
-ID. A relationship of a logical entity with itself appears
-once. `relationship_count` counts every cross-entity relationship at the logical entity;
+and `name`, and the relationship's descriptions. `multiplicity` is read from the requested
+logical entity to the other; `match_existence` is for the requested logical entity and
+`reverse_match_existence` for the other; `unknown_fields` names which of these three are
+`unknown`. For example, from `impression` the pair (`click`, `impression`) stated as `many:1`,
+`[always, optional]` reads `1:many`, `optional`, `always`. Items are ordered by the other logical
+entity's ID. A relationship of a logical entity with itself appears once, with its claims read
+in endpoint order. `relationship_count` counts every cross-entity relationship at the logical entity;
 `truncated` reports whether this page omits some, and `next_cursor` is null on the last page.
 An empty list means no cross-entity relationship is stated for that logical entity; it does not
 mean the data cannot relate it to others.
@@ -463,14 +475,20 @@ Returns:
 {
   snapshot: Snapshot, from_identity_id: string, to_identity_id: string,
   max_steps: integer, k: integer, path_count: integer,
-  paths: [[{from_identity_id: string, to_identity_id: string, descriptions: string[]}]],
+  paths: [[{
+    from_identity_id: string, to_identity_id: string, descriptions: string[],
+    multiplicity: string, match_existence: string,
+    reverse_match_existence: string, unknown_fields: string[]
+  }]],
   truncated: boolean
 }
 ```
 
 Each path is a travel-ordered array of steps over cross-entity relationships; a step names its
 two logical entities in the path's direction and carries the descriptions of their cross-entity
-relationship. Paths never repeat a logical entity and rank by step count, then by the sequence of
+relationship, `multiplicity` in the direction of travel, `match_existence` for the logical entity
+at the start of the step, `reverse_match_existence` for the one at its end, and `unknown_fields`
+for these claims. Paths never repeat a logical entity and rank by step count, then by the sequence of
 logical entity IDs. `path_count` counts returned paths, and `truncated` indicates a further path
 or an interrupted search. Equal endpoints are invalid params; an unknown logical entity is
 resource not found. Zero paths means no stated path exists within `max_steps`.

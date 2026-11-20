@@ -41,7 +41,7 @@ class IntermediaryDirectoryManifest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["5"] = Field(
+    schema_version: Literal["1"] = Field(
         description="Schema version shared by the manifest and every collection file."
     )
     logical_identities: str = Field(
@@ -213,7 +213,7 @@ class IntermediaryNode(ClaimModel):
 class IntermediaryDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["5"]
+    schema_version: Literal["1"]
     logical_identities: dict[str, LogicalIdentityDefinition] = Field(min_length=1, title="Logical Entities")
     nodes: list[IntermediaryNode] = Field(min_length=1)
     entity_relationships: list[EntityRelationship] = Field(

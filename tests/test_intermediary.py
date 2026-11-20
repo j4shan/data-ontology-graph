@@ -33,7 +33,7 @@ def _manifest_directory(tmp_path: Path, *, split_nodes: bool = True) -> tuple[Pa
     _write_yaml(
         yaml_directory / "identities.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "logical_identities": payload["logical_identities"],
         },
     )
@@ -41,21 +41,21 @@ def _manifest_directory(tmp_path: Path, *, split_nodes: bool = True) -> tuple[Pa
     if split_nodes:
         _write_yaml(
             yaml_directory / node_paths[0],
-            {"schema_version": "5", "nodes": [payload["nodes"][1]]},
+            {"schema_version": "1", "nodes": [payload["nodes"][1]]},
         )
         _write_yaml(
             yaml_directory / node_paths[1],
-            {"schema_version": "5", "nodes": [payload["nodes"][0]]},
+            {"schema_version": "1", "nodes": [payload["nodes"][0]]},
         )
     else:
         _write_yaml(
             yaml_directory / node_paths[0],
-            {"schema_version": "5", "nodes": payload["nodes"]},
+            {"schema_version": "1", "nodes": payload["nodes"]},
         )
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "logical_identities": "identities.yaml",
             "nodes": node_paths,
         },
@@ -187,7 +187,7 @@ def test_manifest_requires_the_schema_version_and_all_collection_owners(tmp_path
 
 def test_directory_rejects_unlisted_and_unsupported_files(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
-    _write_yaml(yaml_directory / "surprise.yaml", {"schema_version": "5", "nodes": []})
+    _write_yaml(yaml_directory / "surprise.yaml", {"schema_version": "1", "nodes": []})
     (yaml_directory / "notes.json").write_text("{}", encoding="utf-8")
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -210,7 +210,7 @@ def test_manifest_rejects_duplicate_and_cross_collection_paths(tmp_path: Path) -
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "logical_identities": "identities.yaml",
             "nodes": ["nodes.yaml", "nodes.yaml"],
         },
@@ -223,7 +223,7 @@ def test_manifest_rejects_duplicate_and_cross_collection_paths(tmp_path: Path) -
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "logical_identities": "shared.yaml",
             "nodes": ["shared.yaml"],
         },
@@ -238,7 +238,7 @@ def test_manifest_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
     _write_yaml(
         tmp_path / "directory-manifest.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "logical_identities": str((tmp_path / "outside.yaml").resolve()),
             "nodes": ["../outside.yaml"],
         },
@@ -252,7 +252,7 @@ def test_manifest_rejects_absolute_and_parent_paths(tmp_path: Path) -> None:
 def test_manifest_rejects_symlink_escape(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
     outside = tmp_path / "outside.yaml"
-    _write_yaml(outside, {"schema_version": "5", "logical_identities": {}})
+    _write_yaml(outside, {"schema_version": "1", "logical_identities": {}})
     (yaml_directory / "escape.yaml").symlink_to(outside)
     manifest = yaml.safe_load(
         (tmp_path / "directory-manifest.yaml").read_text(encoding="utf-8")
@@ -268,14 +268,14 @@ def test_collection_file_rejects_mixed_or_wrong_ownership(tmp_path: Path) -> Non
     _write_yaml(
         yaml_directory / "identities.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "logical_identities": payload["logical_identities"],
             "nodes": payload["nodes"],
         },
     )
     _write_yaml(
         yaml_directory / "nodes-a.yaml",
-        {"schema_version": "5", "logical_identities": payload["logical_identities"]},
+        {"schema_version": "1", "logical_identities": payload["logical_identities"]},
     )
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -286,7 +286,7 @@ def test_collection_file_rejects_mixed_or_wrong_ownership(tmp_path: Path) -> Non
 def test_collection_file_rejects_malformed_yaml(tmp_path: Path) -> None:
     yaml_directory, _ = _manifest_directory(tmp_path)
     (yaml_directory / "nodes-a.yaml").write_text(
-        "schema_version: '5'\nnodes: [\n",
+        "schema_version: '1'\nnodes: [\n",
         encoding="utf-8",
     )
 
@@ -310,7 +310,7 @@ def test_directory_rejects_duplicate_nodes_across_node_files(tmp_path: Path) -> 
     yaml_directory, payload = _manifest_directory(tmp_path)
     _write_yaml(
         yaml_directory / "nodes-b.yaml",
-        {"schema_version": "5", "nodes": [payload["nodes"][0]]},
+        {"schema_version": "1", "nodes": [payload["nodes"][0]]},
     )
 
     report = validate_intermediary_yaml(yaml_directory)
@@ -324,6 +324,7 @@ def test_build_report_lists_input_unknowns_without_enumerating_pairs() -> None:
     assert report.unknown_fields == [
         'nodes["dataset_a"].entity_definitions[["customer_identity",["c1","c2","c3"]]].total',
         'nodes["dataset_b"].grain',
+        'entity_relationships[["customer_identity","customer_identity"]].multiplicity',
     ]
 
 
@@ -367,7 +368,7 @@ def test_cross_entity_relationships_are_optional() -> None:
 
 def test_cross_entity_relationship_rules_reject_each_invalid_case(tmp_path: Path) -> None:
     def single(endpoints, descriptions=("A order is placed on one calendar day.",)):
-        return [{"endpoints": list(endpoints), "descriptions": list(descriptions)}]
+        return [{"endpoints": list(endpoints), "multiplicity": "unknown", "match_existence": ["unknown", "unknown"], "descriptions": list(descriptions)}]
 
     cases = {
         "unknown logical entities ['missing_identity']": single(["calendar_day_identity", "missing_identity"]),
@@ -389,10 +390,12 @@ def test_cross_entity_relationships_load_from_their_manifest_collection(tmp_path
     _write_yaml(
         yaml_directory / "relationships.yaml",
         {
-            "schema_version": "5",
+            "schema_version": "1",
             "entity_relationships": [
                 {
                     "endpoints": ["customer_identity", "customer_identity"],
+                    "multiplicity": "unknown",
+                    "match_existence": ["optional", "optional"],
                     "descriptions": ["A customer may refer another customer."],
                 }
             ],
@@ -412,7 +415,7 @@ def test_cross_entity_relationship_collection_must_be_a_listed_list(tmp_path: Pa
     yaml_directory, _ = _manifest_directory(tmp_path)
     _write_yaml(
         yaml_directory / "relationships.yaml",
-        {"schema_version": "5", "entity_relationships": {"not": "a list"}},
+        {"schema_version": "1", "entity_relationships": {"not": "a list"}},
     )
     assert "unlisted_file" in _rules(yaml_directory)
     manifest_path = tmp_path / "directory-manifest.yaml"
@@ -420,3 +423,44 @@ def test_cross_entity_relationship_collection_must_be_a_listed_list(tmp_path: Pa
     manifest["entity_relationships"] = "relationships.yaml"
     _write_yaml(manifest_path, manifest)
     assert "list_type" in _rules(yaml_directory)
+
+
+def test_cross_entity_relationship_claims_are_required_and_typed(tmp_path: Path) -> None:
+    base = {"endpoints": ["calendar_day_identity", "order_identity"],
+            "descriptions": ["An order is placed on one calendar day."]}
+    cases = {
+        "missing multiplicity": {**base, "match_existence": ["optional", "always"]},
+        "missing match_existence": {**base, "multiplicity": "many:1"},
+        "one match_existence value": {**base, "multiplicity": "many:1", "match_existence": ["always"]},
+        "three match_existence values": {
+            **base, "multiplicity": "many:1", "match_existence": ["always", "always", "always"],
+        },
+        "invalid multiplicity": {**base, "multiplicity": "one", "match_existence": ["optional", "always"]},
+    }
+    for name, relationship in cases.items():
+        payload = _stated_payload()
+        payload["entity_relationships"] = [relationship]
+        path = tmp_path / "catalog.yaml"
+        _write_yaml(path, payload)
+        locations = [finding.location for finding in validate_intermediary_yaml(path).findings]
+        assert locations and all(location.startswith("$.entity_relationships[0]") for location in locations), (
+            name, locations,
+        )
+
+
+def test_other_schema_versions_are_rejected(tmp_path: Path) -> None:
+    payload = _stated_payload()
+    for version in ("0", "2", "5"):
+        payload["schema_version"] = version
+        path = tmp_path / "catalog.yaml"
+        _write_yaml(path, payload)
+        report = validate_intermediary_yaml(path)
+        assert report.valid is False
+        assert any("schema_version" in finding.location for finding in report.findings)
+
+
+def test_build_report_locates_unknown_cross_entity_claims() -> None:
+    _, report = build_snapshot_from_yaml(STATED)
+    assert [item for item in report.unknown_fields if item.startswith("entity_relationships")] == [
+        'entity_relationships[["employee_identity","employee_identity"]].match_existence.0',
+    ]
