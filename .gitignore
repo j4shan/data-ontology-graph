@@ -50,6 +50,8 @@ venv/
 # forward.
 project_metadata/plans/
 project_metadata/working_state/
+# Bug reports awaiting a design decision; the outcome lands in the spec and code.
+project_metadata/bug_reports/
 
 # Agent tooling state and per-developer editor config. None of it is a product
 # artifact, and `.superpowers/` holds live session state — pids, logs, ports

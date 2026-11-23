@@ -9,7 +9,7 @@ from testkit.records import dataset_edges
 
 
 def call(s, **params):
-    return s.get_edges(SEED, identity_id=TENANT, **params).model_dump(mode="json")
+    return s.get_dataset_edges(SEED, identity_id=TENANT, **params).model_dump(mode="json")
 
 
 def test_auto_histogram_covers_all_targets_before_detail_limits():

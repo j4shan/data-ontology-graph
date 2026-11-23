@@ -78,7 +78,7 @@ def _region_definition(records: list[dict]) -> dict:
 
 def test_service_records_carry_the_column_description_by_default(tmp_path: Path) -> None:
     service = _service(tmp_path)
-    edges = service.get_edges("sqlite:lending.region", response_format="records", detail="full")
+    edges = service.get_dataset_edges("sqlite:lending.region", response_format="records", detail="full")
     definition = _region_definition(_full_definitions(edges))
     assert definition["description"] == ""
     assert definition["effective_description"] == "region of the opening branch"
@@ -92,7 +92,7 @@ def test_an_authored_description_wins_everywhere(tmp_path: Path) -> None:
         {"node_id": "sqlite:lending.account", **record}
         for record in service.get_dataset("sqlite:lending.account").entity_definitions
     ]
-    edges = service.get_edges("sqlite:lending.region", response_format="records", detail="full")
+    edges = service.get_dataset_edges("sqlite:lending.region", response_format="records", detail="full")
     identity = service.get_entity_definitions("region_identity", response_format="records")
     assert _region_edge(edges)["to_description"].startswith("the region of the branch")
     for records in (detail, _full_definitions(edges), identity.entity_definitions):

@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from data_ontology_graph.builder import build_snapshot_from_yaml
+from data_ontology_graph.model import derivation
 from data_ontology_graph.model.enums import EntityUniverse
 from data_ontology_graph.model.relationship import JoinAnnotation
 from data_ontology_graph.store.snapshot_store import CurrentArtifactStore
@@ -38,9 +39,7 @@ def test_snapshot_round_trip(tmp_path: Path) -> None:
 
 
 def test_build_publish_load_and_reporting_do_not_enumerate_pairs(tmp_path, monkeypatch) -> None:
-    from data_ontology_graph.model import derivation
-
-    def unexpected_pair(**kwargs):
+    def unexpected_pair(*args, **kwargs):
         pytest.fail("build, persistence, validation, and reports must not construct pairs")
 
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)

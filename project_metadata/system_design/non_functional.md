@@ -7,8 +7,7 @@
 | 1.1 | The service keeps one published snapshot and its immutable search and navigation indexes resident. Evicting a disposable cache may change performance but never response semantics. Serves `product/non_functional.md#1.1`. |
 | 1.2 | Search performs exact and prefix lookup over the static trie, intersects per-word lookups for a multi-word query, then filters, deduplicates, orders stably, and limits per kind, with no dedicated relevance-ranking structure. Serves `product/non_functional.md#5.1`. |
 | 1.3 | Graph computation runs outside the request event loop, with bounded concurrent computations and cancellation support. Serves `product/non_functional.md#1.1`. |
-| 1.4 | Connecting-subgraph search runs in time linear in the graph size and stops once the tree is settled, so nearby endpoints touch only their neighbourhood. Serves `product/non_functional.md#1.1`. |
-| 1.5 | A ranked-path multiplicity filter prunes disallowed directed edges before expansion, without worsening asymptotic traversal time or space. Serves `product/non_functional.md#1.1`. |
+| 1.5 | Path search prunes entity links with no pivot passing the claim filters, and logical entities beyond the bound's distance to the target, before expansion, so each expansion can reach the target; it materializes no entity link collection for all pairs of logical entities, and a fixed enumeration bound turns a larger count into a lower bound. Serves `product/non_functional.md#1.1`. |
 
 ## Resilience
 

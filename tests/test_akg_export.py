@@ -9,14 +9,14 @@ from testkit import FIXTURES
 
 
 LENDING = FIXTURES / "lending"
-FIXTURES = ["akg-single", "akg-disjoint", "akg-data-gap"]
+NAMES = ["akg-single", "akg-disjoint", "akg-data-gap"]
 
 
 def _payload(name: str) -> dict:
     return json.loads((LENDING / f"{name}.json").read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("name", FIXTURES)
+@pytest.mark.parametrize("name", NAMES)
 def test_export_matches_golden(name: str) -> None:
     assert export_markdown(_payload(name)) == (LENDING / f"{name}.md").read_text(encoding="utf-8")
 

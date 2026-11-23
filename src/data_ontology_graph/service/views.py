@@ -28,7 +28,7 @@ EDGE_FIELDS = (
 )
 """Directed-edge array positions in order; ``edge_id`` is always last.
 
-``identity_id`` is a basic position where no edge group carries the logical entity ID, in paths.
+``identity_id`` is selected through ``fields``; edge groups otherwise carry the logical entity ID.
 """
 RESPONSE_ONLY = ("distance", "edge_count")
 """Dataset fields that describe a navigation response, not the dataset."""
@@ -134,7 +134,7 @@ class View:
 
     @classmethod
     def resolve(
-        cls, detail: Detail, fields: dict[str, list[str]] | None = None, *, paths: bool = False,
+        cls, detail: Detail, fields: dict[str, list[str]] | None = None,
     ) -> "View":
         added = {name: list(dict.fromkeys(values)) for name, values in (fields or {}).items()}
         selected: dict[str, set[str]] = {}
@@ -147,8 +147,6 @@ class View:
                 chosen.update(_LEVELS[name][level])
             chosen.update(added.get(name, []))
             selected[name] = chosen
-        if paths:
-            selected["edge"].add("identity_id")
         if added.get("entity_definition"):
             selected["dataset"].add("entity_definitions")
         return cls(

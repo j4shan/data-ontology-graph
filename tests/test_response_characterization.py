@@ -22,10 +22,10 @@ from testkit.rpc import dispatch
 CATALOGS = ("lending", "open_accessor", "stated_relationships")
 FORMATS = ("table", "records")
 DETAILS = ("essential", "standard", "full")
+# Build-time values: the snapshot version carries the build time, and cursors its fingerprint.
 UNPINNED = {"version", "built_at", "next_cursor"}
-UNLISTED = {"graph.search", "graph.get_entity_relationships", "graph.find_entity_relationship_paths"}
-"""Methods whose responses name no relationship, so they add no ``get_relationship`` requests."""
-"""Build-time values: the snapshot version carries the build time, and cursors its fingerprint."""
+# Methods whose responses name no relationship, so they add no ``get_relationship`` requests.
+UNLISTED = {"graph.search", "graph.get_entity_links", "graph.find_paths"}
 
 
 def _normalized(value):
@@ -69,34 +69,22 @@ def _requests(snapshot) -> list[tuple[str, dict]]:
             common = {"response_format": response_format, "detail": detail}
             for node_id in node_ids:
                 for view in ("aggregated", "detailed"):
-                    requests.append(("graph.get_edges", {**common, "node_id": node_id, "view": view}))
-                requests.append(("graph.get_edges",
+                    requests.append(("graph.get_dataset_edges", {**common, "node_id": node_id, "view": view}))
+                requests.append(("graph.get_dataset_edges",
                                  {**common, "node_id": node_id, "view": "detailed", "limit": 1}))
-                requests.append(("graph.expand_subgraph",
-                                 {**common, "seed_node_ids": [node_id], "max_depth": 2}))
-                requests.append(("graph.expand_subgraph",
-                                 {**common, "seed_node_ids": [node_id], "max_depth": 3,
-                                  "max_nodes": 3, "limit": 1}))
-    for response_format in FORMATS:
-        common = {"response_format": response_format, "detail": "full"}
-        for left, right in combinations(node_ids, 2):
-            requests.append(("graph.find_paths",
-                             {**common, "from_node_id": left, "to_node_id": right}))
-            requests.append(("graph.find_paths",
-                             {**common, "from_node_id": left, "to_node_id": right,
-                              "allowed_multiplicities": ["many:1", "1:1"]}))
-            requests.append(("graph.find_connecting_subgraph",
-                             {**common, "node_ids": [left, right]}))
-        requests.append(("graph.find_connecting_subgraph", {**common, "node_ids": node_ids[:16]}))
     names = {identity.name for identity in snapshot.logical_identities}
     names |= {node.descriptor.display_name for node in snapshot.nodes if node.descriptor.display_name}
     for query in sorted(names):
         requests.append(("graph.search", {"query": query, "limit": 1000}))
     for identity_id in identity_ids:
-        requests.append(("graph.get_entity_relationships", {"identity_id": identity_id}))
+        requests.append(("graph.get_entity_links", {"identity_id": identity_id}))
+        requests.append(("graph.get_entity_links", {"identity_id": identity_id, "link_kinds": "stated"}))
+        requests.append(("graph.get_entity_links", {"identity_id": identity_id, "multiplicity": ["many:1", "1:1"]}))
     for left, right in combinations(identity_ids, 2):
-        requests.append(("graph.find_entity_relationship_paths",
-                         {"from_identity_id": left, "to_identity_id": right}))
+        ends = {"source_identity_id": left, "target_identity_id": right}
+        requests.append(("graph.find_paths", ends))
+        requests.append(("graph.find_paths", {**ends, "max_links": 3, "multiplicity": ["many:1", "1:1"]}))
+        requests.append(("graph.find_paths", {**ends, "link_kinds": "stated", "max_links": 4}))
     return requests
 
 
@@ -104,13 +92,12 @@ def _responses(catalog: str) -> list[dict]:
     snapshot = snapshot_of(FIXTURES / catalog / "catalog.yaml")
     dispatcher = JsonRpcDispatcher(GraphReadService(snapshot))
     calls = _requests(snapshot)
-    raw = [dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": m, "params": p}) for m, p in calls]
+    raw = [dispatch(dispatcher, m, p) for m, p in calls]
     found: set[str] = set()
     _edge_ids([r for (m, _), r in zip(calls, raw) if m not in UNLISTED], found)
     for edge_id in sorted(found):
         calls.append(("graph.get_relationship", {"edge_id": edge_id}))
-        raw.append(dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": "graph.get_relationship",
-                                        "params": {"edge_id": edge_id}}))
+        raw.append(dispatch(dispatcher, "graph.get_relationship", {"edge_id": edge_id}))
         relationship = raw[-1].get("result") or {}
         for side in ("endpoint_a", "endpoint_b"):
             endpoint = relationship.get(side)
@@ -118,8 +105,7 @@ def _responses(catalog: str) -> list[dict]:
                 params = {"edge_id": edge_id, "from_node_id": endpoint["node_id"],
                           "from_dataset_columns": endpoint["dataset_columns"]}
                 calls.append(("graph.get_relationship", params))
-                raw.append(dispatcher.dispatch({"jsonrpc": "2.0", "id": 1,
-                                                "method": "graph.get_relationship", "params": params}))
+                raw.append(dispatch(dispatcher, "graph.get_relationship", params))
     return [{"method": m, "params": p, "response": _normalized(r)} for (m, p), r in zip(calls, raw)]
 
 
@@ -152,17 +138,15 @@ def test_requests_derive_no_more_relationships_than_they_list(catalog: str, monk
 
     monkeypatch.setattr(derivation, "JoinRelationship", counted)
     for method, params in _requests(snapshot):
-        if method in ("graph.expand_subgraph", "graph.find_connecting_subgraph"):
-            continue  # breadth-first traversal derives beyond what it lists (assessment E1)
         calls["count"] = 0
-        response = dispatcher.dispatch({"jsonrpc": "2.0", "id": 1, "method": method, "params": params})
+        response = dispatch(dispatcher, method, params)
         # Every listed relationship or directed edge names its edge_id, `D<i>-D<j>`.
         listed = len(re.findall(r'"D[1-9][0-9]*-D[1-9][0-9]*"', json.dumps(response)))
         assert calls["count"] <= listed, (method, params, calls["count"], listed)
 
 
 @pytest.mark.parametrize(("build", "method", "params"), [
-    (fanout_service, "graph.get_edges", {"node_id": SEED, "identity_id": TENANT}),
+    (fanout_service, "graph.get_dataset_edges", {"node_id": SEED, "identity_id": TENANT}),
     (lambda: with_roles(210), "graph.get_entity_definitions", {"identity_id": TENANT}),
     (lambda: with_roles(210), "graph.get_entity_definitions", {"identity_id": TENANT, "view": "detailed", "limit": 1}),
 ], ids=["edges-auto-aggregated", "definitions-auto-aggregated", "definitions-detailed"])

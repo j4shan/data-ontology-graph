@@ -26,12 +26,6 @@ def _dump(response):
     return response if isinstance(response, dict) else response.model_dump(mode="json")
 
 
-def paths(response):
-    """Path directed-edge records grouped by path rank."""
-    data = _dump(response)
-    return [[decode(data["edge_fields"], edge) for edge in path] for path in data["paths"]]
-
-
 def by_id(collection, key):
     return {record[key]: record for record in to_records(collection)}
 

@@ -1,4 +1,4 @@
-"""Paging cursors of the three paged methods (system design 2.3.3, 2.3.5, 2.3.12).
+"""Paging cursors of the four paged methods (system design 2.3.3, 2.3.5, 2.3.6, 2.3.12).
 
 One set of helpers in ``service/read.py`` makes and checks every cursor: a cursor binds the
 snapshot content, the API version, the method, and every request parameter except ``cursor``
@@ -14,7 +14,9 @@ import pytest
 from data_ontology_graph.rpc.protocol import INVALID_PARAMS
 from data_ontology_graph.service.read import GraphReadService
 from testkit import STATED, service_of, snapshot_of
-from testkit.builders import EMPLOYEE, SEED, TENANT, WAREHOUSE, fanout_service, with_roles
+from testkit.builders import (
+    EMPLOYEE, HUB, SEED, TENANT, WAREHOUSE, fanout_service, topology_service, with_roles,
+)
 from testkit.rpc import dispatch
 
 
@@ -49,7 +51,7 @@ class Paged:
 
 PAGED = [
     Paged(
-        method="graph.get_edges",
+        method="graph.get_dataset_edges",
         service=lambda: fanout_service(30),
         other_snapshot=lambda: fanout_service(31),
         first={"node_id": SEED, "identity_id": TENANT, "view": "detailed", "limit": 1,
@@ -72,14 +74,25 @@ PAGED = [
                {"response_format": "records"}, {"identity_id": EMPLOYEE}],
         reordered={"target_identity_ids": [WAREHOUSE, EMPLOYEE, EMPLOYEE],
                    "entity_universe": ["complete", "partial", "complete"]},
-        other_method=("graph.get_edges", {"node_id": SEED, "limit": 1}),
+        other_method=("graph.get_dataset_edges", {"node_id": SEED, "limit": 1}),
     ),
     Paged(
-        method="graph.get_entity_relationships",
+        method="graph.get_entity_links",
         service=lambda: service_of(STATED),
         other_snapshot=_stated_without_last_relationship,
-        first={"identity_id": "hashed_id_identity", "limit": 1},
-        bound=[{"limit": 2}, {"identity_id": "impression_identity"}],
+        first={"identity_id": "hashed_id_identity", "link_kinds": "stated", "limit": 1},
+        bound=[{"limit": 2}, {"identity_id": "impression_identity"}, {"link_kinds": "all"}],
+        aggregated=False,
+    ),
+    Paged(
+        method="graph.find_paths",
+        service=lambda: topology_service(*HUB),
+        other_snapshot=lambda: topology_service(HUB[0] + ["d"], HUB[1] + [("hub", "d")]),
+        first={"source_identity_id": "hub~a", "target_identity_id": "hub~c",
+               "exclude_restatements": False, "limit": 1},
+        bound=[{"limit": 2}, {"target_identity_id": "hub~b"}, {"max_links": 3},
+               {"exclude_restatements": True}, {"multiplicity": ["1:1"]}, {"link_kinds": "stated"}],
+        other_method=("graph.get_entity_links", {"identity_id": "hub~a", "limit": 1}),
         aggregated=False,
     ),
 ]

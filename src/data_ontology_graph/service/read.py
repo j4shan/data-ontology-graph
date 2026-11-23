@@ -19,22 +19,23 @@ from data_ontology_graph.model.relationship import JoinRelationship
 from data_ontology_graph.model.snapshot import GraphSnapshot
 from data_ontology_graph.service.contracts import (
     API_VERSION,
-    AggregatedEdgesResponse,
+    MAX_PATH_LINKS,
+    AggregatedDatasetEdgesResponse,
     AggregatedEntityDefinitionsResponse,
     ContractModel,
-    ConnectingSubgraphRequest,
-    ConnectingSubgraphResponse,
     DatasetDetail,
-    EdgesRequest,
-    EdgesResponse,
+    DatasetEdgesRequest,
+    DatasetEdgesResponse,
     EntityDefinitionsRequest,
     EntityDefinitionsResponse,
-    EntityRelationshipPathsRequest,
-    EntityRelationshipPathsResponse,
-    EntityRelationshipsRequest,
-    EntityRelationshipsResponse,
-    EntityRelationshipStep,
-    RelatedLogicalEntity,
+    EntityLinksRequest,
+    EntityLinksResponse,
+    LinkedEntity,
+    PathEntity,
+    PathFilterReport,
+    PathRelaxation,
+    PathResult,
+    EntityLink,
     PathsRequest,
     PathsResponse,
     RelationshipDetail,
@@ -42,22 +43,18 @@ from data_ontology_graph.service.contracts import (
     SearchRequest,
     SearchResponse,
     SnapshotInfo,
-    SubgraphRequest,
-    SubgraphResponse,
+    StatedClaims,
+    ThroughEntity,
 )
 from data_ontology_graph.query.edge_discovery import discover_edges
 from data_ontology_graph.query.entity_definitions import discover_entity_definitions
-from data_ontology_graph.query.entity_relationship_paths import ranked_paths
-from data_ontology_graph.query.connecting import connecting_tree
+from data_ontology_graph.query import entity_paths
 from data_ontology_graph.query.neighbourhood import (
     DirectedEdge,
     EdgeGroup,
     MembershipDirectedEdges,
     directed_edge_from,
-    expand,
-    group_edges,
 )
-from data_ontology_graph.query.paths import PathGraph
 from data_ontology_graph.service.search import LexicalSearchIndex
 from data_ontology_graph.service.tables import (
     DEFINITION_HEADER,
@@ -110,17 +107,14 @@ class GraphReadIndex:
         self.memberships = snapshot.memberships
         self.definitions = self.memberships.definitions
         self.directed_edges = MembershipDirectedEdges(self.memberships)
-        self.paths = PathGraph(self.memberships)
         self.annotations = snapshot.annotation_map()
         self.entity_relationships = snapshot.entity_relationship_index
+        self.entity_links = entity_paths.EntityLinks(self.memberships, self.entity_relationships)
         self.search = LexicalSearchIndex(snapshot)
 
 
 class GraphReadService:
-    def __init__(self, snapshot: GraphSnapshot, *, max_connecting_datasets: int = 16) -> None:
-        if max_connecting_datasets < 2:
-            raise ValueError("max_connecting_datasets must be at least 2")
-        self.max_connecting_datasets = max_connecting_datasets
+    def __init__(self, snapshot: GraphSnapshot) -> None:
         self.index = GraphReadIndex(snapshot)
 
     def snapshot_info(self) -> SnapshotInfo:
@@ -273,7 +267,7 @@ class GraphReadService:
             entity_definitions=objects.entity_definitions(),
         )
 
-    def get_edges(
+    def get_dataset_edges(
         self,
         node_id: str,
         limit: int = 200,
@@ -286,8 +280,8 @@ class GraphReadService:
         fan_out_threshold: int = 200,
         target_identity_ids: list[str] | None = None,
         cursor: str | None = None,
-    ) -> EdgesResponse | AggregatedEdgesResponse:
-        request = EdgesRequest(
+    ) -> DatasetEdgesResponse | AggregatedDatasetEdgesResponse:
+        request = DatasetEdgesRequest(
             node_id=node_id, limit=limit, response_format=response_format, detail=detail,
             fields=fields or {}, identity_id=identity_id, from_dataset_columns=from_dataset_columns,
             view=view, fan_out_threshold=fan_out_threshold,
@@ -309,8 +303,8 @@ class GraphReadService:
             "target_identity_ids": request.target_identity_ids,
             "fan_out_count": len(discovery.connected), "fan_out_threshold": request.fan_out_threshold,
         }
-        scope = _cursor_scope(request, "get_edges")
-        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_edges")
+        scope = _cursor_scope(request, "get_dataset_edges")
+        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_dataset_edges")
         aggregated = request.view == "aggregated" or (
             request.view == "auto" and request.cursor is None
             and len(discovery.connected) > request.fan_out_threshold
@@ -319,7 +313,7 @@ class GraphReadService:
             rows, count = discovery.histogram()
             rows = [{"identity_id": row["identity_id"],
                      "name": self.index.identities[row["identity_id"]].name, **row} for row in rows]
-            return AggregatedEdgesResponse(
+            return AggregatedDatasetEdgesResponse(
                 **selection, detail=projection.detail, fields=projection.added,
                 histogram=collection(rows, ["identity_id", "name", "entity_definition_count", "dataset_count"],
                                      request.response_format),
@@ -333,165 +327,158 @@ class GraphReadService:
             self._dataset_values(request.node_id, 0, groups, projection),
             *(self._dataset_values(target, 1, None, projection) for target in targets),
         ]
-        return EdgesResponse(
+        return DatasetEdgesResponse(
             **selection,
-            **self._present(datasets, projection, request.response_format, distance=True),
+            **self._present(datasets, projection, request.response_format),
             next_cursor=_cursor(self.index.fingerprint, scope, offset + request.limit) if more else None,
             truncated=any(group.truncated for group in groups),
-        )
-
-    def expand_subgraph(self, request: SubgraphRequest) -> SubgraphResponse:
-        seeds = list(dict.fromkeys(request.seed_node_ids))
-        for seed in seeds:
-            self._node(seed)
-        if len(seeds) > request.max_nodes:
-            raise ValueError("max_nodes must be at least the number of unique seed nodes")
-        view = View.resolve(request.detail, request.fields)
-        neighbourhood = expand(
-            self.index.directed_edges, seeds, request.max_depth,
-            max_nodes=request.max_nodes, limit=request.limit,
-        )
-        datasets = [
-            self._dataset_values(node_id, distance, neighbourhood.groups.get(node_id), view)
-            for node_id, distance in neighbourhood.datasets
-        ]
-        return SubgraphResponse(
-            snapshot=self.snapshot_info(),
-            seed_node_ids=seeds,
-            max_depth=request.max_depth,
-            max_nodes=request.max_nodes,
-            limit=request.limit,
-            **self._present(datasets, view, request.response_format, distance=True),
-            truncated=neighbourhood.truncated,
         )
 
     def find_paths(
         self, request: PathsRequest, cancel_event: Event | None = None,
     ) -> PathsResponse:
-        self._node(request.from_node_id)
-        self._node(request.to_node_id)
-        view = View.resolve(request.detail, request.fields, paths=True)
-        allowed = (set(request.allowed_multiplicities)
-                   if request.allowed_multiplicities is not None else None)
-        graph = self.index.paths
-        pairs, truncated = graph.k_shortest(
-            request.from_node_id, request.to_node_id, request.limit, request.max_edges, allowed,
-            cancelled=(cancel_event.is_set if cancel_event is not None else lambda: False),
+        """Paths, or participant subgraphs, between two logical entities under the caller's filters."""
+        for identity_id in (request.source_identity_id, request.target_identity_id,
+                            *request.participant_identity_ids, *request.avoid_identity_ids):
+            self._identity(identity_id)
+        cancelled = cancel_event.is_set if cancel_event is not None else (lambda: False)
+        links = self.index.entity_links
+        query = entity_paths.PathQuery(
+            source=request.source_identity_id,
+            target=request.target_identity_id,
+            max_links=request.max_links,
+            stated_only=request.link_kinds == "stated",
+            multiplicity=frozenset(request.multiplicity) if request.multiplicity is not None else None,
+            converging=request.order == "converging",
+            match_existence=(frozenset(request.match_existence)
+                             if request.match_existence is not None else None),
+            avoid=frozenset(request.avoid_identity_ids),
+            participants=tuple(request.participant_identity_ids),
+            closed=request.participation == "closed",
+            shape=request.shape,
+            k_unnamed=request.k_unnamed,
+            exclude_restatements=request.exclude_restatements,
+            self_links=request.self_links,
         )
-        memberships = self.index.memberships
-        paths = [
-            [directed_edge_from(memberships.pair(graph.keys[a], graph.keys[b]), graph.keys[a])
-             for a, b in path]
-            for path in pairs
-        ]
-        node_ids = sorted({
-            node_id for path in paths for edge in path
-            for node_id in (edge.source.node_id, edge.target.node_id)
-        })
-        datasets = [self._dataset_values(node_id, None, None, view) for node_id in node_ids]
-        presented = self._present(datasets, view, request.response_format, distance=False)
-        presented["paths"] = [[self._edge_array(edge, view) for edge in path] for path in paths]
+        result = entity_paths.search(links, query, cancelled)
+        ranked = entity_paths.ranked(result.found)
+        scope = _cursor_scope(request, "find_paths")
+        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "find_paths")
+        if request.cursor is not None and offset >= len(ranked):
+            raise ValueError("cursor is outside the selected path range")
+        page = ranked[offset:offset + request.limit]
+        report = entity_paths.filter_report(links, query, cancelled)
+        relaxations: list[PathRelaxation] = []
+        for change, relaxed in entity_paths.relaxation_candidates(query, MAX_PATH_LINKS):
+            widened = entity_paths.search(links, relaxed, cancelled, entity_paths.RELAXATION_CAP)
+            if len(widened.found) > len(ranked):
+                relaxations.append(PathRelaxation(change=change, total=len(widened.found),
+                                                  total_is_lower_bound=widened.lower_bound))
+        lower = result.lower_bound or bool(cancel_event is not None and cancel_event.is_set())
         return PathsResponse(
             snapshot=self.snapshot_info(),
-            from_node_id=request.from_node_id,
-            to_node_id=request.to_node_id,
-            path_count=len(paths),
-            **presented,
-            truncated=truncated or bool(cancel_event is not None and cancel_event.is_set()),
+            source_identity_id=request.source_identity_id,
+            target_identity_id=request.target_identity_id,
+            total=len(ranked),
+            total_is_lower_bound=lower,
+            tie_group_count=ranked[-1][0] + 1 if ranked else 0,
+            results=[self._path_result(offset + i + 1, group, found)
+                     for i, (group, found) in enumerate(page)],
+            filter_report=PathFilterReport(
+                unfiltered_total=report.unfiltered.total,
+                unfiltered_is_lower_bound=report.unfiltered.lower_bound,
+                by_links={str(k): v for k, v in report.by_links.items()},
+                fewer_links_total=report.fewer_links_total,
+                unknown_multiplicity_total=report.unknown_multiplicity_total,
+                to_one_total=report.to_one.total,
+                to_one_is_lower_bound=report.to_one.lower_bound,
+                from_one_total=report.from_one.total,
+                from_one_is_lower_bound=report.from_one.lower_bound,
+                converging_total=report.converging.total,
+                converging_is_lower_bound=report.converging.lower_bound,
+                always_match_total=report.always_match.total,
+                always_match_is_lower_bound=report.always_match.lower_bound,
+                leg_counts=report.leg_counts,
+                through_entities=[
+                    ThroughEntity(identity_id=identity, name=self.index.identities[identity].name,
+                                  path_count=count, dataset_count=links.dataset_count.get(identity, 0))
+                    for identity, count in report.through
+                ],
+            ),
+            relaxations=relaxations,
+            leg_counts=result.leg_counts,
+            next_cursor=(_cursor(self.index.fingerprint, scope, offset + request.limit)
+                         if offset + request.limit < len(ranked) else None),
         )
 
-    def get_entity_relationships(
-        self, request: EntityRelationshipsRequest,
-    ) -> EntityRelationshipsResponse:
-        """Cross-entity relationships at one logical entity, by the other logical entity's ID."""
+    def _link_claims(self, source: str, target: str) -> dict[str, Any]:
+        """An entity link's derived claims on its common datasets and its stated claims, read
+        from ``source`` (system design 2.3.6, 2.3.12)."""
+        pivots = self.index.entity_links.pivots(source, target)
+        relationships = self.index.entity_relationships
+        relationship = relationships.between(source, target)
+        return {
+            "multiplicities": sorted({p.multiplicity for p in pivots}, key=lambda m: m.value),
+            "match_existences": sorted({p.match_existence for p in pivots}, key=lambda m: m.value),
+            "common_dataset_count": len({p.node_id for p in pivots}),
+            "stated": (StatedClaims(id=relationships.relationship_id(source, target),
+                                    descriptions=list(relationship.descriptions),
+                                    **_claims_from(relationship, source))
+                       if relationship is not None else None),
+        }
+
+    def _path_result(self, rank: int, group: int, found: entity_paths.Found) -> PathResult:
+        links = self.index.entity_links
+        return PathResult(
+            rank=rank,
+            tie_group=group,
+            shape=found.shape,
+            entities=[PathEntity(identity_id=e, name=self.index.identities[e].name,
+                                 dataset_count=links.dataset_count.get(e, 0))
+                      for e in found.entities],
+            links=[EntityLink(from_identity_id=left, to_identity_id=right, **self._link_claims(left, right))
+                   for left, right in found.links],
+            legs={p: list(c) for p, c in found.legs.items()} if found.legs is not None else None,
+            unnamed_identity_ids=list(found.unnamed) if found.unnamed is not None else None,
+        )
+
+    def get_entity_links(self, request: EntityLinksRequest) -> EntityLinksResponse:
+        """The entity links at one logical entity under the caller's filters, by the other logical
+        entity's ID (system design 2.3.12)."""
         identity = self._identity(request.identity_id)
-        related = list(self.index.entity_relationships.related(request.identity_id).items())
-        scope = _cursor_scope(request, "get_entity_relationships")
-        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_entity_relationships")
-        if request.cursor is not None and offset >= len(related):
-            raise ValueError("cursor is outside the selected cross-entity relationship range")
-        page = related[offset:offset + request.limit]
-        return EntityRelationshipsResponse(
+        for avoided in request.avoid_identity_ids:
+            self._identity(avoided)
+        query = entity_paths.PathQuery(
+            source=request.identity_id,
+            target=request.identity_id,
+            stated_only=request.link_kinds == "stated",
+            multiplicity=frozenset(request.multiplicity) if request.multiplicity is not None else None,
+            match_existence=(frozenset(request.match_existence)
+                             if request.match_existence is not None else None),
+            avoid=frozenset(request.avoid_identity_ids),
+        )
+        linked = entity_paths.linked_entities(self.index.entity_links, query)
+        scope = _cursor_scope(request, "get_entity_links")
+        offset = _cursor_offset(request.cursor, self.index.fingerprint, scope, "get_entity_links")
+        if request.cursor is not None and offset >= len(linked):
+            raise ValueError("cursor is outside the selected entity link range")
+        page = linked[offset:offset + request.limit]
+        counts = self.index.entity_links.dataset_count
+        return EntityLinksResponse(
             snapshot=self.snapshot_info(),
             identity_id=identity.identity_id,
             name=identity.name,
             limit=request.limit,
-            relationship_count=len(related),
-            entity_relationships=[
-                RelatedLogicalEntity(
-                    id=self.index.entity_relationships.relationship_id(request.identity_id, other),
-                    identity_id=other,
-                    name=self.index.identities[other].name,
-                    descriptions=list(relationship.descriptions),
-                    **_claims_from(relationship, request.identity_id),
-                )
-                for other, relationship in page
+            link_count=len(linked),
+            links=[
+                LinkedEntity(identity_id=other, name=self.index.identities[other].name,
+                             dataset_count=counts.get(other, 0),
+                             **self._link_claims(request.identity_id, other))
+                for other in page
             ],
-            truncated=len(page) < len(related),
+            truncated=len(page) < len(linked),
             next_cursor=_cursor(self.index.fingerprint, scope, offset + request.limit)
-            if offset + request.limit < len(related) else None,
-        )
-
-    def find_entity_relationship_paths(
-        self, request: EntityRelationshipPathsRequest, cancel_event: Event | None = None,
-    ) -> EntityRelationshipPathsResponse:
-        """Ranked simple paths of cross-entity relationships between two logical entities."""
-        self._identity(request.from_identity_id)
-        self._identity(request.to_identity_id)
-        index = self.index.entity_relationships
-        paths, truncated = ranked_paths(
-            index, request.from_identity_id, request.to_identity_id, request.k, request.max_steps,
-            cancelled=(cancel_event.is_set if cancel_event is not None else lambda: False),
-        )
-        steps = [
-            [
-                EntityRelationshipStep(
-                    from_identity_id=left,
-                    to_identity_id=right,
-                    descriptions=list(index.between(left, right).descriptions),
-                    **_claims_from(index.between(left, right), left),
-                )
-                for left, right in zip(path, path[1:])
-            ]
-            for path in paths
-        ]
-        return EntityRelationshipPathsResponse(
-            snapshot=self.snapshot_info(),
-            from_identity_id=request.from_identity_id,
-            to_identity_id=request.to_identity_id,
-            max_steps=request.max_steps,
-            k=request.k,
-            path_count=len(steps),
-            paths=steps,
-            truncated=truncated or bool(cancel_event is not None and cancel_event.is_set()),
-        )
-
-    def find_connecting_subgraph(
-        self, request: ConnectingSubgraphRequest,
-    ) -> ConnectingSubgraphResponse:
-        if len(request.node_ids) > self.max_connecting_datasets:
-            raise ValueError(f"at most {self.max_connecting_datasets} datasets are allowed")
-        terminals = sorted(request.node_ids)
-        for node_id in terminals:
-            self._node(node_id)
-        view = View.resolve(request.detail, request.fields)
-        result = connecting_tree(self.index.directed_edges, terminals)
-        tree = set(result.edge_ids)
-        datasets = [
-            self._dataset_values(
-                node_id, None,
-                group_edges(
-                    edge for edge in self.index.directed_edges.get(node_id, ())
-                    if edge.edge_id in tree
-                ),
-                view,
-            )
-            for node_id in result.node_ids
-        ]
-        return ConnectingSubgraphResponse(
-            snapshot=self.snapshot_info(), node_ids=terminals, status=result.status,
-            **self._present(datasets, view, request.response_format, distance=False),
-            truncated=False,
+            if offset + request.limit < len(linked) else None,
         )
 
     def _identity(self, identity_id: str) -> LogicalIdentity:
@@ -639,15 +626,13 @@ class GraphReadService:
         datasets: list[dict[str, Any]],
         view: View,
         response_format: ResponseFormat,
-        *,
-        distance: bool,
     ) -> dict[str, Any]:
         """Records nest edge groups, columns, and definitions; tables split them, keyed by node_id."""
         common = {"detail": view.detail, "fields": view.added, "edge_fields": list(view.edge)}
         if response_format == "records":
             return {**common, "datasets": datasets}
         nested = ("edge_groups", "columns", "entity_definitions")
-        fields = [f for f in view.dataset_fields(distance=distance) if f not in nested]
+        fields = [f for f in view.dataset_fields(distance=True) if f not in nested]
         tables: dict[str, Any] = {
             "datasets": to_table(
                 [{k: v for k, v in record.items() if k not in nested} for record in datasets],

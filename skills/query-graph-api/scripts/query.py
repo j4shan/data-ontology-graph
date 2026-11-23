@@ -14,8 +14,7 @@ from graph_call import call, default_socket  # noqa: E402
 
 
 TRAVERSAL_METHODS = {
-    "graph.get_edges", "graph.expand_subgraph", "graph.find_paths",
-    "graph.find_entity_relationship_paths", "graph.find_connecting_subgraph",
+    "graph.get_dataset_edges", "graph.find_paths",
 }
 
 

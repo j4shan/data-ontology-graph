@@ -15,7 +15,7 @@ Collection = Table | list[dict[str, Any]]
 """A graph-object collection: a table by default, or records with ``response_format="records"``."""
 
 
-API_VERSION = "5"
+API_VERSION = "6"
 """The graph API contract: methods, parameters, and response shapes. Raise it on a breaking change."""
 
 
@@ -123,7 +123,7 @@ class NavigationRequest(ContractModel):
     fields: dict[FieldObject, list[str]] = Field(default_factory=dict)
 
 
-class EdgesRequest(NavigationRequest):
+class DatasetEdgesRequest(NavigationRequest):
     node_id: str = Field(min_length=1)
     limit: int = Field(default=200, ge=1, le=1000)
     """Directed edges listed per entity definition."""
@@ -140,7 +140,7 @@ class EdgesRequest(NavigationRequest):
         return sorted(set(values))
 
     @model_validator(mode="after")
-    def columns_need_a_logical_entity(self) -> "EdgesRequest":
+    def columns_need_a_logical_entity(self) -> "DatasetEdgesRequest":
         if self.from_dataset_columns is not None and self.identity_id is None:
             raise ValueError("from_dataset_columns requires identity_id")
         if self.cursor is not None and self.view == "aggregated":
@@ -148,102 +148,67 @@ class EdgesRequest(NavigationRequest):
         return self
 
 
-class SubgraphRequest(NavigationRequest):
-    seed_node_ids: list[str] = Field(min_length=1)
-    max_depth: int = Field(default=1, ge=0, le=10)
-    max_nodes: int = Field(default=1000, ge=1, le=10_000)
-    limit: int = Field(default=200, ge=1, le=1000)
-    """Directed edges listed per entity definition."""
+MAX_PATH_LINKS = 6
+"""Upper bound of ``PathsRequest.max_links``."""
 
 
-class PathsRequest(NavigationRequest):
-    from_node_id: str = Field(min_length=1)
-    to_node_id: str = Field(min_length=1)
-    max_edges: int = Field(default=4, ge=1, le=10)
-    limit: int = Field(default=6, ge=1, le=100)
-    allowed_multiplicities: list[Multiplicity] | None = Field(
-        default=None, min_length=1, max_length=5,
-    )
+class PathsRequest(ContractModel):
+    """Path search between two logical entities under the caller's filters (system design 2.3.6)."""
 
-
-class EntityRelationshipsRequest(ContractModel):
-    identity_id: str = Field(min_length=1)
-    limit: int = Field(default=200, ge=1, le=1000)
+    source_identity_id: str = Field(min_length=1)
+    target_identity_id: str = Field(min_length=1)
+    max_links: int = Field(default=2, ge=1, le=MAX_PATH_LINKS)
+    link_kinds: Literal["all", "stated"] = "all"
+    multiplicity: list[Multiplicity] | None = Field(default=None, min_length=1, max_length=5)
+    order: Literal["any", "converging"] = "any"
+    match_existence: list[MatchExistence] | None = Field(default=None, min_length=1, max_length=3)
+    avoid_identity_ids: list[str] = Field(default_factory=list, max_length=50)
+    participant_identity_ids: list[str] = Field(default_factory=list, max_length=3)
+    participation: Literal["legs", "closed"] = "legs"
+    shape: Literal["both", "independent", "shared_chain"] = "both"
+    k_unnamed: int = Field(default=0, ge=0, le=2)
+    exclude_restatements: bool = True
+    self_links: bool = False
+    limit: int = Field(default=50, ge=1, le=200)
     cursor: str | None = None
 
-
-class EntityRelationshipPathsRequest(ContractModel):
-    from_identity_id: str = Field(min_length=1)
-    to_identity_id: str = Field(min_length=1)
-    max_steps: int = Field(default=4, ge=1, le=10)
-    k: int = Field(default=6, ge=1, le=100)
-
     @model_validator(mode="after")
-    def distinct_endpoints(self) -> "EntityRelationshipPathsRequest":
-        if self.from_identity_id == self.to_identity_id:
-            raise ValueError("from_identity_id and to_identity_id must differ")
+    def consistent_filters(self) -> "PathsRequest":
+        ends = {self.source_identity_id, self.target_identity_id}
+        parts = self.participant_identity_ids
+        if len(set(parts)) != len(parts):
+            raise ValueError("participant_identity_ids must be distinct")
+        if ends & set(parts):
+            raise ValueError("participant_identity_ids must not contain the source or target")
+        if (ends | set(parts)) & set(self.avoid_identity_ids):
+            raise ValueError("avoid_identity_ids must not contain the source, target or a participant")
+        if self.participation == "closed":
+            if not parts:
+                raise ValueError("participation closed requires participant_identity_ids")
+            if self.multiplicity is not None or self.match_existence is not None or self.order != "any":
+                raise ValueError("multiplicity, match_existence and order apply to paths and legs, not closed participation")
+        elif self.k_unnamed:
+            raise ValueError("k_unnamed applies to closed participation")
+        elif self.shape == "independent" and len(parts) < 2:
+            raise ValueError("shape independent combines legs of two or more participants")
         return self
 
 
-class RelatedLogicalEntity(ContractModel):
-    """The other logical entity of a cross-entity relationship, its descriptions, and its claims.
+class EntityLinksRequest(ContractModel):
+    """The entity links at one logical entity under the caller's filters (system design 2.3.12)."""
 
-    Claims are read from the requested logical entity to the other (system design 2.3.12).
-    """
-
-    id: str
-    identity_id: str
-    name: str
-    descriptions: list[str]
-    multiplicity: Multiplicity
-    match_existence: MatchExistence
-    reverse_match_existence: MatchExistence
-    unknown_fields: list[str]
-
-
-class EntityRelationshipsResponse(ContractModel):
-    snapshot: SnapshotInfo
-    identity_id: str
-    name: str
-    limit: int
-    relationship_count: int
-    entity_relationships: list[RelatedLogicalEntity]
-    truncated: bool
-    next_cursor: str | None = None
-
-
-class EntityRelationshipStep(ContractModel):
-    """One step of a stated path; its claims are read from ``from_identity_id`` (system design 2.3.13)."""
-
-    from_identity_id: str
-    to_identity_id: str
-    descriptions: list[str]
-    multiplicity: Multiplicity
-    match_existence: MatchExistence
-    reverse_match_existence: MatchExistence
-    unknown_fields: list[str]
-
-
-class EntityRelationshipPathsResponse(ContractModel):
-    snapshot: SnapshotInfo
-    from_identity_id: str
-    to_identity_id: str
-    max_steps: int
-    k: int
-    path_count: int
-    paths: list[list[EntityRelationshipStep]]
-    truncated: bool
-
-
-class ConnectingSubgraphRequest(NavigationRequest):
-    node_ids: list[str] = Field(min_length=2)
+    identity_id: str = Field(min_length=1)
+    link_kinds: Literal["all", "stated"] = "all"
+    multiplicity: list[Multiplicity] | None = Field(default=None, min_length=1, max_length=5)
+    match_existence: list[MatchExistence] | None = Field(default=None, min_length=1, max_length=3)
+    avoid_identity_ids: list[str] = Field(default_factory=list, max_length=50)
+    limit: int = Field(default=200, ge=1, le=1000)
+    cursor: str | None = None
 
     @model_validator(mode="after")
-    def distinct_endpoints(self) -> "ConnectingSubgraphRequest":
-        if any(not node_id for node_id in self.node_ids):
-            raise ValueError("node_ids must contain non-empty dataset IDs")
-        if len(set(self.node_ids)) != len(self.node_ids):
-            raise ValueError("node_ids must contain distinct datasets")
+    def requested_entity_is_not_avoided(self) -> "EntityLinksRequest":
+        if self.identity_id in self.avoid_identity_ids:
+            raise ValueError("avoid_identity_ids must not contain identity_id")
         return self
 
 
@@ -335,7 +300,7 @@ class NavigationResponse(ContractModel):
         return data
 
 
-class EdgesSelection(ContractModel):
+class DatasetEdgesSelection(ContractModel):
     snapshot: SnapshotInfo
     node_id: str
     limit: int
@@ -346,12 +311,12 @@ class EdgesSelection(ContractModel):
     fan_out_threshold: int
 
 
-class EdgesResponse(NavigationResponse, EdgesSelection):
+class DatasetEdgesResponse(NavigationResponse, DatasetEdgesSelection):
     view: Literal["detailed"] = "detailed"
     next_cursor: str | None = None
 
 
-class AggregatedEdgesResponse(EdgesSelection):
+class AggregatedDatasetEdgesResponse(DatasetEdgesSelection):
     view: Literal["aggregated"] = "aggregated"
     detail: Detail
     fields: dict[str, list[str]]
@@ -360,25 +325,113 @@ class AggregatedEdgesResponse(EdgesSelection):
     truncated: bool
 
 
-class SubgraphResponse(NavigationResponse):
+class PathEntity(ContractModel):
+    identity_id: str
+    name: str
+    dataset_count: int
+
+
+class StatedClaims(ContractModel):
+    """The entity link's cross-entity relationship, its claims read in the direction of travel."""
+
+    id: str
+    descriptions: list[str]
+    multiplicity: Multiplicity
+    match_existence: MatchExistence
+    reverse_match_existence: MatchExistence
+    unknown_fields: list[str]
+
+
+class EntityLink(ContractModel):
+    """An entity link on a path, read from ``from_identity_id`` (system design 2.3.6)."""
+
+    from_identity_id: str
+    to_identity_id: str
+    multiplicities: list[Multiplicity]
+    match_existences: list[MatchExistence]
+    common_dataset_count: int
+    stated: StatedClaims | None
+
+
+class LinkedEntity(ContractModel):
+    """The other logical entity of an entity link and the link's claims, read from the requested
+    logical entity (system design 2.3.12)."""
+
+    identity_id: str
+    name: str
+    dataset_count: int
+    multiplicities: list[Multiplicity]
+    match_existences: list[MatchExistence]
+    common_dataset_count: int
+    stated: StatedClaims | None
+
+
+class EntityLinksResponse(ContractModel):
     snapshot: SnapshotInfo
-    seed_node_ids: list[str]
-    max_depth: int
-    max_nodes: int
+    identity_id: str
+    name: str
     limit: int
+    link_count: int
+    links: list[LinkedEntity]
+    truncated: bool
+    next_cursor: str | None = None
 
 
-class PathsResponse(NavigationResponse):
-    snapshot: SnapshotInfo
-    from_node_id: str
-    to_node_id: str
+class PathResult(ContractModel):
+    rank: int
+    tie_group: int
+    shape: Literal["path", "shared_chain", "independent", "closed"]
+    entities: list[PathEntity]
+    links: list[EntityLink]
+    legs: dict[str, list[str]] | None = None
+    unnamed_identity_ids: list[str] | None = None
+
+
+class ThroughEntity(ContractModel):
+    identity_id: str
+    name: str
     path_count: int
-    paths: list[list[list[Any]]]
-    """Paths in rank order, each its directed edges in travel order."""
+    dataset_count: int
 
 
-class ConnectingSubgraphResponse(NavigationResponse):
+class PathFilterReport(ContractModel):
+    """Paths between the two logical entities with the claim filters removed, and what each claim
+    setting would keep (system design 2.3.6)."""
+
+    unfiltered_total: int
+    unfiltered_is_lower_bound: bool
+    by_links: dict[str, int]
+    fewer_links_total: int
+    unknown_multiplicity_total: int
+    to_one_total: int
+    to_one_is_lower_bound: bool
+    from_one_total: int
+    from_one_is_lower_bound: bool
+    converging_total: int
+    converging_is_lower_bound: bool
+    always_match_total: int
+    always_match_is_lower_bound: bool
+    through_entities: list[ThroughEntity]
+    leg_counts: dict[str, int] | None = None
+
+
+class PathRelaxation(ContractModel):
+    """One filter change that widens the result, and the result count it gives."""
+
+    change: dict[str, Any]
+    total: int
+    total_is_lower_bound: bool
+
+
+class PathsResponse(ContractModel):
     snapshot: SnapshotInfo
-    node_ids: list[str]
-    status: Literal["completed", "disconnected"]
-    algorithm: Literal["mehlhorn_unweighted"] = "mehlhorn_unweighted"
+    source_identity_id: str
+    target_identity_id: str
+    total: int
+    total_is_lower_bound: bool
+    tie_group_count: int
+    results: list[PathResult]
+    filter_report: PathFilterReport
+    relaxations: list[PathRelaxation]
+    leg_counts: dict[str, int] | None = None
+    next_cursor: str | None = None
