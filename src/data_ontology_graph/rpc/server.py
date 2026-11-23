@@ -138,8 +138,8 @@ class GraphUnixServer:
 
     async def _dispatch_one(self, payload: object) -> object:
         navigation = isinstance(payload, dict) and payload.get("method") in {
-            "graph.get_edges", "graph.find_paths", "graph.expand_subgraph", "graph.find_connecting_subgraph",
-            "graph.get_entity_definitions", "graph.find_entity_relationship_paths",
+            "graph.get_dataset_edges", "graph.get_entity_links", "graph.find_paths",
+            "graph.get_entity_definitions",
         }
         if navigation:
             async with self._navigation_slots:
@@ -185,19 +185,16 @@ def _prepare_socket_path(path: Path) -> None:
         probe.close()
 
 
-def load_service(
-    snapshot_directory: Path, *, max_connecting_datasets: int = 16,
-) -> GraphReadService:
+def load_service(snapshot_directory: Path) -> GraphReadService:
     snapshot = SnapshotStore(snapshot_directory.parent).load(snapshot_directory)
-    return GraphReadService(snapshot, max_connecting_datasets=max_connecting_datasets)
+    return GraphReadService(snapshot)
 
 
 async def _run(
-    snapshot_directory: Path, socket_path: Path,
-    max_connecting_datasets: int = 16, max_concurrent_navigation: int = 2,
+    snapshot_directory: Path, socket_path: Path, max_concurrent_navigation: int = 2,
 ) -> None:
     server = GraphUnixServer(
-        load_service(snapshot_directory, max_connecting_datasets=max_connecting_datasets),
+        load_service(snapshot_directory),
         socket_path, max_concurrent_navigation=max_concurrent_navigation,
     )
     await server.start()
@@ -220,12 +217,10 @@ def main() -> None:
                         help="artifact to serve (default: the service home's current-graph)")
     parser.add_argument("--socket", type=Path, default=None,
                         help="socket to serve on (default: $DOG_SOCKET or the service home's)")
-    parser.add_argument("--max-connecting-datasets", type=int, default=16)
     parser.add_argument("--max-concurrent-navigation", type=int, default=2)
     args = parser.parse_args()
     try:
         asyncio.run(_run(args.snapshot_dir or default_artifact(), args.socket or default_socket(),
-                         args.max_connecting_datasets,
                          args.max_concurrent_navigation))
     except KeyboardInterrupt:
         pass

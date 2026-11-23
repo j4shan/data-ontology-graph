@@ -13,6 +13,9 @@ STATED = FIXTURES / "stated_relationships" / "catalog.yaml"
 SCHEMAS = ROOT / "resources" / "schema"
 VALID_EXAMPLE = SCHEMAS / "examples" / "intermediary-valid.yaml"
 INVALID_EXAMPLE = SCHEMAS / "examples" / "intermediary-invalid.yaml"
+ACCOUNT = "sqlite:lending.account"
+LOAN_ACCOUNT = "D1-D8"
+"""The lending relationship between the loan and account datasets."""
 
 
 def snapshot_of(catalog: Path = LENDING) -> GraphSnapshot:

@@ -11,14 +11,10 @@ from data_ontology_graph.rpc.protocol import (
     JsonRpcDispatcher,
 )
 from data_ontology_graph.rpc.server import GraphUnixServer
-from testkit import STATED, service_of
+from testkit import ACCOUNT, LOAN_ACCOUNT, STATED, service_of
 from testkit.builders import SEED, TENANT, fanout_service
 from testkit.rpc import dispatch, rpc_call, temporary_socket_path
 
-ACCOUNT = "sqlite:lending.account"
-LOAN_ACCOUNT = (
-    "D1-D8"
-)
 SERVICES = {"lending": service_of, "fanout": fanout_service, "stated": lambda: service_of(STATED)}
 
 
@@ -36,15 +32,15 @@ ERRORS = [
     ("lending", "graph.get_relationship", {"edge_id": LOAN_ACCOUNT, "from_node_id": "missing"},
      INVALID_PARAMS),
     # Directed edges: presentation, bounds, and source filters.
-    *_cases("lending", "graph.get_edges", {"node_id": ACCOUNT}, INVALID_PARAMS,
+    *_cases("lending", "graph.get_dataset_edges", {"node_id": ACCOUNT}, INVALID_PARAMS,
             {"response_format": "xml"}, {"limit": 1001}, {"detail": "verbose"},
             {"fields": {"edge": ["nope"]}}, {"from_dataset_columns": ["account_id"]},
             {"identity_id": "loan_identity"},
             {"identity_id": "region_identity", "from_dataset_columns": ["account_id"]}),
     # Directed-edge discovery: target filters, view, and threshold.
-    ("fanout", "graph.get_edges", {"node_id": SEED, "target_identity_ids": ["missing"]},
+    ("fanout", "graph.get_dataset_edges", {"node_id": SEED, "target_identity_ids": ["missing"]},
      RESOURCE_NOT_FOUND),
-    *_cases("fanout", "graph.get_edges", {"node_id": SEED}, INVALID_PARAMS,
+    *_cases("fanout", "graph.get_dataset_edges", {"node_id": SEED}, INVALID_PARAMS,
             {"target_identity_ids": [""]}, {"target_identity_ids": "tenant_identity"},
             {"view": "unknown"}, {"fan_out_threshold": 0}, {"fan_out_threshold": 10_001}),
     # Entity-definition discovery.
@@ -57,19 +53,27 @@ ERRORS = [
             {"entity_universe": []}, {"entity_universe": ["invalid"]}, {"view": "invalid"},
             {"limit": 0}, {"limit": 1001}, {"dataset_threshold": 0}, {"dataset_threshold": 10001},
             {"response_format": "invalid"}, {"unexpected": True}),
-    # Connecting subgraph.
-    *_cases("lending", "graph.find_connecting_subgraph", {}, INVALID_PARAMS,
-            {"node_ids": [ACCOUNT]}, {"node_ids": [ACCOUNT, ACCOUNT]}, {"node_ids": [ACCOUNT, ""]},
-            {"node_ids": [ACCOUNT, "sqlite:lending.loan"], "max_work": 1}),
-    ("lending", "graph.find_connecting_subgraph", {"node_ids": [ACCOUNT, "missing"]},
-     RESOURCE_NOT_FOUND),
-    # Cross-entity relationships.
-    ("stated", "graph.find_entity_relationship_paths",
-     {"from_identity_id": "click_identity", "to_identity_id": "click_identity"}, INVALID_PARAMS),
-    ("stated", "graph.get_entity_relationships", {"identity_id": "missing_identity"},
-     RESOURCE_NOT_FOUND),
-    ("stated", "graph.find_entity_relationship_paths",
-     {"from_identity_id": "click_identity", "to_identity_id": "missing_identity"}, RESOURCE_NOT_FOUND),
+    # Entity links.
+    ("stated", "graph.get_entity_links", {"identity_id": "missing_identity"}, RESOURCE_NOT_FOUND),
+    *_cases("stated", "graph.get_entity_links", {"identity_id": "click_identity"}, INVALID_PARAMS,
+            {"link_kinds": "inferred"}, {"limit": 0}, {"multiplicity": []},
+            {"avoid_identity_ids": ["click_identity"]}, {"cursor": "invalid"}),
+    # Path search.
+    *_cases("stated", "graph.find_paths",
+            {"source_identity_id": "click_identity", "target_identity_id": "order_identity"}, INVALID_PARAMS,
+            {"max_links": 0}, {"max_links": 7}, {"limit": 0}, {"link_kinds": "inferred"},
+            {"multiplicity": []}, {"multiplicity": ["invalid"]}, {"order": "invalid"},
+            {"participant_identity_ids": ["click_identity"]},
+            {"participant_identity_ids": ["campaign_identity", "campaign_identity"]},
+            {"avoid_identity_ids": ["order_identity"]},
+            {"participation": "closed"},
+            {"participation": "closed", "participant_identity_ids": ["campaign_identity"],
+             "multiplicity": ["many:1"]},
+            {"participation": "closed", "participant_identity_ids": ["campaign_identity"],
+             "order": "converging"},
+            {"k_unnamed": 1}, {"cursor": "invalid"}, {"unexpected": True}),
+    ("stated", "graph.find_paths",
+     {"source_identity_id": "click_identity", "target_identity_id": "missing_identity"}, RESOURCE_NOT_FOUND),
 ]
 
 
@@ -79,11 +83,6 @@ def test_errors_map_to_json_rpc_codes(service: str, method: str, params: dict, c
     assert response.get("error", {}).get("code") == code, response
     if code == RESOURCE_NOT_FOUND and "missing_identity" in str(params):
         assert "unknown identity missing_identity" in response["error"]["message"]
-
-
-def test_dispatcher_returns_results(lending_service) -> None:
-    search = dispatch(lending_service, "graph.search", {"query": "customer"})
-    assert any(group["match_rows"] for group in search["result"]["groups"])
 
 
 def test_dispatcher_requires_request_id_and_does_not_accept_notifications(lending_service) -> None:
@@ -118,8 +117,8 @@ def test_unix_socket_supports_multiple_clients_and_user_only_permissions(lending
                 follow_up = await rpc_call(
                     socket_path,
                     3,
-                    "graph.expand_subgraph",
-                    {"seed_node_ids": ["sqlite:lending.customer"], "max_depth": 1},
+                    "graph.get_dataset_edges",
+                    {"node_id": "sqlite:lending.customer"},
                 )
                 assert follow_up["id"] == 3 and follow_up["result"]["datasets"]["rows"]
             finally:

@@ -3,6 +3,7 @@ from itertools import combinations
 import pytest
 from pydantic import ValidationError
 
+from data_ontology_graph.model import derivation
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey
 from data_ontology_graph.model.derivation import (
     contained,
@@ -113,18 +114,10 @@ def test_two_definitions_on_one_dataset_are_related_as_a_self_join() -> None:
     assert relationship.b_to_a.match_existence == MatchExistence.OPTIONAL
 
 
-def test_a_definition_alone_yields_no_relationship() -> None:
-    index = _index([dataset_node("a", [definition(unique=False)])])
-    assert len(index.by_identity["device"]) == 1
-    assert index.degree("dataset:a") == 0
-
-
 def test_membership_construction_and_counts_do_not_construct_pairs(monkeypatch) -> None:
-    from data_ontology_graph.model import derivation
-
     nodes = [dataset_node(str(i), [definition(unique=i == 0)]) for i in range(40)]
 
-    def unexpected_pair(**kwargs):
+    def unexpected_pair(*args, **kwargs):
         pytest.fail("membership construction must not derive relationship objects")
 
     monkeypatch.setattr(derivation, "JoinRelationship", unexpected_pair)

@@ -6,16 +6,13 @@ from threading import Event
 from pydantic import BaseModel, ValidationError
 
 from data_ontology_graph.service.contracts import (
-    ConnectingSubgraphRequest,
     DatasetRequest,
-    EdgesRequest,
+    DatasetEdgesRequest,
     EntityDefinitionsRequest,
-    EntityRelationshipPathsRequest,
-    EntityRelationshipsRequest,
+    EntityLinksRequest,
     PathsRequest,
     RelationshipRequest,
     SearchRequest,
-    SubgraphRequest,
 )
 from data_ontology_graph.service.read import GraphReadService
 
@@ -37,12 +34,9 @@ class JsonRpcDispatcher:
             "graph.get_entity_definitions": self._get_entity_definitions,
             "graph.get_dataset": self._get_dataset,
             "graph.get_relationship": self._get_relationship,
-            "graph.get_entity_relationships": self._get_entity_relationships,
-            "graph.get_edges": self._get_edges,
-            "graph.expand_subgraph": self._expand_subgraph,
+            "graph.get_entity_links": self._get_entity_links,
+            "graph.get_dataset_edges": self._get_dataset_edges,
             "graph.find_paths": self._find_paths,
-            "graph.find_entity_relationship_paths": self._find_entity_relationship_paths,
-            "graph.find_connecting_subgraph": self._find_connecting_subgraph,
         }
 
     def dispatch(self, message: object, cancel_event: Event | None = None) -> dict[str, Any]:
@@ -62,9 +56,7 @@ class JsonRpcDispatcher:
             return error_response(request_id, METHOD_NOT_FOUND, "Method not found")
 
         try:
-            if method in (
-                self._find_paths, self._get_entity_definitions, self._find_entity_relationship_paths,
-            ):
+            if method in (self._find_paths, self._get_entity_definitions):
                 result = _json_value(method(params, cancel_event))
             else:
                 result = _json_value(method(params))
@@ -112,30 +104,16 @@ class JsonRpcDispatcher:
             request.from_dataset_columns,
         )
 
-    def _get_edges(self, params: dict[str, Any]) -> Any:
-        request = EdgesRequest.model_validate(params)
-        return self.service.get_edges(**request.model_dump())
-
-    def _expand_subgraph(self, params: dict[str, Any]) -> Any:
-        return self.service.expand_subgraph(SubgraphRequest.model_validate(params))
+    def _get_dataset_edges(self, params: dict[str, Any]) -> Any:
+        request = DatasetEdgesRequest.model_validate(params)
+        return self.service.get_dataset_edges(**request.model_dump())
 
     def _find_paths(self, params: dict[str, Any], cancel_event: Event | None = None) -> Any:
         return self.service.find_paths(PathsRequest.model_validate(params), cancel_event)
 
-    def _get_entity_relationships(self, params: dict[str, Any]) -> Any:
-        return self.service.get_entity_relationships(EntityRelationshipsRequest.model_validate(params))
+    def _get_entity_links(self, params: dict[str, Any]) -> Any:
+        return self.service.get_entity_links(EntityLinksRequest.model_validate(params))
 
-    def _find_entity_relationship_paths(
-        self, params: dict[str, Any], cancel_event: Event | None = None,
-    ) -> Any:
-        return self.service.find_entity_relationship_paths(
-            EntityRelationshipPathsRequest.model_validate(params), cancel_event,
-        )
-
-    def _find_connecting_subgraph(self, params: dict[str, Any]) -> Any:
-        return self.service.find_connecting_subgraph(
-            ConnectingSubgraphRequest.model_validate(params),
-        )
 
 
 def error_response(

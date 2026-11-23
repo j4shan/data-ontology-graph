@@ -56,7 +56,7 @@ Snapshot = {
 }
 ```
 
-`api_version` names the API contract described here. It is the string `"5"`.
+`api_version` names the API contract described here. It is the string `"6"`.
 `entity_definition_count` is the number of entity definitions in the snapshot, and
 `entity_relationship_count` the number of cross-entity relationships.
 `graph.get_entity_definitions` provides filtered discovery.
@@ -197,8 +197,7 @@ reasoning, not a change to these claims.
 
 ## Navigation detail and fields
 
-These parameters apply to `get_edges`, `expand_subgraph`, `find_paths`, and
-`find_connecting_subgraph`. For aggregated `get_edges`, they select the echoed `detail` and
+These parameters apply to `get_edges`, `expand_subgraph`, and `find_connecting_subgraph`. For aggregated `get_edges`, they select the echoed `detail` and
 `fields` and the histogram's collection format; no dataset or edge fields are returned:
 
 | Parameter | Type | Default | Effect |
@@ -217,7 +216,7 @@ Detail levels are cumulative:
 
 Use essential for initial exploration, standard for relationship analysis, and full when
 complete metadata is needed. `node_id` and `qualified_name` are always present; `edge` and
-`edge_id` are always present in edges, as is `identity_id` for paths.
+`edge_id` are always present in edges.
 
 The complete caller-added field catalog is:
 
@@ -230,7 +229,7 @@ The complete caller-added field catalog is:
 Requesting entity-definition fields also includes the definitions collection. Its identifying
 `id`, `identity_id`, and `dataset_columns` are always present; full detail includes every definition
 field. Adding dataset `entity_definitions` alone at a lower level returns identifying fields.
-`distance` is omitted for paths and connecting subgraphs even if requested.
+`distance` is omitted for connecting subgraphs even if requested.
 
 ## Discovery and lookup methods
 
@@ -460,44 +459,6 @@ in endpoint order. `relationship_count` counts every cross-entity relationship a
 An empty list means no cross-entity relationship is stated for that logical entity; it does not
 mean the data cannot relate it to others.
 
-### `graph.find_entity_relationship_paths`
-
-| Parameter | Type | Default and constraints |
-| --- | --- | --- |
-| `from_identity_id` | string, required | Starting logical entity. |
-| `to_identity_id` | string, required | Target logical entity; must differ from `from_identity_id`. |
-| `max_steps` | integer | 4; range 1–10. |
-| `k` | integer | 6; range 1–100 paths. |
-
-Returns:
-
-```text
-{
-  snapshot: Snapshot, from_identity_id: string, to_identity_id: string,
-  max_steps: integer, k: integer, path_count: integer,
-  paths: [[{
-    from_identity_id: string, to_identity_id: string, descriptions: string[],
-    multiplicity: string, match_existence: string,
-    reverse_match_existence: string, unknown_fields: string[]
-  }]],
-  truncated: boolean
-}
-```
-
-Each path is a travel-ordered array of steps over cross-entity relationships; a step names its
-two logical entities in the path's direction and carries the descriptions of their cross-entity
-relationship, `multiplicity` in the direction of travel, `match_existence` for the logical entity
-at the start of the step, `reverse_match_existence` for the one at its end, and `unknown_fields`
-for these claims. Paths never repeat a logical entity and rank by step count, then by the sequence of
-logical entity IDs. `path_count` counts returned paths, and `truncated` indicates a further path
-or an interrupted search. Equal endpoints are invalid params; an unknown logical entity is
-resource not found. Zero paths means no stated path exists within `max_steps`.
-
-The response describes stated knowledge only. Where the data realizes a step is found through
-`graph.get_entity_definitions` with the other logical entity as a target, and through
-relationships between datasets. A step with no realizing dataset is valid stated knowledge that
-the data does not hold.
-
 ## Traversal methods
 
 Each method accepts the shared navigation parameters above. `get_edges` can return either its
@@ -604,28 +565,6 @@ Datasets below `max_depth` list edges; boundary datasets list only metadata and 
 are not listed. `truncated` reports omitted results from either cap. A depth boundary alone
 does not mean the result is truncated.
 
-### `graph.find_paths`
-
-| Parameter | Type | Default and constraints |
-| --- | --- | --- |
-| `from_node_id` | string, required | Starting dataset. |
-| `to_node_id` | string, required | Target dataset. |
-| `max_edges` | integer | 4; range 1–10. |
-| `limit` | integer | 6; range 1–100 paths. |
-| `allowed_multiplicities` | Array of `"1:1"`, `"1:many"`, `"many:1"`, `"many:many"`, `"unknown"` | Omitted or null leaves traversal unrestricted; otherwise 1–5 entries. |
-
-Adds `{snapshot: Snapshot, from_node_id: string, to_node_id: string, path_count: integer,
-paths: any[][][]}`. `paths` is a ranked array of paths, each a travel-ordered array of directed
-edges. Each edge includes `identity_id`. `path_count` counts returned paths, not all possible
-paths. `datasets` contains the path datasets once each, without nested edge groups or distances.
-
-Paths rank by edge count, then canonical edge IDs and starting definitions. A path can revisit
-a dataset through different definitions; it never reuses a definition or takes two consecutive
-edges on the same key. Multiplicity filtering applies in traversal direction. Unknown
-multiplicity passes a restrictive filter only when `"unknown"` is explicitly allowed.
-`truncated` indicates an additional eligible path or interrupted path search. Zero returned
-paths means none were found under the supplied bounds and filters.
-
 ### `graph.find_connecting_subgraph`
 
 | Parameter | Type | Default and constraints |
@@ -639,6 +578,85 @@ IDs are echoed in sorted order. Datasets appear in `node_id` order, each with th
 edges of the tree's relationships. On `disconnected`, returns the selected datasets without
 connecting edges. No distance is returned, and `truncated` is false. This method has no
 `limit`, `max_depth`, or multiplicity-filter parameter; its fields and detail remain configurable.
+
+## Path search
+
+### `graph.find_paths`
+
+Finds the paths between two logical entities. It returns every path, or participant subgraph,
+that exists within the bounds under the caller's filters, and none when nothing exists; it does
+not judge which existing paths are wanted. A step joins two logical entities that have entity
+definitions on a common dataset or a stated cross-entity relationship. Results name logical
+entities and steps only; datasets are found afterwards with `get_entity_definitions` and
+`get_edges`. This method takes no `detail`, `fields`, or `response_format`.
+
+| Parameter | Type | Default and constraints |
+| --- | --- | --- |
+| `source_identity_id` | string, required | Starting logical entity. Equal to `target_identity_id` finds a self relationship (two definitions of the logical entity on one dataset, or a stated one). |
+| `target_identity_id` | string, required | Target logical entity. |
+| `max_steps` | integer | 2; range 1–6. Bounds the whole path, or each whole leg with participants. |
+| `edge_kinds` | `"all"` or `"stated"` | `"all"`: common-dataset steps and stated cross-entity relationships. `"stated"`: only steps with a stated cross-entity relationship. |
+| `multiplicity` | array of `"1:1"`, `"1:many"`, `"many:1"`, `"many:many"`, `"unknown"` | Omitted or null: no filter. Otherwise each step needs a way to make it with an allowed multiplicity, read in the direction of travel. |
+| `order` | `"any"` or `"converging"` | `"converging"`: `many:1` steps, then `1:many` steps (`1:1` fits either), as when two records join through a shared logical entity. |
+| `match_existence` | array of `"always"`, `"optional"`, `"unknown"` | Omitted or null: no filter. |
+| `avoid_identity_ids` | string array | Logical entities never on a path; not the source, target, or a participant. |
+| `participant_identity_ids` | string array | Up to 3 logical entities that must be in each result. |
+| `participation` | `"legs"` or `"closed"` | `"legs"`: each participant lies on a path from source to target. `"closed"`: only the source, target, participants and up to `k_unnamed` other logical entities, with every step among them. Requires participants; takes no `multiplicity`, `match_existence` or `order`. |
+| `shape` | `"both"`, `"independent"`, `"shared_chain"` | Legs only: one path through every participant (`shared_chain`), separate legs per participant that avoid the others (`independent`), or both. |
+| `k_unnamed` | integer | 0; range 0–2; closed participation only. |
+| `self_steps` | boolean | false. true lets a logical entity take one self step inside a path (two of its definitions on one dataset, or a stated self relationship), such as an employee to the employee's manager. |
+| `exclude_restatements` | boolean | true: drops a path when every way to make it passes two consecutive steps through one entity definition of the middle logical entity on one dataset, which only restates the shorter path on the same records. |
+| `limit` | integer | 50; range 1–200 results. |
+| `cursor` | string or null | Continues the same request. |
+
+Returns:
+
+```text
+{
+  snapshot: Snapshot, source_identity_id: string, target_identity_id: string,
+  total: integer, total_is_lower_bound: boolean, tie_group_count: integer,
+  results: [{
+    rank: integer, tie_group: integer, shape: "path" | "shared_chain" | "independent" | "closed",
+    entities: [{identity_id: string, name: string, dataset_count: integer}],
+    steps: [{
+      from_identity_id: string, to_identity_id: string,
+      multiplicities: string[], match_existences: string[], common_dataset_count: integer,
+      stated: {descriptions: string[], multiplicity: string, match_existence: string,
+               reverse_match_existence: string, unknown_fields: string[]} | null
+    }],
+    legs: {participant_id: string[]} | null, unnamed_identity_ids: string[] | null
+  }],
+  filter_report: {
+    unfiltered_total: integer, unfiltered_is_lower_bound: boolean, by_steps: {steps: integer},
+    fewer_steps_total: integer, unknown_multiplicity_total: integer,
+    to_one_total: integer, to_one_is_lower_bound: boolean,
+    from_one_total: integer, from_one_is_lower_bound: boolean,
+    converging_total: integer, converging_is_lower_bound: boolean,
+    through_entities: [{identity_id: string, name: string, path_count: integer, dataset_count: integer}],
+    leg_counts: {participant_id: integer} | null
+  },
+  relaxations: [{change: object, total: integer, total_is_lower_bound: boolean}],
+  leg_counts: {participant_id: integer} | null, next_cursor: string | null
+}
+```
+
+`entities` lists a path in path order and a subgraph by ID. Each step is read from
+`from_identity_id`; for a subgraph, away from the source. `multiplicities` and
+`match_existences` are the values derived from the step's common datasets, and `stated` carries
+the stated cross-entity relationship when one exists, read in the direction of travel.
+
+Results rank by deterministic metadata only: fewer steps and fewer unnamed logical entities
+first, then steps with a known multiplicity before steps whose multiplicity is unknown on every
+dataset, then logical entity IDs. Results with an equal rank share a `tie_group`.
+
+`filter_report` describes the paths between the two logical entities under the same bound, edge
+kinds, avoided logical entities and self steps, with the claim filters removed: how many exist,
+how many have fewer steps than the bound, how many have a step of unknown multiplicity, how many
+read `many:1` or `1:1` on every step (`to_one`), `1:many` or `1:1` on every step (`from_one`), or
+converge, the logical entities on most of them, and for legs how many contain each participant.
+`relaxations` lists, on every response, each single change to the request whose result is larger
+than `total`, with that count; a restrictive result of 3 next to a change giving 27 shows that the
+filter may hide the wanted path. A count that a search could not complete is a lower bound.
 
 ## Examples
 
@@ -684,11 +702,18 @@ dataset metadata in a detailed response:
 {"node_id":"sqlite:lending.loan","view":"detailed","detail":"standard","response_format":"records","fields":{"dataset":["columns","accessor.properties"]}}
 ```
 
-For paths restricted to outgoing non-fan-out multiplicities:
+For paths on which each loan reaches one region, reading every step as `many:1` or `1:1`:
 
 ```json
-{"from_node_id":"sqlite:lending.loan","to_node_id":"sqlite:lending.region","allowed_multiplicities":["1:1","many:1"],"max_edges":4,"limit":6}
+{"source_identity_id":"LOAN_ID","target_identity_id":"REGION_ID","max_steps":3,"multiplicity":["many:1","1:1"]}
 ```
 
-These dataset IDs are illustrative; they must resolve in the served graph. Choosing a path
-still requires checking the meaning of its endpoint columns and intermediate datasets.
+`relaxations` lists the single changes that widen the result, such as the converging order or
+any multiplicity, with their counts, whether or not `total` is 0. For a question that joins two records through two shared logical entities:
+
+```json
+{"source_identity_id":"BUDGET_ID","target_identity_id":"GL_ENTRY_ID","participant_identity_ids":["ACCOUNT_ID","COST_CENTER_ID"],"participation":"closed"}
+```
+
+The ID strings are illustrative. A path names logical entities only; choosing datasets for its
+steps still requires `get_entity_definitions` and the meaning of their columns.

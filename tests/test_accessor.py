@@ -10,10 +10,9 @@ from data_ontology_graph.builder import build_snapshot_from_definition, build_sn
 from data_ontology_graph.model.dataset import ACCESSOR_SOFT_LIMIT, DatasetAccessor
 from data_ontology_graph.model.intermediary import IntermediaryDefinition
 from data_ontology_graph.model.snapshot import GraphSnapshot
-from testkit import FIXTURES, OPEN_ACCESSOR as OPEN
+from testkit import OPEN_ACCESSOR as OPEN
 
 
-LENDING = FIXTURES / "lending"
 PG_EU = "pg-eu:crm.public.customer"
 PG_US = "pg-us:crm.public.customer"
 S3 = "s3-us:web.clickstream"

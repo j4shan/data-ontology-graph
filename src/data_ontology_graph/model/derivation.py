@@ -55,6 +55,25 @@ def derived_match_existence(
     return MatchExistence.UNKNOWN
 
 
+def step_multiplicity(source: EntityDefinition, target: EntityDefinition) -> Multiplicity:
+    """Multiplicity from ``source``'s logical entity to ``target``'s on their common records.
+
+    The two definitions are of different logical entities on one dataset (graph-model 3.16). A
+    unique ``source`` puts each instance of its entity in at most one record, so it reaches at
+    most one instance of ``target``'s entity: ``many:1``.
+    """
+    return multiplicity_between(target.unique, source.unique)
+
+
+def step_match_existence(target: EntityDefinition) -> MatchExistence:
+    """Whether every common record has a value of ``target``'s logical entity (graph-model 3.17)."""
+    if target.total is False:
+        return MatchExistence.OPTIONAL
+    if target.total is True and target.conforms is True:
+        return MatchExistence.ALWAYS
+    return MatchExistence.UNKNOWN
+
+
 def derived_direction(source: EntityDefinition, target: EntityDefinition) -> RelationshipDirection:
     return RelationshipDirection(
         multiplicity=derived_multiplicity(source, target),

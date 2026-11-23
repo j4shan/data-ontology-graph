@@ -5,18 +5,15 @@ import re
 import pytest
 from pydantic import ValidationError
 
-from data_ontology_graph.service.contracts import (
-    SearchRequest,
-)
+from data_ontology_graph.model import derivation
+from data_ontology_graph.service.contracts import SearchRequest
 from data_ontology_graph.service.read import GraphReadService
 from data_ontology_graph.service.tables import to_records
 from testkit.records import by_id
 
 
 def test_service_initialization_and_membership_lookup_do_not_construct_pairs(lending_snapshot, monkeypatch) -> None:
-    from data_ontology_graph.model import derivation
-
-    def unexpected_pair(**kwargs):
+    def unexpected_pair(*args, **kwargs):
         pytest.fail("service startup and membership inspection must not construct pairs")
 
     with monkeypatch.context() as guard:
@@ -43,7 +40,7 @@ def test_snapshot_info_names_the_api_version_and_the_snapshot_build_second(lendi
     info = lending_service.snapshot_info().model_dump()
     assert set(info) == {"api_version", "version", "node_count", "entity_definition_count", "identity_count",
                          "entity_relationship_count"}
-    assert info["api_version"] == "5"
+    assert info["api_version"] == "6"
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["version"])
 
 

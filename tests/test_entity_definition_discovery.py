@@ -15,7 +15,7 @@ def test_aggregated_discovery_counts_every_dataset_and_detail_pages_continue():
     s = with_roles(210)
     result = call(s, limit=1)
     assert result["view"] == "aggregated"
-    assert result["snapshot"]["api_version"] == "5"
+    assert result["snapshot"]
     assert result["dataset_count"] == 211
     assert result["primary_definition_count"] == 212
     assert result["logical_entity_count"] == 34

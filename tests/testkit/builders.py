@@ -169,8 +169,12 @@ def topology_service(names, links, **kwargs) -> GraphReadService:
     return GraphReadService(type(snapshot).model_validate(data), **kwargs)
 
 
-def same_dataset_service(tmp_path: Path) -> GraphReadService:
-    """A link table holding two device definitions, beside the device dataset."""
+def same_dataset_service(tmp_path: Path, *, site: bool = False) -> GraphReadService:
+    """A link table holding two device definitions, beside the device dataset.
+
+    With ``site``, a device-site dataset also defines a site logical entity, so a path can take
+    the device self step on the link table and then move on to the site.
+    """
     accessor = lambda name: {"kind": "sqlite", "endpoint": "/d.db", "properties": {
         "host": "h", "schema": "main", "object": name}}
     device = lambda columns, **claims: {
@@ -199,6 +203,28 @@ def same_dataset_service(tmp_path: Path) -> GraphReadService:
              ]},
         ],
     }
+    if site:
+        payload["logical_identities"]["site"] = {"name": "Site"}
+        payload["nodes"].append({
+            "node_id": "net.device_site",
+            "descriptor": {"qualified_name": "net.main.device_site", "display_name": "device_site"},
+            "accessor": accessor("device_site"), "grain": "unknown",
+            "columns": [{"name": "device_id"}, {"name": "site_id"}],
+            "entity_definitions": [
+                device(["device_id"], entity_universe="partial", unique=True, total=True, conforms=True),
+                {"identity_id": "site", "dataset_columns": ["site_id"], "entity_universe": "partial",
+                 "unique": False, "total": True, "conforms": True},
+            ]})
     path = tmp_path / "devices.yaml"
     path.write_text(yaml.safe_dump(payload), encoding="utf-8")
     return GraphReadService(build_snapshot_from_yaml(path)[0])
+
+
+# Topologies for `topology_service`: dataset names, then links as (left, right[, multiplicity, reverse]).
+PLANT = (
+    ["confirmation", "day", "fact", "operation", "order", "plant"],
+    [("confirmation", "day", "many:1", "1:many"), ("day", "fact", "1:many", "many:1"),
+     ("fact", "plant", "many:1", "1:many"), ("confirmation", "operation", "many:1", "1:many"),
+     ("operation", "order", "many:1", "1:many"), ("order", "plant", "many:1", "1:many")],
+)
+HUB = (["hub", "a", "b", "c"], [("hub", "a"), ("hub", "b"), ("hub", "c")])

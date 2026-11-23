@@ -117,17 +117,20 @@ page, so use `next_cursor` to decide when enumeration is complete. Each call is 
 
 Cross-entity relationships are stated knowledge about how two logical entities relate in the
 business, such as "An impression conditionally causes a click." `get_entity_relationships` lists
-them at one logical entity, and `find_entity_relationship_paths` returns ranked stated paths
-between two logical entities, each step carrying its descriptions and its stated multiplicity
-and match existence in the direction of travel. A stated path is one way to plan a route before
-looking at datasets: each step can be resolved to datasets through `get_entity_definitions` with
-the other logical entity as a target, and through the relationships between those datasets. The
-stated claims describe the business pair; the realizing relationships between entity definitions
-carry their own derived claims, which may differ; each keeps its own value. The definitions'
-effective descriptions distinguish roles such as a placement date and a ship date. A step with
-no realizing dataset is stated knowledge the data does not hold. When no stated path exists,
-dataset-level discovery remains available, and a stated path never filters dataset-level
-results.
+them at one logical entity. `find_paths` finds the paths between two logical entities: a step
+joins two logical entities defined on a common dataset or related by a stated cross-entity
+relationship, and each step carries its derived multiplicity and match existence and, when
+stated, its descriptions and stated claims, read in the direction of travel. It returns what
+exists under the request's filters (step bound, stated steps only, multiplicity and match
+existence per step and their order, avoided logical entities, participating logical entities,
+self steps) and reports how the result would change under each filter, including the single
+changes that widen it and their counts, so the request can be narrowed or relaxed. A path is one way to plan a route before looking at datasets: each step can be resolved
+to datasets through `get_entity_definitions` with the other logical entity as a target, and
+through the relationships between those datasets. The stated claims describe the business pair;
+the realizing relationships between entity definitions carry their own derived claims, which may
+differ; each keeps its own value. The definitions' effective descriptions distinguish roles such
+as a placement date and a ship date. A stated step with no common dataset is stated knowledge
+the data does not hold.
 
 Keep two temporary files and refer to both when generating the AKG.
 
@@ -164,7 +167,7 @@ Read each fenced Python literal as data with `ast.literal_eval`, never by import
 executing it.
 
 The proxy accumulates request/response pairs for `get_edges`, `expand_subgraph`, `find_paths`,
-`find_entity_relationship_paths`, and `find_connecting_subgraph`, including service errors.
+and `find_connecting_subgraph`, including service errors.
 Object discovery and lookup calls (`search`, `get_dataset`, `get_entity_definitions`,
 `get_entity_relationships`, and `get_relationship`) are printed but do not enter File B. Connection failures have no service response and are reported separately.
 

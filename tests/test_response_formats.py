@@ -7,23 +7,15 @@ while the table format lists them as top-level ``edge_groups`` tagged with the `
 import pytest
 
 from data_ontology_graph.service.tables import to_records, to_table
-from testkit import service_of
+from testkit import ACCOUNT, LOAN_ACCOUNT, service_of
 from testkit.builders import EMPLOYEE, SEED, TENANT, WAREHOUSE, fanout_service, with_roles
 from testkit.rpc import dispatch
 
-ACCOUNT, CUSTOMER, REGION = "sqlite:lending.account", "sqlite:lending.customer", "sqlite:lending.region"
 NESTED = ("edge_groups", "columns", "entity_definitions")
-LOAN_ACCOUNT = (
-    "D1-D8"
-)
 
 CASES = {
-    "get_edges-aggregated": (fanout_service, "graph.get_edges", {"node_id": SEED, "identity_id": TENANT}),
-    "get_edges-detailed": (service_of, "graph.get_edges", {"node_id": ACCOUNT, "detail": "full"}),
-    "expand_subgraph": (service_of, "graph.expand_subgraph", {"seed_node_ids": [ACCOUNT], "max_depth": 2}),
-    "find_paths": (service_of, "graph.find_paths", {"from_node_id": CUSTOMER, "to_node_id": REGION}),
-    "find_connecting_subgraph": (service_of, "graph.find_connecting_subgraph",
-                                 {"node_ids": [ACCOUNT, CUSTOMER]}),
+    "get_dataset_edges-aggregated": (fanout_service, "graph.get_dataset_edges", {"node_id": SEED, "identity_id": TENANT}),
+    "get_dataset_edges-detailed": (service_of, "graph.get_dataset_edges", {"node_id": ACCOUNT, "detail": "full"}),
     "get_entity_definitions-aggregated": (with_roles, "graph.get_entity_definitions",
                                           {"identity_id": TENANT, "view": "aggregated",
                                            "target_identity_ids": [EMPLOYEE, WAREHOUSE]}),

@@ -8,15 +8,12 @@ import pytest
 
 from data_ontology_graph.rpc.protocol import JsonRpcDispatcher
 from data_ontology_graph.service.read import GraphReadService
-from testkit import ROOT, snapshot_of
+from testkit import LOAN_ACCOUNT, ROOT, snapshot_of
 
 
 SCRIPT = ROOT / "skills/query-graph-api/scripts/query.py"
 LOAN = "sqlite:lending.loan"
 REGION = "sqlite:lending.region"
-LOAN_ACCOUNT = (
-    "D1-D8"
-)
 
 
 @pytest.fixture
@@ -66,11 +63,11 @@ def test_four_traversals_keep_service_shapes_and_accumulate_history(
 ):
     context = tmp_path / "nested" / "question.json"
     methods = [
-        ("get_edges", {"node_id": LOAN}),
-        ("graph.expand_subgraph", {"seed_node_ids": [LOAN], "max_depth": 1,
-                                   "response_format": "records"}),
-        ("find_paths", {"from_node_id": LOAN, "to_node_id": REGION}),
-        ("find_connecting_subgraph", {"node_ids": [LOAN, REGION]}),
+        ("get_dataset_edges", {"node_id": LOAN}),
+        ("graph.get_dataset_edges", {"node_id": REGION, "response_format": "records"}),
+        ("find_paths", {"source_identity_id": "loan_identity", "target_identity_id": "region_identity"}),
+        ("find_paths", {"source_identity_id": "loan_identity", "target_identity_id": "region_identity",
+                        "link_kinds": "stated"}),
     ]
     previous = b""
     for index, (method, params) in enumerate(methods):
@@ -87,6 +84,7 @@ def test_four_traversals_keep_service_shapes_and_accumulate_history(
         normalized = method if method.startswith("graph.") else "graph." + method
         assert entries[-1] == (normalized, {"request": {"method": normalized, "params": params},
                                           "response": output})
+    assert output["result"]["total"] == 0  # no stated relationship joins loan and region
     assert json.loads(context.read_text()) == {
         "question": "Which regions do loans belong to?", "logical_entities": ["loan", "region"]}
     assert len(graph_transport) == 4
@@ -97,7 +95,7 @@ def test_four_traversals_keep_service_shapes_and_accumulate_history(
     ("get_dataset", {"node_id": LOAN}),
     ("get_entity_definitions", {"identity_id": "loan_identity"}),
     ("get_relationship", {"edge_id": LOAN_ACCOUNT, "from_node_id": LOAN}),
-    ("get_entity_relationships", {"identity_id": "loan_identity"}),
+    ("get_entity_links", {"identity_id": "loan_identity"}),
     ("snapshot_info", {}),
 ])
 def test_discovery_and_lookup_calls_do_not_enter_traversal_file(
@@ -111,25 +109,11 @@ def test_discovery_and_lookup_calls_do_not_enter_traversal_file(
     assert json.loads(context.read_text()) == {"question": "Find loans", "logical_entities": []}
 
 
-def test_stated_path_search_is_recorded_as_a_traversal(proxy, graph_transport, capsys, tmp_path):
-    context = tmp_path / "question.json"
-    params = {"from_identity_id": "loan_identity", "to_identity_id": "region_identity"}
-    status, output = run(proxy, capsys, context, "find_entity_relationship_paths", params,
-                         "--question", "Which regions do loans belong to?")
-    assert status == 0, output
-    assert output["result"]["path_count"] == 0
-    assert read_traversals(context) == [(
-        "graph.find_entity_relationship_paths",
-        {"request": {"method": "graph.find_entity_relationship_paths", "params": params},
-         "response": output},
-    )]
-
-
 def test_service_error_is_preserved_and_recorded_as_a_traversal(
     proxy, graph_transport, capsys, tmp_path
 ):
     context = tmp_path / "question.json"
-    status, output = run(proxy, capsys, context, "get_edges", {"node_id": "missing"},
+    status, output = run(proxy, capsys, context, "get_dataset_edges", {"node_id": "missing"},
                          "--question", "Where does missing join?")
     assert status == 1
     assert output == {"error": {"code": -32004, "message": "unknown dataset missing"}}
@@ -140,7 +124,7 @@ def test_lookup_keeps_existing_traversal_history_unchanged(
     proxy, graph_transport, capsys, tmp_path
 ):
     context = tmp_path / "question.json"
-    status, output = run(proxy, capsys, context, "get_edges", {"node_id": LOAN},
+    status, output = run(proxy, capsys, context, "get_dataset_edges", {"node_id": LOAN},
                          "--question", "q")
     assert status == 0, output
     history = context.with_suffix(".traversals.md").read_bytes()
@@ -175,7 +159,7 @@ def test_invalid_local_input_does_not_call_service_or_overwrite_context(
     context = tmp_path / "question.json"
     if existing is not None:
         context.write_text(existing, encoding="utf-8")
-    status = proxy.main(["get_edges", params, "--context", str(context), *options])
+    status = proxy.main(["get_dataset_edges", params, "--context", str(context), *options])
     assert status == 2
     assert "error" in json.loads(capsys.readouterr().out)
     assert not context.with_suffix(".traversals.md").exists()
@@ -196,12 +180,12 @@ def test_traversal_strings_round_trip_unicode_escapes_quotes_and_code_fences(
     params = {"node_id": special, "fields": {"dataset": [special]}}
     monkeypatch.setattr(proxy, "call", lambda *args: result)
     context = tmp_path / "question.json"
-    status, output = run(proxy, capsys, context, "get_edges", params,
+    status, output = run(proxy, capsys, context, "get_dataset_edges", params,
                          "--question", special, "--entity", special)
     assert status == 0
     assert output == {"result": result["result"]}
-    assert read_traversals(context) == [("graph.get_edges", {
-        "request": {"method": "graph.get_edges", "params": params}, "response": output})]
+    assert read_traversals(context) == [("graph.get_dataset_edges", {
+        "request": {"method": "graph.get_dataset_edges", "params": params}, "response": output})]
     assert json.loads(context.read_text()) == {"question": special, "logical_entities": [special]}
 
 
@@ -229,7 +213,7 @@ def test_unwritable_context_fails_before_service_call(proxy, monkeypatch, capsys
         pytest.fail("a context write failure reached the service")
 
     monkeypatch.setattr(proxy, "call", unexpected_call)
-    status, output = run(proxy, capsys, context, "get_edges", {"node_id": LOAN},
+    status, output = run(proxy, capsys, context, "get_dataset_edges", {"node_id": LOAN},
                          "--question", "q")
     assert status == 2
     assert "error" in output
@@ -243,7 +227,7 @@ def test_transport_failure_is_reported_without_invented_response(
 
     monkeypatch.setattr(proxy, "call", unavailable)
     context = tmp_path / "question.json"
-    status, output = run(proxy, capsys, context, "get_edges", {"node_id": LOAN},
+    status, output = run(proxy, capsys, context, "get_dataset_edges", {"node_id": LOAN},
                          "--question", "q")
     assert status == 1
     assert output == {"error": {"message": "test service is unavailable"}}
@@ -278,7 +262,7 @@ def test_traversal_write_failure_keeps_the_received_response_visible(
         raise OSError("test storage failure")
 
     monkeypatch.setattr(proxy, "append_traversal", cannot_append)
-    status = proxy.main(["get_edges", json.dumps({"node_id": LOAN}),
+    status = proxy.main(["get_dataset_edges", json.dumps({"node_id": LOAN}),
                          "--context", str(context), "--question", "q"])
     output = capsys.readouterr()
     assert status == 1
