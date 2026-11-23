@@ -6,6 +6,7 @@ so two links meeting at a dataset are a step between their logical entities.
 from threading import Event
 
 from data_ontology_graph.model.enums import Multiplicity
+from data_ontology_graph.query.entity_paths import PathQuery, search
 from data_ontology_graph.service.contracts import PathsRequest
 from testkit.builders import HUB, PLANT, same_dataset_service, topology_service
 
@@ -70,6 +71,14 @@ def test_the_filter_report_counts_what_each_claim_filter_keeps():
     assert [(t.identity_id, t.path_count) for t in report.through_entities] == [("operation~order", 1)]
 
 
+def test_the_filter_report_counts_paths_whose_every_link_always_matches(lending_service):
+    response = find(lending_service, "account_identity", "customer_identity")
+    report = response.filter_report
+    assert (report.unfiltered_total, report.always_match_total) == (2, 1)
+    always = find(lending_service, "account_identity", "customer_identity", match_existence=["always"])
+    assert always.total == report.always_match_total
+
+
 def test_a_path_that_meets_on_one_definition_restates_the_shorter_path():
     service = topology_service(*HUB)
     # hub~a, hub~b and hub~c are all defined on the hub dataset; through hub~b both entity links meet on
@@ -93,6 +102,16 @@ def test_participants_in_legs_and_closed_participation():
     [result] = closed.results
     assert result.shape == "closed" and result.unnamed_identity_ids == []
     assert len(result.links) == 3 and result.links[0].from_identity_id == "hub~a"
+
+
+def test_closed_participation_stops_at_the_enumeration_cap():
+    # hub~d is linked to every named logical entity, so k_unnamed 1 gives two closed results.
+    service = topology_service(["hub", "a", "b", "c", "d"], [("hub", leaf) for leaf in "abcd"])
+    query = PathQuery(source="hub~a", target="hub~c", participants=("hub~b",), closed=True, k_unnamed=1)
+    complete = search(service.index.entity_links, query)
+    assert len(complete.found) == 2 and complete.lower_bound is False
+    capped = search(service.index.entity_links, query, cap=1)
+    assert len(capped.found) == 1 and capped.lower_bound is True
 
 
 def test_legs_put_each_participant_on_a_path_within_the_whole_bound():

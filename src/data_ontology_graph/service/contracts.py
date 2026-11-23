@@ -189,6 +189,8 @@ class PathsRequest(ContractModel):
                 raise ValueError("multiplicity, match_existence and order apply to paths and legs, not closed participation")
         elif self.k_unnamed:
             raise ValueError("k_unnamed applies to closed participation")
+        elif self.shape == "independent" and len(parts) < 2:
+            raise ValueError("shape independent combines legs of two or more participants")
         return self
 
 
@@ -407,6 +409,8 @@ class PathFilterReport(ContractModel):
     from_one_is_lower_bound: bool
     converging_total: int
     converging_is_lower_bound: bool
+    always_match_total: int
+    always_match_is_lower_bound: bool
     through_entities: list[ThroughEntity]
     leg_counts: dict[str, int] | None = None
 

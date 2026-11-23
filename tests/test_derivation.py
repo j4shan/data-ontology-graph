@@ -7,6 +7,7 @@ from data_ontology_graph.model import derivation
 from data_ontology_graph.model.dataset import DatasetNode, DefinitionKey
 from data_ontology_graph.model.derivation import (
     contained,
+    step_match_existence,
     derived_match_existence,
     derived_multiplicity,
     MembershipIndex,
@@ -69,6 +70,16 @@ def test_containment_derives_from_conformance_and_universe(source, target, expec
 )
 def test_match_existence_derives_from_totality_and_containment(source, target, expected) -> None:
     assert derived_match_existence(source, target) == expected
+
+
+@pytest.mark.parametrize(("target", "expected"), [
+    (definition(total=False), MatchExistence.OPTIONAL),
+    (definition(conforms=True), MatchExistence.ALWAYS),
+    (definition(universe="complete"), MatchExistence.ALWAYS),
+    (definition(), MatchExistence.UNKNOWN),
+], ids=["not-total", "conforms", "complete-conforms-by-definition", "unassessed"])
+def test_an_entity_link_match_existence_derives_from_the_definition_reached(target, expected) -> None:
+    assert step_match_existence(target) == expected
 
 
 def test_a_complete_definition_cannot_be_declared_nonconforming() -> None:

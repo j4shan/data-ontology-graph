@@ -413,7 +413,7 @@ def _on_path(adjacent: dict[str, list[str]], source: str, target: str, member: s
     return False
 
 
-def _closed(links: EntityLinks, query: PathQuery, cancelled: Cancelled) -> SearchResult:
+def _closed(links: EntityLinks, query: PathQuery, cancelled: Cancelled, cap: int = SCAN_CAP) -> SearchResult:
     """Subgraphs of the two logical entities, the participants and up to ``k_unnamed`` other
     logical entities with every entity link among them; each participant and other logical entity lies
     on a path from source to target inside it."""
@@ -427,10 +427,9 @@ def _closed(links: EntityLinks, query: PathQuery, cancelled: Cancelled) -> Searc
         if v not in named and sum(1 for u in terms if u in graph.out(v)) >= 2
     })
     found: list[Found] = []
-    lower = False
     for k in range(query.k_unnamed + 1):
         for extra in itertools.combinations(candidates, k):
-            if cancelled():
+            if cancelled() or len(found) >= cap:
                 return SearchResult(found, True)
             members = named | set(extra)
             adjacent = {u: [v for v in graph.out(u) if v in members and v != u] for u in members}
@@ -440,7 +439,7 @@ def _closed(links: EntityLinks, query: PathQuery, cancelled: Cancelled) -> Searc
                 found.append(Found(tuple(sorted(members)), oriented, "closed",
                                    (k, len(oriented), _unknown_links(links, oriented)),
                                    tuple(sorted(members)), unnamed=extra))
-    return SearchResult(found, lower)
+    return SearchResult(found, False)
 
 
 def search(links: EntityLinks, query: PathQuery, cancelled: Cancelled = lambda: False,
@@ -449,7 +448,7 @@ def search(links: EntityLinks, query: PathQuery, cancelled: Cancelled = lambda: 
         chains, lower = enumerate_paths(links, query, cancelled, cap)
         return SearchResult([_path_found(links, c, "path") for c in chains], lower)
     if query.closed:
-        return _closed(links, query, cancelled)
+        return _closed(links, query, cancelled, cap)
     return _legs(links, query, cancelled, cap)
 
 
@@ -481,6 +480,7 @@ class FilterReport:
     to_one: Count
     from_one: Count
     converging: Count
+    always_match: Count
     through: list[tuple[str, int]]
     leg_counts: dict[str, int] | None
 
@@ -494,7 +494,8 @@ def filter_report(links: EntityLinks, query: PathQuery, cancelled: Cancelled) ->
 
     ``to_one`` keeps paths whose every entity link is ``many:1`` or ``1:1`` (each source instance reaches
     one target instance), ``from_one`` the reverse (``1:many`` or ``1:1``), and ``converging``
-    ``many:1`` entity links then ``1:many`` entity links.
+    ``many:1`` entity links then ``1:many`` entity links, and ``always_match`` paths whose every
+    entity link has ``always`` match existence.
     """
     base = replace(query, participants=(), closed=False, multiplicity=None, match_existence=None,
                    converging=False, k_unnamed=0)
@@ -513,6 +514,7 @@ def filter_report(links: EntityLinks, query: PathQuery, cancelled: Cancelled) ->
         to_one=count(multiplicity=TO_ONE),
         from_one=count(multiplicity=FROM_ONE),
         converging=count(multiplicity=CONVERGING, converging=True),
+        always_match=count(match_existence=frozenset({MatchExistence.ALWAYS})),
         through=sorted(through.items(), key=lambda item: (-item[1], item[0]))[:THROUGH_LIMIT],
         leg_counts=({p: sum(p in c[1:-1] for c in every) for p in query.participants}
                     if query.participants and not query.closed else None),

@@ -57,13 +57,13 @@ defined in product/graph-model.md.
   filters apply to paths; a subgraph limited to the participating logical entities has no
   single direction of travel, so it takes none. Results present logical entities and their
   entity links with each entity link's claims, and list no datasets. Every response reports how the result
-  would change under each claim filter and names each single filter change that would widen
-  it, with the resulting count, so the agent can narrow or relax its next request; this holds
-  for an empty result and for a non-empty one that may lack the wanted path. A count that the
-  search could not complete is reported as a lower bound. Ranking uses
+  would change under each claim filter and, when available, names each single filter change
+  that would widen it, with the resulting count, so the agent can narrow or relax its next
+  request; this holds for an empty result and for a non-empty one that may lack the wanted
+  path. A count that the search could not complete is reported as a lower bound. Ranking uses
   deterministic metadata only: fewer entity links and fewer added logical entities rank first,
-  and entity links with known claims rank before entity links with unknown claims. Equal results are reported
-  as ties, not ordered by guesswork.
+  and entity links whose multiplicity is known rank before entity links whose multiplicity
+  is unknown. Equal results are reported as ties, not ordered by guesswork.
 - List the entity links at a logical entity. Each entity link gives the other logical
   entity, the multiplicity and match existence derived on its common datasets read from
   the requested logical entity, its common dataset count, and the stated cross-entity

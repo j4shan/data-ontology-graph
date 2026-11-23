@@ -66,10 +66,13 @@ def step_multiplicity(source: EntityDefinition, target: EntityDefinition) -> Mul
 
 
 def step_match_existence(target: EntityDefinition) -> MatchExistence:
-    """Whether every common record has a value of ``target``'s logical entity (graph-model 3.17)."""
+    """Whether every common record has a value of ``target``'s logical entity (graph-model 3.17).
+
+    A ``complete`` definition conforms by definition (graph-model 1.13).
+    """
     if target.total is False:
         return MatchExistence.OPTIONAL
-    if target.total is True and target.conforms is True:
+    if target.total is True and target.conforming() is True:
         return MatchExistence.ALWAYS
     return MatchExistence.UNKNOWN
 

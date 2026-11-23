@@ -71,6 +71,7 @@ ERRORS = [
              "multiplicity": ["many:1"]},
             {"participation": "closed", "participant_identity_ids": ["campaign_identity"],
              "order": "converging"},
+            {"participant_identity_ids": ["campaign_identity"], "shape": "independent"},
             {"k_unnamed": 1}, {"cursor": "invalid"}, {"unexpected": True}),
     ("stated", "graph.find_paths",
      {"source_identity_id": "click_identity", "target_identity_id": "missing_identity"}, RESOURCE_NOT_FOUND),

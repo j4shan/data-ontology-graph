@@ -396,6 +396,8 @@ class GraphReadService:
                 from_one_is_lower_bound=report.from_one.lower_bound,
                 converging_total=report.converging.total,
                 converging_is_lower_bound=report.converging.lower_bound,
+                always_match_total=report.always_match.total,
+                always_match_is_lower_bound=report.always_match.lower_bound,
                 leg_counts=report.leg_counts,
                 through_entities=[
                     ThroughEntity(identity_id=identity, name=self.index.identities[identity].name,
